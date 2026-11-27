@@ -27,6 +27,7 @@ last_reviewed: 2026-11-28
 | 메시지 | 뜻 | 할 일 |
 |---|---|---|
 | `a writer of an epoch source is running or ran within … minutes` | 옮길 원천의 쓰는 쪽이 방금 돌았다. 아무것도 옮기지 않았다 | 없음. 다음 실행이 다시 본다. 오래 이어지면 그 쓰는 쪽 작업이 정말 꺼졌는지(`orchestration/jobs.v1.json`) 본다 |
+| `… ledger rows of the old form landed after the manifest …` | 증거 목록을 쓴 뒤 옛 코드의 쓰는 쪽이 옛 꼴의 줄을 남겼다. 아무것도 옮기지 않았다 | 코디네이터에게: 그 줄을 담은 증거 목록의 다음 부분이 결정이다 |
 | `a source row already holds …` | 쓰는 쪽이 새 id 로 원천 줄을 먼저 만들었다(F4) | 시기를 멈추고 코디네이터에게: 두 원천 줄을 합치는 결정이 먼저다 |
 | `…: R2 lists … bytes, the ledger …` | 원장과 R2 가 어긋난다 | 그 객체를 조사한다. 시기는 그 원천을 옮기지 않는다 |
 | `… full-byte SHA-256 or size differs` | 복사본이 원본과 다르다 | 새 키는 그대로 두고(조사용) 코디네이터에게 |

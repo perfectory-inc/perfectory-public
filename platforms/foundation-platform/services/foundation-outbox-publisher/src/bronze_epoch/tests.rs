@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::rekey::fixture::pre_epoch_row;
 use super::rekey::LedgerRow;
 use super::{
-    bronze_lock, gzip_lines, manifest_key_of, plan_moves, read_manifest, slug_of, Listed, Move,
-    MANIFEST_SCHEMA,
+    bronze_lock, etag_carries_over, gzip_lines, manifest_key_of, plan_moves, read_manifest,
+    slug_of, Listed, Move, MANIFEST_SCHEMA,
 };
 
 const SHA: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
@@ -136,6 +136,9 @@ fn the_manifest_reads_back_what_was_written_and_refuses_a_short_one() -> anyhow:
 #[test]
 fn the_lock_is_read_from_its_declaration() -> anyhow::Result<()> {
     assert_eq!(bronze_lock()?.num_days(), 30);
+    // A part-uploaded original's ETag is not its copy's (W108 3c); its SHA-256 readback proves it.
+    assert!(etag_carries_over("0123456789abcdef0123456789abcdef"));
+    assert!(!etag_carries_over("0123456789abcdef0123456789abcdef-4"));
     assert_eq!(slug_of("bronze/source=a__b/c.gz"), Some("a__b"));
     assert_eq!(slug_of("control/x"), None);
     Ok(())

@@ -102,6 +102,30 @@ impl Move {
             Self::Rekey { last_modified, .. } | Self::Delete { last_modified, .. } => last_modified,
         }
     }
+
+    fn bronze_object_id(&self) -> Option<Uuid> {
+        match self {
+            Self::Rekey {
+                bronze_object_id, ..
+            } => Some(*bronze_object_id),
+            Self::Delete { .. } => None,
+        }
+    }
+}
+
+/// The sources whose rows `moves` moves.
+fn planned_sources(moves: &[Move]) -> Vec<Uuid> {
+    moves
+        .iter()
+        .filter_map(|entry| match entry {
+            Move::Rekey {
+                source_catalog_id, ..
+            } => Some(*source_catalog_id),
+            Move::Delete { .. } => None,
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// One object as R2 lists it.
@@ -114,6 +138,13 @@ struct Listed {
 
 fn etag(raw: Option<&str>) -> String {
     raw.unwrap_or_default().trim_matches('"').to_owned()
+}
+
+/// Whether a copy keeps `original`'s `ETag`: a single `CopyObject` keeps a single-part object's MD5,
+/// and an object uploaded in parts (`<md5>-<parts>`) gets the copy's own (W108 3c). Such an object's
+/// bytes are proven by the copy's full SHA-256 readback alone.
+fn etag_carries_over(original: &str) -> bool {
+    !original.contains('-')
 }
 
 async fn list(storage: &R2ObjectStorage, prefix: &str) -> anyhow::Result<BTreeMap<String, Listed>> {
@@ -485,16 +516,36 @@ pub async fn run() -> anyhow::Result<()> {
     let listing = list(&storage, "bronze/").await?;
     let rows = ledger_rows(&ledger, &renamed.keys().cloned().collect::<Vec<_>>()).await?;
 
+    // What still needs moving, planned from the ledger as it stands. Before the manifest exists, its
+    // writers must be quiet, so no row lands after it; once it exists, it must hold every such row.
+    let known: BTreeSet<String> = sqlx::query_scalar("SELECT slug FROM catalog.source_catalog")
+        .fetch_all(&ledger)
+        .await?
+        .into_iter()
+        .collect();
+    let planned = plan_moves(&rows, &listing, renamed, &known)?;
     let (manifest_key, moves) = if let Some(key) = manifest_key_of(&evidence)? {
         let moves = read_manifest(&storage.get_object_bytes(&key).await?)?;
+        let held: BTreeSet<Uuid> = moves.iter().filter_map(Move::bronze_object_id).collect();
+        let unheld: Vec<&str> = planned
+            .iter()
+            .filter(|entry| {
+                entry
+                    .bronze_object_id()
+                    .is_some_and(|id| !held.contains(&id))
+            })
+            .map(Move::old_key)
+            .collect();
+        ensure!(
+            unheld.is_empty(),
+            "{} ledger rows of the old form landed after the manifest {key} (the first: {:?}); a writer of a moved source ran under the old code, and the epoch moves nothing until that is decided",
+            unheld.len(),
+            unheld.first()
+        );
         (key, moves)
     } else {
-        let known: BTreeSet<String> = sqlx::query_scalar("SELECT slug FROM catalog.source_catalog")
-            .fetch_all(&ledger)
-            .await?
-            .into_iter()
-            .collect();
-        let moves = plan_moves(&rows, &listing, renamed, &known)?;
+        refuse_while_active(&ledger, &planned_sources(&planned)).await?;
+        let moves = planned;
         let key = format!(
             "{EVIDENCE_PREFIX}{}{MANIFEST_SUFFIX}",
             now.format("%Y-%m-%d")
@@ -585,7 +636,8 @@ pub async fn run() -> anyhow::Result<()> {
                     .get(new_key)
                     .with_context(|| format!("{new_key} is absent after its copy"))?;
                 ensure!(
-                    found.size_bytes == *size_bytes && &found.etag == etag,
+                    found.size_bytes == *size_bytes
+                        && (&found.etag == etag || !etag_carries_over(etag)),
                     "{new_key}: {} bytes, ETag {:?}; the manifest says {size_bytes}, {etag:?}",
                     found.size_bytes,
                     found.etag
@@ -629,6 +681,7 @@ pub async fn run() -> anyhow::Result<()> {
         after.extend(list(&storage, prefix).await?);
     }
     let mut bytes = 0_i64;
+    let mut parts_originals = 0_usize;
     let mut per_source: BTreeMap<&str, usize> = BTreeMap::new();
     for entry in &moves {
         if let Move::Rekey {
@@ -648,11 +701,15 @@ pub async fn run() -> anyhow::Result<()> {
                 .get(new_key)
                 .with_context(|| format!("{new_key}: R2 lists no such object"))?;
             ensure!(
-                found.size_bytes == *size_bytes && &found.etag == etag,
+                found.size_bytes == *size_bytes
+                    && (&found.etag == etag || !etag_carries_over(etag)),
                 "{new_key}: R2 lists {} bytes, ETag {:?}; the manifest {size_bytes}, {etag:?}",
                 found.size_bytes,
                 found.etag
             );
+            if !etag_carries_over(etag) {
+                parts_originals += 1;
+            }
             bytes += size_bytes;
             *per_source.entry(new_slug).or_default() += 1;
         }
@@ -670,7 +727,8 @@ pub async fn run() -> anyhow::Result<()> {
             "rekeyed_bytes": bytes,
             "deleted_ids": moves.iter().filter(|m| matches!(m, Move::Delete { .. })).count(),
             "objects_per_new_source": per_source,
-            "checks": "every moved ledger row names its new key, and every new key holds the manifest's size and ETag after a full-byte SHA-256 readback",
+            "etag_not_comparable": parts_originals,
+            "checks": "every moved ledger row names its new key, and every new key holds the manifest's size after a full-byte SHA-256 readback, and its ETag unless the original was uploaded in parts (etag_not_comparable, W108 3c)",
         }))?,
         "application/json",
     )
