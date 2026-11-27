@@ -1517,48 +1517,40 @@
       "table_words_reason": "Root ADR-0626 rule 7: a table name is a singular head noun naming one row, in full English words, with no storage, version, date, environment or test word; history is `row_versions`, never the name. A last word ending in s is singular only when listed here.",
       "buckets": {
         "foundation-platform-lakehouse-prod": {
-          "owner": "foundation-platform",
           "purpose": "lakehouse",
           "environment": "prod"
         },
         "foundation-platform-lakehouse-dev": {
-          "owner": "foundation-platform",
           "purpose": "lakehouse",
           "environment": "dev"
         },
         "foundation-platform-tile-derivatives-prod": {
-          "owner": "foundation-platform",
           "purpose": "tile-derivatives",
           "environment": "prod"
         },
         "foundation-platform-postgres-recovery-prod": {
-          "owner": "foundation-platform",
           "purpose": "postgres-recovery",
           "environment": "prod"
         },
         "foundation-platform-shape-ledger-prod": {
-          "owner": "foundation-platform",
           "purpose": "shape-ledger",
           "environment": "prod"
         },
         "foundation-platform-edge-settings-state-prod": {
-          "owner": "foundation-platform",
           "purpose": "edge-settings-state",
           "environment": "prod"
         },
         "gongzzang-lakehouse-prod": {
-          "owner": "gongzzang",
           "purpose": "lakehouse",
           "environment": "prod"
         },
         "dawneer-lakehouse-prod": {
-          "owner": "dawneer",
           "purpose": "lakehouse",
           "environment": "prod",
           "status": "retiring"
         }
       },
-      "buckets_reason": "Root ADR-0626 rule 9: a data bucket is <owner>-<purpose>-<environment>, environment prod or dev, the one place a bucket name is spelled (the hyphens are DNS's: rule 3). perfectory-sccache is a tooling bucket and outside these rules; other repositories' buckets are not listed.",
+      "buckets_reason": "Root ADR-0626 rule 9: a data bucket is <owner>-<purpose>-<environment>, environment prod or dev, the one place a bucket name is spelled (the hyphens are DNS's: rule 3); the owner is the name's part before -<purpose>-<environment>. perfectory-sccache is a tooling bucket and outside these rules; other repositories' buckets are not listed.",
       "areas": {
         "bronze": {
           "bucket": "foundation-platform-lakehouse-prod",

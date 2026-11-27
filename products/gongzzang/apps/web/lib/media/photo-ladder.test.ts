@@ -22,7 +22,7 @@ describe("a media store names a file and its ladder one way", () => {
     const store = { base: "https://media.example", prefix: "listing/media" };
     expect(renditionSrcSet(store, { sha256: sha }, "avif")).toBe(
       [400, 960, 1920]
-        .map((w) => `https://media.example/listing/media/renditions/r1/${sha}/${w}.avif ${w}w`)
+        .map((w) => `https://media.example/listing/media/rendition/ladder=1/${sha}/${w}.avif ${w}w`)
         .join(", "),
     );
   });

@@ -785,10 +785,7 @@ fn each_object_is_exported_to_its_own_handoff_under_the_release_id() -> anyhow::
     let rule = contract.land.clone().context("a land rule")?;
     let object = ledger(PRICE, "SYNTHETIC-01", 1, None)?;
     let handoff = rule.handoff_key(&object)?;
-    assert_eq!(
-        handoff,
-        format!("work/{PRICE}/SYNTHETIC-01.jsonl.gz")
-    );
+    assert_eq!(handoff, format!("work/{PRICE}/SYNTHETIC-01.jsonl.gz"));
     let ExportKind::Land { env_prefix } = contract.kind else {
         anyhow::bail!("a land kind");
     };

@@ -203,7 +203,7 @@ def shards(name: str, prefix: str) -> list[tuple]:
         if re.search(r"/(?:v|r)[1-9][0-9]*/$|/sha256/$|/profiles/$", current) and s3().list_objects_v2(
                 Bucket=name, Prefix=current, MaxKeys=1000).get("IsTruncated"):
             edges = [None, *(current + b for b in BOUNDARIES), None]
-            out += [("range", current, lo, hi) for lo, hi in zip(edges, edges[1:])]
+            out += [("range", current, lo, hi) for lo, hi in zip(edges, edges[1:], strict=False)]
             continue
         folders, has_keys = [], False
         for page in s3().get_paginator("list_objects_v2").paginate(Bucket=name, Prefix=current, Delimiter="/"):

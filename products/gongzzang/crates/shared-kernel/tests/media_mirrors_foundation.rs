@@ -75,7 +75,15 @@ fn the_ladder_is_the_contract_one() {
     let contract: serde_json::Value =
         serde_json::from_str(&foundation("config/r2-connections.contract.json")).expect("json");
     let ladder = &contract["parcel_media"]["renditions"];
-    assert_eq!(ladder["version"], RENDITION_VERSION);
+    // Foundation spells its ladder `ladder=<n>` (root ADR-0626 rule 4); gongzzang's own listing-photo keys
+    // keep `r<n>`. The two name the same ladder.
+    assert_eq!(
+        ladder["ladder"]
+            .as_u64()
+            .map(|n| format!("r{n}"))
+            .as_deref(),
+        Some(RENDITION_VERSION)
+    );
     assert_eq!(ladder["widths"], serde_json::json!(RENDITION_WIDTHS));
     let formats: Vec<&str> = ladder["formats"]
         .as_array()

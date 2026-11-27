@@ -591,9 +591,7 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
 fn checked_prefix(prefix: Option<String>) -> anyhow::Result<String> {
     let prefix = prefix.context("the lane's contract states handoff_prefix")?;
     ensure!(
-        prefix.starts_with("work/")
-            && !prefix.ends_with('/')
-            && !prefix.contains([',', '@']),
+        prefix.starts_with("work/") && !prefix.ends_with('/') && !prefix.contains([',', '@']),
         "handoff_prefix must be a work/ key prefix"
     );
     Ok(prefix)

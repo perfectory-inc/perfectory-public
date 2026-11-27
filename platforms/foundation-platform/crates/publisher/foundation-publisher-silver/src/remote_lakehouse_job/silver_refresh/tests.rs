@@ -687,9 +687,7 @@ fn a_manifest_of_another_release_or_with_broken_parts_is_refused() -> anyhow::Re
         Box::new(|m| m.rows_emitted += 1),
         Box::new(|m| m.parts.swap(0, 1)),
         Box::new(|m| {
-            m.parts[1].object_key = m.parts[1]
-                .object_key
-                .replace("run=synthetic", "run=other")
+            m.parts[1].object_key = m.parts[1].object_key.replace("run=synthetic", "run=other")
         }),
         Box::new(|m| m.parts[0].rows = 11),
         Box::new(|m| m.pnu_bad += 1),
@@ -791,7 +789,10 @@ fn the_unit_areas_load_part_by_part() -> anyhow::Result<()> {
     // 2026-11-07 07:00: the part path named its object by the role `source`, which this lane
     // calls `unit_area`, and every run stopped at "the release has no source object".
     assert_eq!(
-        manifest_key(contract.handoff_prefix.as_deref().context("prefix")?, &release)?,
+        manifest_key(
+            contract.handoff_prefix.as_deref().context("prefix")?,
+            &release
+        )?,
         "work/hubgokr__building_register_exclusive_common_area/OPN20990720SYNTHETIC/manifest.json"
     );
     Ok(())

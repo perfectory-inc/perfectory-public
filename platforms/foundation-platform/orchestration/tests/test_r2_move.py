@@ -85,7 +85,7 @@ class KeyMaps(unittest.TestCase):
         keys = ["p/0", "p/00", "p/00x", "p/1A", "p/9z~", "p/A", "p/_", "p/zz", "p/zzz", "p/~"]
         owners = []
         for key in keys:
-            owners.append(sum(1 for lo, hi in zip(edges, edges[1:])
+            owners.append(sum(1 for lo, hi in zip(edges, edges[1:], strict=False)
                               if (lo is None or key > lo) and (hi is None or key <= hi)))
         self.assertEqual(owners, [1] * len(keys))
 

@@ -446,7 +446,8 @@ fn the_contract_names_the_tables_the_roles_write() -> anyhow::Result<()> {
         Role::DividendNotices.tables()[1].0
     );
     // The 감정평가서 index is one the media reconcile reads; the 매각물건명세서 PDFs, which name
-    // people, are outside the served media store (root ADR-0575 §3).
+    // people, are public in the one media store under document/ (the owner, 2026-11-28, root
+    // ADR-0626 §6-3), which the reconcile does not list.
     let onbid: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../infra/lakehouse/contracts/data-go-kr-onbid.contract.json"
     ))?;
@@ -455,13 +456,15 @@ fn the_contract_names_the_tables_the_roles_write() -> anyhow::Result<()> {
         .context("the media index tables")?;
     assert!(index.contains(&serde_json::json!(reports[0].0)));
     assert!(!index.contains(&serde_json::json!(Role::SaleSpecifications.tables()[0].0)));
-    let served = onbid["media"]["object_prefix"]
+    let store = onbid["media"]["object_prefix"]
         .as_str()
         .context("the media prefix")?;
-    assert!(!contract["sale_specifications"]["object_prefix"]
-        .as_str()
-        .context("the specification prefix")?
-        .starts_with(served));
+    assert_eq!(
+        contract["sale_specifications"]["object_prefix"]
+            .as_str()
+            .context("the specification prefix")?,
+        store
+    );
     Ok(())
 }
 

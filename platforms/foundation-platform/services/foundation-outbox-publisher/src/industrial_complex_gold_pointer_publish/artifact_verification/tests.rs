@@ -45,7 +45,7 @@ fn profile_bytes(artifact_id: &str, complex_id: &str) -> Vec<u8> {
 }
 
 fn object_key(artifact_id: &str) -> String {
-    format!("gold/industrial-complex/profiles/{artifact_id}.json")
+    format!("serving/industrial_complex/profile/{artifact_id}.json")
 }
 
 fn checksum(body: &[u8]) -> String {
@@ -198,7 +198,7 @@ async fn a_version_the_stored_document_does_not_claim_is_refused() -> anyhow::Re
 async fn a_key_outside_the_canonical_profile_layout_is_refused() -> anyhow::Result<()> {
     let (store, root, body) = store_with_fixture("non-canonical").await?;
     let mut lying = claim(&body)?;
-    lying.object_key = "gold/industrial-complex/profiles/latest.json".to_owned();
+    lying.object_key = "serving/industrial_complex/profile/latest.json".to_owned();
 
     let result = VerifiedGoldProfileArtifact::verify(&store, lying).await;
 

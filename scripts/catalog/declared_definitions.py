@@ -353,7 +353,8 @@ def naming_registry(naming):
     if set(naming["renames"]["tables"]) & set(naming["renames"]["not_recreated"]):
         raise DefinitionError(f"{NAMING}: a table is both renamed and not recreated")
     for bucket, entry in naming["buckets"].items():
-        if entry["environment"] not in ("prod", "dev") or bucket != f"{entry['owner']}-{entry['purpose']}-{entry['environment']}":
+        suffix = f"-{entry['purpose']}-{entry['environment']}"
+        if entry["environment"] not in ("prod", "dev") or not bucket.endswith(suffix) or not bucket[: -len(suffix)]:
             raise DefinitionError(f"{NAMING}: bucket {bucket} is not <owner>-<purpose>-<prod|dev> (root ADR-0626 rule 9)")
     live = set()
     for area, entry in naming["areas"].items():
