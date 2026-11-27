@@ -323,6 +323,19 @@ impl LakehouseDataCommitter {
         if let Some(token) = catalog.catalog_token {
             properties.insert("token".to_owned(), token);
         }
+        Self::open(properties).await
+    }
+
+    /// Commits through the REST catalog `properties` name, in iceberg-rust's own words (`uri`,
+    /// `warehouse`, `token`, or `credential` with `oauth2-server-uri` and `scope`, and `s3.*`
+    /// settings), writing through `OpenDAL`. With no `s3.*` key of its own a table's files are
+    /// written with the credential the catalog vends for that table on load; a key given here wins
+    /// over the vended one (iceberg-catalog-rest 0.11 `load_table` lays these properties over the
+    /// table's config), so a vending catalog is opened with none (root ADR-0624).
+    ///
+    /// # Errors
+    /// Returns the catalog's refusal of the configuration.
+    pub async fn open(properties: HashMap<String, String>) -> anyhow::Result<Self> {
         let catalog = RestCatalogBuilder::default()
             .with_storage_factory(Arc::new(OpenDalStorageFactory::S3 {
                 customized_credential_load: None,

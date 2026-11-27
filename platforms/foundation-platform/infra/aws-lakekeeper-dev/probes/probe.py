@@ -253,6 +253,30 @@ def step_warehouse_create():
     check("create warehouse", [200, 201], status, error=kind, id=(body or {}).get("warehouse-id") or (body or {}).get("id"))
 
 
+def step_warehouse_drop():
+    """As the operator: delete the warehouse so that warehouse-create makes it again from the contract. A storage
+    profile's key prefix cannot change (upstream S3Profile::update_with, v0.15.1: ImmutableField key_prefix), so a
+    new key prefix is a new warehouse. Every namespace goes first, recursively, at once and with its files (force
+    skips the soft deletion); the delete waits while the purge tasks run (409 WarehouseHasUnfinishedTasks). Dev
+    only: the rig's tables are probe tables."""
+    jwt = my_token()
+    wid = warehouse_id(jwt)
+    pre = prefix(jwt)
+    os.environ["SHOW_ERROR_MESSAGES"] = "true"
+    status, kind, body = call("GET", f"/catalog/v1/{pre}/namespaces", jwt)
+    for namespace in (body or {}).get("namespaces", []):
+        name = urllib.parse.quote("\x1f".join(namespace))
+        status, kind, _ = call("DELETE", f"/catalog/v1/{pre}/namespaces/{name}?recursive=true&force=true&purge=true", jwt)
+        check(f"drop namespace {'.'.join(namespace)} with everything in it", 204, status, error=kind)
+    deadline = time.time() + 600
+    while True:
+        status, kind, _ = call("DELETE", f"/management/v1/warehouse/{wid}", jwt)
+        if status != 409 or time.time() > deadline:
+            break
+        time.sleep(15)
+    check("delete the warehouse", [200, 204], status, error=kind)
+
+
 def step_grant(write, privilege, principal):
     """As the operator: write or delete one project assignment of a principal (the reconciler's move)."""
     change = {"writes" if write else "deletes": [{"type": privilege, "user": user_id(principal)}]}
@@ -332,6 +356,12 @@ def deps():
 
 def warehouse():
     return json.loads(os.environ["WAREHOUSE"])
+
+
+def root():
+    """s3://<bucket>/<key prefix>: where the warehouse's namespaces and tables live (decision 2, 2026-11-27: a
+    tables-only key prefix, so no location outside it can hold a table)."""
+    return f"s3://{warehouse()['bucket']}/{warehouse()['key_prefix']}".rstrip("/")
 
 
 def prefix(jwt):
@@ -431,15 +461,13 @@ def step_lake_setup():
     T3: each table lands at <bucket>/silver/<table>, and string-prefix siblings both exist."""
     jwt = my_token()
     cat = catalog()
-    bucket = warehouse()["bucket"]
     for namespace in warehouse()["namespaces"]:
         cat.create_namespace_if_not_exists(namespace)
     ids = {}
     for name in SMOKE:
         table = cat.create_table_if_not_exists(f"silver.{name}", schema=schema())
         ids[name] = table.metadata.table_uuid
-        check(f"T3 location of silver.{name}", [f"s3://{bucket}/silver/{name}", f"s3://{bucket}/silver/{name}/"],
-              table.location())
+        check(f"T3 location of silver.{name}", [f"{root()}/silver/{name}", f"{root()}/silver/{name}/"], table.location())
     for lane in DECLARED:
         step_provision(lane)
     wid = warehouse_id(jwt)
@@ -569,7 +597,7 @@ def step_lake_duckdb():
     status, result = run("SELECT count(*) FROM lk.silver.w109_smoke")
     check("SELECT with a bronze-scoped S3 secret also present", 200, status)
     con.execute(f"CREATE SECRET table_scoped (TYPE S3, KEY_ID 'W109PROBEFAKEKEYID001', SECRET 'w109-probe-fake-secret', "
-                f"SCOPE 's3://{bucket}/silver/w109_smoke/')")
+                f"SCOPE '{root()}/silver/w109_smoke/')")
     status, result = run("SELECT count(*) FROM lk.silver.w109_smoke")
     emit(note="SELECT with a wrong S3 secret scoped to the table's own path (which one wins)", status=status)
 
@@ -607,8 +635,7 @@ def step_lake_escape():
     current = metadata.get("current-snapshot-id")
     current = None if current in (None, -1) else current
     new_id = time.time_ns() % (2 ** 62)
-    bucket = warehouse()["bucket"]
-    outside = f"s3://{bucket}/silver/w109_smoke_versions/metadata/w109-escape-{new_id}.avro"
+    outside = f"{root()}/silver/w109_smoke_versions/metadata/w109-escape-{new_id}.avro"
     request = {"requirements": [{"type": "assert-ref-snapshot-id", "ref": "main", "snapshot-id": current}],
                "updates": [{"action": "add-snapshot", "snapshot": {
                    "snapshot-id": new_id, "parent-snapshot-id": current,
@@ -662,24 +689,30 @@ def step_lake_drop(phase, name="w109_smoke_drop"):
 
 
 def step_lake_escape_create():
-    """T4: where a table may be created. A lane has no create grant; the operator's tries show what Lakekeeper's own
-    location rules refuse when the warehouse is the whole bucket (no key prefix)."""
-    bucket = warehouse()["bucket"]
+    """T4: where a table may be created. A lane has no create grant. The operator (the reconciler, the one creator)
+    may create only under the warehouse's tables-only key prefix (decision 2): every location outside it, a
+    string-prefix sibling of the prefix included, is refused by Lakekeeper's own location rules. With no key prefix
+    the warehouse is the whole bucket and the operator's tries are only recorded (the first run, 2026-11-27)."""
+    bucket, key_prefix = warehouse()["bucket"], warehouse()["key_prefix"]
     cat = catalog()
     lane = PRINCIPAL != "bootstrap"
     tries = {"bronze": f"s3://{bucket}/bronze/w109_escape_probe", "media": f"s3://{bucket}/media/w109_escape_probe",
-             "another table's path": f"s3://{bucket}/silver/w109_smoke", "inside another table": f"s3://{bucket}/silver/w109_smoke/x",
+             "another table's path": f"{root()}/silver/w109_smoke", "inside another table": f"{root()}/silver/w109_smoke/x",
              "the bucket root": f"s3://{bucket}", "another bucket": "s3://w109-nonexistent-probe-bucket/x"}
+    if key_prefix:
+        tries["a sibling of the key prefix"] = f"s3://{bucket}/{key_prefix}x/silver/w109_escape_probe"
     os.environ["SHOW_ERROR_MESSAGES"] = "true"
     for label, location in tries.items():
-        ident = f"silver.w109_escape_{label.split()[0].replace(chr(39), '')}_{int(time.time())}"
+        ident = f"silver.w109_escape_{label.split()[-1].replace(chr(39), '')}_{int(time.time())}"
         status = outcome(lambda ident=ident, location=location: cat.create_table(ident, schema=schema(), location=location))
         if lane:
             check(f"lane creates at {label}", 403, status)
+        elif key_prefix:
+            check(f"operator creates at {label}", True, status != 200, status=status)
         else:
             emit(note="operator creates", at=label, location=location, status=status)
-            if status == 200:
-                emit(note="dropped again with purge", status=outcome(lambda ident=ident: cat.drop_table(ident, purge_requested=True)))
+        if status == 200:
+            emit(note="dropped again with purge", status=outcome(lambda ident=ident: cat.drop_table(ident, purge_requested=True)))
 
 
 def step_lake_reconcile(phase):
@@ -745,6 +778,22 @@ def step_lake_maint(phase):
     check("Spark's DROP ... PURGE went through soft deletion", True, "w109_smoke_maint_drop" in names, deleted=names)
 
 
+def step_lake_vended_keys():
+    """T8's premise: where load-table puts the vended credential. iceberg-rust 0.11 builds a table's file access
+    from the answer's config only (it parses storage-credentials and does not use it), so the credential must be
+    in config. Key names only, and the values of the keys that are no credential."""
+    status, kind, body = load(my_token(), "w109_smoke")
+    check("load with vended credentials", 200, status, error=kind)
+    shown = ("s3.region", "s3.path-style-access", "s3.remote-signing-enabled", "client.region")
+    config = (body or {}).get("config") or {}
+    emit(note="config", keys=sorted(config), values={key: config[key] for key in shown if key in config},
+         endpoint_is_r2=(urllib.parse.urlparse(config.get("s3.endpoint", "")).hostname or "").endswith(".r2.cloudflarestorage.com"))
+    for credential in (body or {}).get("storage-credentials") or []:
+        emit(note="storage-credential", prefix=credential.get("prefix"), keys=sorted(credential.get("config") or {}))
+    check("the credential is in config (what iceberg-rust 0.11 reads)", True,
+          all(config.get(key) for key in ("s3.access-key-id", "s3.secret-access-key", "s3.session-token")))
+
+
 def step_lake_refresh():
     """T12 (the part that fits a sitting): the vended credential says when it ends and where to renew it, and the
     renewal endpoint answers with a credential for the same table."""
@@ -761,7 +810,7 @@ def step_lake_refresh():
             if (credential.get("config") or {}).get(key):
                 SECRETS.append(credential["config"][key])
     check("it covers the table's own prefix", True,
-          any(credential.get("prefix", "").startswith(f"s3://{warehouse()['bucket']}/silver/w109_smoke") for credential in credentials),
+          any(credential.get("prefix", "").startswith(f"{root()}/silver/w109_smoke") for credential in credentials),
           prefixes=[credential.get("prefix") for credential in credentials])
 
 
@@ -930,6 +979,7 @@ STEPS = {
     "revoke": lambda privilege, principal: step_grant(False, privilege, principal),
     "refused": lambda: step_refused(),
     "warehouse-create": lambda: step_warehouse_create(),
+    "warehouse-drop": lambda: step_warehouse_drop(),
     "loop": lambda seconds: step_loop(seconds),
     "lake-setup": lambda: step_lake_setup(),
     "lake-scope": lambda *canary: step_lake_scope(*canary),
@@ -941,6 +991,7 @@ STEPS = {
     "lake-tasks": lambda: step_lake_tasks(),
     "lake-cleanup": lambda: step_lake_cleanup(),
     "lake-refresh": lambda: step_lake_refresh(),
+    "lake-vended-keys": lambda: step_lake_vended_keys(),
     "lake-register-from": lambda name, location: step_lake_register_from(name, location),
     "lake-maint": lambda phase: step_lake_maint(phase),
     "lake-escape-create": lambda: step_lake_escape_create(),
