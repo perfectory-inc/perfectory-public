@@ -162,7 +162,7 @@ def client(role: str):
         "s3", endpoint_url=env["FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT"], region_name="auto",
         aws_access_key_id=env[f"FOUNDATION_PLATFORM_LAKEHOUSE_{role}_ACCESS_KEY_ID"],
         aws_secret_access_key=env[f"FOUNDATION_PLATFORM_LAKEHOUSE_{role}_SECRET_ACCESS_KEY"],
-        config=Config(max_pool_connections=64, retries={"max_attempts": 12, "mode": "standard"},
+        config=Config(max_pool_connections=256, retries={"max_attempts": 12, "mode": "standard"},
                       connect_timeout=20, read_timeout=120, tcp_keepalive=True))
 
     def create_only(request, **_):
