@@ -528,8 +528,18 @@ def step_lake_duckdb():
     con.execute("SET home_directory='/work'; SET extension_directory='/work/duckdb_extensions'; SET enable_progress_bar=false")
     con.execute("INSTALL iceberg; LOAD iceberg; INSTALL httpfs; LOAD httpfs")
     emit(note="duckdb", version=duckdb.__version__)
-    con.execute(f"CREATE SECRET lk (TYPE ICEBERG, CLIENT_ID '{os.environ['CLIENT_ID']}', CLIENT_SECRET "
-                f"'{os.environ['CLIENT_SECRET']}', OAUTH2_SERVER_URI '{TOKEN_URL}', OAUTH2_SCOPE '{SCOPE}')")
+    # The secret goes into SQL text: refuse a value that could end the literal, and never let the statement's text
+    # reach a traceback (only the exception's type is printed).
+    client_id, client_secret = os.environ["CLIENT_ID"], os.environ["CLIENT_SECRET"]
+    if not (client_id.isalnum() and client_secret.isalnum()):
+        check("client credentials are alphanumeric", True, False)
+        return
+    try:
+        con.execute(f"CREATE SECRET lk (TYPE ICEBERG, CLIENT_ID '{client_id}', CLIENT_SECRET '{client_secret}', "
+                    f"OAUTH2_SERVER_URI '{TOKEN_URL}', OAUTH2_SCOPE '{SCOPE}')")
+    except Exception as error:
+        check("CREATE SECRET", 200, type(error).__name__)
+        return
 
     def run(sql):
         try:
