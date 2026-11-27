@@ -1,6 +1,11 @@
 {
   "$comment": "Root ADR-0475 (amends ADR-0355 §3). The 주소정보 전자지도 daily changes from the official 데이터 연계 (변동자료 연계서비스) of 주소기반산업지원서비스: one approval key (config/runtime-secrets.contract.json group juso, FOUNDATION_PLATFORM_JUSO_APP_KEY) and one URL, update.juso.go.kr/updateInfo.do, asked per request code (cntc_cd) and day. The collector (`collect-juso-electronic-map` in services/foundation-outbox-publisher) and the Silver load read this file; nothing else restates these values. The wire format, request codes, members and columns are the provider's public guide (`guide`), read 2026-11-10; the error answer was measured the same day (no key: HTTP 200, header err_code E0001 and approval_yn N, empty body). Sizes are not measured yet: the first run with the key is the measurement (root ADR-0457).",
   "version": 1,
+  "beat": {
+    "cron": "30 23 * * *",
+    "timezone": "UTC",
+    "reason": "Once a day (root ADR-0623 §1, owner 2026-11-26) at 23:30 UTC, the hour the host job ran: the provider publishes the daily change linkage every day (root ADR-0475) and the collector asks it from its cursor (cursor.json), so a run that comes late catches up the days it missed."
+  },
   "guide": {
     "title_ko": "국가주소연계서비스 변동자료 연계서비스 가이드(기타언어)",
     "url": "https://business.juso.go.kr/api/jst/download?fileName=AddrLinkEtc.pdf&realFileName=AddrLinkEtc.pdf&regYmd=2018",

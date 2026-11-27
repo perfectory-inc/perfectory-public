@@ -1,13 +1,18 @@
 {
   "$comment": "Root ADR-0348 (사장 결정 2026-10-30: the rt.molit.go.kr bulk path of FP-ADR-0020, its automation clause known; 2026-10-31: any hour, normal speed). How 국토교통부 실거래가 is asked from the 조건별 자료제공 export, how fast, and what stops a run. Read by collect-rt-molit-real-transaction (crates/publisher/foundation-publisher-collection/src/rt_molit_real_transaction_collect.rs, compiled in) and by the Silver load (infra/lakehouse/spark/jobs/rt_molit_real_transaction.py). Checked 2026-10-30: no CAPTCHA and no login; a form page sets a session cookie, then a count check (JSON) and the CSV (POST); a nationwide export spans at most one month; no row cap (95,786 rows, 18 MB, 8 s).",
   "version": 1,
+  "beat": {
+    "cron": "30 15 * * *",
+    "timezone": "UTC",
+    "reason": "Once a day on AWS (root ADR-0623 §1, owner 2026-11-26), at 00:30 KST: the provider's cap of 100 exports is per KST day and our manners take 90 of it (manners.daily_download_limit), so one run just after the day turns spends that day's budget; manners.max_downloads_per_run is the day's 90 so that one run can. The provider keeps every month (a due month is asked again, manners), so a day between two runs loses nothing. On the host the job ran hourly at :25 with 30 a run."
+  },
   "base_url": "https://rt.molit.go.kr",
   "user_agent": "perfectory-foundation-rt-molit/1 (+root ADR-0348)",
   "manners": {
     "$comment": "Root ADR-0348 §2 (사장 결정 2026-10-31: any hour, normal speed, practical safeguards). One session; up to `concurrency` exports in flight, each request after request_spacing_seconds; a busy answer (HTTP 429 or a 5xx) is asked again after a doubling backoff, `retry.attempts` times at most. The provider's own answer caps downloads at 100 a day (its count-check message, quoted in rt_molit_real_transaction_export_ingest.rs); 90 leaves room for people, and it is that daily cap, not the speed, that sets how fast the history fills.",
     "request_spacing_seconds": 1,
     "concurrency": 3,
-    "max_downloads_per_run": 30,
+    "max_downloads_per_run": 90,
     "daily_download_limit": 90,
     "run_time_budget_seconds": 1500,
     "retry": {"attempts": 3, "initial_backoff_seconds": 30, "max_backoff_seconds": 300},

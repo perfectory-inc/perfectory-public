@@ -124,20 +124,115 @@
   },
   "collect": {
     "credential_ttl_seconds": 3600,
+    "state_prefix": "collector-state/",
+    "state_reason": "A collector keeps state between runs in its state dir (onbid state.json with the KST day's call budget, rt.molit state.json with its 90-a-day count, data.go.kr accepted.json and past.json, juso cursor.json), and a task's disk ends with its run. So the state is one R2 object per lane per run (root ADR-0616 §8 C, its third kind: one R2 object; coordinator 2026-11-27): <state_prefix><lane>/aws/<UTC time>-<run id>.tar.gz, written after every run that started its command and never overwritten (append-only); a run reads the newest. A lane with none of its own starts from the newest <state_prefix><lane>/host/ object, which the host copy of the collector writes after each of its runs (scripts/ops/collector-state-publish.sh); with neither it asks its source nothing. A collector never starts from empty state: that would ask its whole history again and, for a quota source, spend the day's budget twice. The vendor grants each lane <state_prefix><lane>/ beside its write prefixes, generated from the lane's id, never declared per lane.",
+    "size_classes": {
+      "small": { "cpu": 256, "memory": 1024 },
+      "medium": { "cpu": 512, "memory": 4096 }
+    },
+    "size_reason": "Fargate ARM sizes by root ADR-0574's rule (limit >= 1.5 x the measured peak), from the host units' systemd `memory peak` and cAdvisor, 7 days to 2026-11-27 (W110 survey): rt.molit 308 MiB, pension workplace 0.45 GiB, juso 0.05 GiB -> small (0.25 vCPU, 1 GB); employment insurance workplace 1.43 GiB, onbid 2.29 GiB -> medium (0.5 vCPU, 4 GB, the most Fargate gives 0.5 vCPU). Every collector averaged under 0.1 core on the host. Measure the AWS runs and change a lane's size here.",
+    "handover_reason": "Root ADR-0616 §7 (coordinator 2026-11-27). overlap: the host copy keeps running beside the AWS lane until the AWS lane's checks have passed for three days; both write Bronze and the objects dedupe by content key (a create-only write that meets the same bytes records its ledger row, root ADR-0016). handoff (a provider quota, so never two copies at once): the AWS lane runs only while its job is off on the host in the same release (orchestration/jobs.v1.json, job_specs.runs_on_host false), so the one switch that turns the host copy off turns the AWS lane on, and its first run starts from the host's last state object.",
+    "source_secrets": {
+      "DATA_GO_KR_SERVICE_KEY": "data-go-kr-service-key",
+      "FOUNDATION_PLATFORM_JUSO_APP_KEY": "juso-app-key"
+    },
+    "source_secrets_reason": "A source key a lane's command reads from its environment (config/runtime-secrets.contract.json groups data-go-kr and juso on the host). On AWS each is one Secrets Manager slot <project>/source/<slot>, put once by the owner; the slot's own policy lets only the roles of the lanes that name it read it. Until it holds a value the lane asks its source nothing and its readiness check fails (root ADR-0623 §4).",
     "lanes": {
-      "industrial_land_sale_notice_ilis_collect": {
-        "role": "collect-ilis",
-        "source_contract": "industrial-land-sale-notice.contract.json",
-        "source": "ilis",
+      "rt_molit_real_transaction_collect": {
+        "role": "collect-rt-molit",
+        "command": "collect-rt-molit-real-transaction",
+        "env_prefix": "FOUNDATION_PLATFORM_RT_MOLIT_COLLECT",
+        "beat": "rt-molit-real-transaction.contract.json#/beat",
+        "size": "small",
+        "handover": "handoff",
+        "secrets": [],
+        "environment": {},
+        "work_dirs": [],
         "write_prefixes": [
-          "bronze/source=industrylandorkr__industrial_land_sale_notice_list/",
-          "bronze/source=industrylandorkr__industrial_land_sale_notice_detail/",
+          "bronze/source=rtmolitgokr__real_transaction_apartment_presale/",
+          "bronze/source=rtmolitgokr__real_transaction_apartment_rent/",
+          "bronze/source=rtmolitgokr__real_transaction_apartment_trade/",
+          "bronze/source=rtmolitgokr__real_transaction_commercial_trade/",
+          "bronze/source=rtmolitgokr__real_transaction_detached_house_rent/",
+          "bronze/source=rtmolitgokr__real_transaction_detached_house_trade/",
+          "bronze/source=rtmolitgokr__real_transaction_industrial_trade/",
+          "bronze/source=rtmolitgokr__real_transaction_land_trade/",
+          "bronze/source=rtmolitgokr__real_transaction_officetel_rent/",
+          "bronze/source=rtmolitgokr__real_transaction_officetel_trade/",
+          "bronze/source=rtmolitgokr__real_transaction_row_house_rent/",
+          "bronze/source=rtmolitgokr__real_transaction_row_house_trade/"
+        ]
+      },
+      "onbid_public_auction_collect": {
+        "role": "collect-onbid",
+        "command": "collect-data-go-kr-onbid",
+        "env_prefix": "FOUNDATION_PLATFORM_DATA_GO_KR_ONBID",
+        "beat": "data-go-kr-onbid.contract.json#/beat",
+        "size": "medium",
+        "handover": "handoff",
+        "secrets": ["DATA_GO_KR_SERVICE_KEY"],
+        "environment": {},
+        "work_dirs": ["METRICS_DIR"],
+        "write_prefixes": [
+          "bronze/source=datagokr__onbid_announcement/",
+          "bronze/source=datagokr__onbid_announcement_bid_result/",
+          "bronze/source=datagokr__onbid_announcement_detail/",
+          "bronze/source=datagokr__onbid_item_bid_info/",
+          "bronze/source=datagokr__onbid_item_bid_result/",
+          "bronze/source=datagokr__onbid_real_estate_item/",
+          "bronze/source=datagokr__onbid_real_estate_item_detail/",
           "onbid/media/"
-        ],
-        "read_tables": [
-          "silver.industrial_land_sale_notice_read"
+        ]
+      },
+      "employment_insurance_workplace_collect": {
+        "role": "collect-employment-insurance-workplace",
+        "command": "collect-data-go-kr-file-data",
+        "env_prefix": "FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA",
+        "beat": "data-go-kr-file-data.contract.json#/files/employment_insurance_workplace/beat",
+        "size": "medium",
+        "handover": "overlap",
+        "secrets": [],
+        "environment": {"DATASETS": "employment_insurance_workplace"},
+        "work_dirs": [],
+        "write_prefixes": [
+          "bronze/source=datagokr__employment_insurance_workplace/"
+        ]
+      },
+      "pension_workplace_collect": {
+        "role": "collect-pension-workplace",
+        "command": "collect-data-go-kr-file-data",
+        "env_prefix": "FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA",
+        "beat": "data-go-kr-file-data.contract.json#/files/pension_workplace/beat",
+        "size": "small",
+        "handover": "overlap",
+        "secrets": [],
+        "environment": {"DATASETS": "pension_workplace"},
+        "work_dirs": [],
+        "write_prefixes": [
+          "bronze/source=datagokr__pension_workplace/"
+        ]
+      },
+      "juso_electronic_map": {
+        "role": "collect-juso-electronic-map",
+        "command": "collect-juso-electronic-map",
+        "env_prefix": "FOUNDATION_PLATFORM_JUSO_ELECTRONIC_MAP",
+        "beat": "juso-electronic-map.contract.json#/beat",
+        "size": "small",
+        "handover": "overlap",
+        "secrets": ["FOUNDATION_PLATFORM_JUSO_APP_KEY"],
+        "environment": {},
+        "work_dirs": ["BASE_INBOX"],
+        "write_prefixes": [
+          "bronze/source=jusogokr__base_interval/",
+          "bronze/source=jusogokr__building/",
+          "bronze/source=jusogokr__building_entrance/",
+          "bronze/source=jusogokr__building_group/",
+          "bronze/source=jusogokr__electronic_map_base/",
+          "bronze/source=jusogokr__road_section/",
+          "bronze/source=jusogokr__road_width/"
         ]
       }
-    }
+    },
+    "lanes_reason": "A lane is one collector of the job list (orchestration/jobs.v1.json, same id) that runs on AWS (root ADR-0616 A3, W101c): the publisher command it runs, its env prefix (the command reads <prefix>_OUTPUT_DIR, _STATE_DIR and _LIVE_WRITE; work_dirs are more <prefix>_<name> directories, empty, in the run's work directory; environment is more <prefix>_<name> values), its beat (a JSON pointer into its source contract, which states the cadence and why: root ADR-0623 §1), its size class, its hand-over kind and its scope. The Bronze prefixes are the ones it wrote on the host, read from the host's Bronze ledger (2026-11-27, 45 days, read-only). No lane reads a table: the vendor's table half waits for the catalog decision (root ADR-0624), so the collectors that read Silver (court auction, ILIS, KICOX and factory-on notices, complex notices) stay on the host until then."
   }
 }

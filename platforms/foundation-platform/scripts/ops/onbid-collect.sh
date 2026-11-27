@@ -17,6 +17,8 @@ set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
+# After every run the state goes to R2 for the AWS lane of this job (config/aws-platform.contract.json collect.lanes).
+source "$(dirname "${BASH_SOURCE[0]}")/collector-state-publish.sh"
 
 # 0. 부작용 전에 전부 확인한다(루트 ADR-0152).
 required_env=(
@@ -48,6 +50,7 @@ work="${STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "onbid collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
+trap 'collector_state_publish onbid_public_auction_collect "${STATE_ROOT}/collector" "${work}"' EXIT
 
 # 0b. 목록을 떠난 뒤 수집기가 잊은 미상세 물건(루트 ADR-0542 §3)을 Silver 에서 한 번 읽는다. 한 run 이
 #     받아 가면 표시(closed-owed-seed.done)를 남기고 다시 읽지 않는다. 읽기가 실패하면 이 run 은 시드 없이

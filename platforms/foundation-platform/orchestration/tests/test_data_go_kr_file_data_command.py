@@ -94,7 +94,7 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
         for name in ("data-go-kr-file-data-cycle.sh", "data-go-kr-file-collect.sh", "admitted-writer-runtime.sh",
-                     "job-journal.sh", "database-url.sh"):
+                     "job-journal.sh", "database-url.sh", "collector-state-publish.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         contracts = release / "infra/lakehouse/contracts"

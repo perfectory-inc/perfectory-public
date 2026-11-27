@@ -15,6 +15,8 @@ shopt -s inherit_errexit
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
+# After every run the state goes to R2 for the AWS lane of this job (config/aws-platform.contract.json collect.lanes).
+source "$(dirname "${BASH_SOURCE[0]}")/collector-state-publish.sh"
 
 dataset="${1:-}"
 dataset="${dataset//-/_}"
@@ -57,7 +59,7 @@ work="${STATE_ROOT}/runs/${dataset}-${run_id}"
 mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "data.go.kr file collect (${dataset}) FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
-trap 'rm -rf "${work}/collect"' EXIT
+trap 'rm -rf "${work}/collect"; collector_state_publish "${dataset}_collect" "${STATE_ROOT}/collector" "${work}"' EXIT
 
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
   "${COLLECT}_DATASETS=${dataset}" "${PUBLISHER_BIN}" collect-data-go-kr-file-data >> "${run_log}" 2>&1
