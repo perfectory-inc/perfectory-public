@@ -772,7 +772,9 @@ mod tests {
                         "pnu" => "9999910100100010000".into(),
                         "source_snapshot_id" => release.into(),
                         "ingested_at_utc" => "2099-01-01T00:00:00Z".into(),
-                        "row_state" => serde_json::Value::Null,
+                        name if crate::silver_changes::removal_column(contract) == Some(name) => {
+                            serde_json::Value::Null
+                        }
                         _ => "x".into(),
                     };
                     (column.name.to_owned(), value)

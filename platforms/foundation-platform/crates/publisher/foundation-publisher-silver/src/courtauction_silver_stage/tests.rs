@@ -732,50 +732,95 @@ fn a_case_detail_object_of_wide_answers_is_read_within_its_memory_budget() -> an
     Ok(())
 }
 
-#[test]
-fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> anyhow::Result<()> {
-    let (_directory, stage, source) = search_stage()?;
+/// The search tables, each with the role that writes it.
+const SEARCHES: [(Role, &str); 2] = [
+    (Role::ItemSearch, "silver.court_auction_item"),
+    (Role::SaleResultSearch, "silver.court_auction_sale_result"),
+];
+
+/// The instant and record of the follows below.
+fn follow_stamp() -> anyhow::Result<(&'static str, chrono::DateTime<chrono::Utc>)> {
+    let at = chrono::Utc
+        .with_ymd_and_hms(2099, 1, 3, 4, 5, 6)
+        .single()
+        .context("a valid instant")?;
+    Ok((
+        "follow:reference.legal_dong_code_change@7@20990103T040506Z",
+        at,
+    ))
+}
+
+/// A stage holding `ca_current`, the search table of `role` as the lakehouse holds it: exactly its
+/// contract's columns (no column the contract does not name, as the real table has none), the
+/// night's rows of the search fixture placed by that role, one of them since removed where the
+/// contract keeps removal markers, and `20990130000001` last placed nowhere.
+fn current_search_table(
+    role: Role,
+    table: &'static LakehouseTableContract,
+) -> anyhow::Result<(tempfile::TempDir, DuckDbParquetStage)> {
+    let (directory, stage, source) = search_stage()?;
     read_object(
         &stage,
         &source,
         &object(stage.directory(), Role::ItemSearch)?,
         chrono::Utc::now(),
     )?;
-    let table = contract("silver.court_auction_item")?;
-    super::offer_search(&stage, Role::ItemSearch, table)?;
+    super::offer_search(&stage, role, table)?;
     stage.connection().execute_batch(
         "CREATE OR REPLACE TABLE place_parcels AS SELECT * FROM (VALUES ('9999910100100070000')) t(pnu);
          CREATE OR REPLACE TABLE place_titles AS SELECT * FROM (VALUES
            ('9999910100100070000', '합성도 가상시 가나대로 3')) t(pnu, road_address_raw);",
     )?;
     super::finish_search(&stage, table)?;
-    // The table's current rows: the night's, one of them since removed.
-    stage.connection().execute_batch(
-        "CREATE TABLE ca_current AS SELECT * REPLACE (
-           CASE WHEN case_no = '20990130000004' THEN 'removed' END AS row_state) FROM ca_court_auction_item;",
+    let removal = crate::silver_changes::removal_column(table);
+    let columns = table
+        .columns
+        .iter()
+        .map(|column| match column.name {
+            name if removal == Some(name) => format!(
+                "CASE WHEN case_no = '20990130000004' THEN '{}' END AS {name}",
+                crate::silver_changes::REMOVED
+            ),
+            "pnu" | "pnu_basis" | "legal_dong_code" => format!(
+                "CASE WHEN case_no <> '20990130000001' THEN {0} END AS {0}",
+                column.name
+            ),
+            "pnu_unresolved_reason" => "CASE WHEN case_no = '20990130000001' THEN 'no_parcel' \
+                 ELSE pnu_unresolved_reason END AS pnu_unresolved_reason"
+                .to_owned(),
+            other => other.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    crate::duckdb_parquet_stage::contract_table(
+        stage.connection(),
+        table,
+        "ca_current",
+        &format!("SELECT {columns} FROM {}", Role::staged(table.table_name)),
     )?;
-    let at = chrono::Utc
-        .with_ymd_and_hms(2099, 1, 3, 4, 5, 6)
-        .single()
-        .context("a valid instant")?;
-    let record = "follow:reference.legal_dong_code_change@7@20990103T040506Z";
+    Ok((directory, stage))
+}
+
+#[test]
+fn a_follow_takes_the_rows_a_code_change_can_move_and_never_a_removed_one() -> anyhow::Result<()> {
+    let table = contract("silver.court_auction_item")?;
+    let (_directory, stage) = current_search_table(Role::ItemSearch, table)?;
+    let (record, at) = follow_stamp()?;
     let followed = |prefix: Option<&str>| -> anyhow::Result<Vec<String>> {
         stage.connection().execute_batch(&format!(
             "CREATE OR REPLACE TABLE file_prefixes AS SELECT * FROM (VALUES ('{}')) t(prefix)",
             prefix.unwrap_or("-")
         ))?;
-        super::follow_rows(
-            &stage,
-            "SELECT * FROM ca_current",
-            prefix.is_some(),
-            record,
-            at,
-        )?;
+        super::follow_rows(&stage, table, "ca_current", prefix.is_some(), record, at)?;
         rows_as_text(&stage, &["case_no".to_owned()], "ca_search_rows")
     };
-    // Under no moved code only the row without a PNU; under 99999 every placed row too; the removed
-    // row never; every other row when the earlier change snapshot is unknown.
-    assert_eq!(followed(Some("98888"))?, ["20990130000002"]);
+    // Under no moved code only the rows without a PNU; under 99999 every placed row too; the removed
+    // row never (its key has no current row); every other row when the earlier change snapshot is
+    // unknown.
+    assert_eq!(
+        followed(Some("98888"))?,
+        ["20990130000001", "20990130000002"]
+    );
     let moved = [
         "20990130000001",
         "20990130000002",
@@ -784,26 +829,60 @@ fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> an
     ];
     assert_eq!(followed(Some("99999"))?, moved);
     assert_eq!(followed(None)?, moved);
-    // Placed again, a row keeps what it was observed with and carries the follow's record.
-    super::offer_search(&stage, Role::ItemSearch, table)?;
-    super::finish_search(&stage, table)?;
-    let found = rows_as_text(
-        &stage,
-        &[
-            "case_no".to_owned(),
-            "pnu".to_owned(),
-            "pnu_basis".to_owned(),
-            "source_record_id".to_owned(),
-            "source_snapshot_id".to_owned(),
-        ],
-        "ca_court_auction_item WHERE case_no = '20990130000001'",
-    )?;
-    assert_eq!(
-        found,
-        [format!(
-            "20990130000001|9999910100100070000|legal_dong_code|{record}|20990103T040506Z"
-        )]
-    );
+    Ok(())
+}
+
+// 2026-11-27 22:06Z: the court auction Silver load committed every owed object, then failed its
+// 법정동 follow of the sale results with `Values list "c" does not have a column named "row_state"`:
+// the follow tested the item table's removal column on a table whose contract keeps no markers.
+// Every earlier test followed the item table alone, over a table it wrote by hand.
+#[test]
+fn a_follow_of_each_search_appends_only_the_rows_whose_placement_moved() -> anyhow::Result<()> {
+    for (role, name) in SEARCHES {
+        let table = contract(name)?;
+        let (_directory, stage) = current_search_table(role, table)?;
+        let (record, at) = follow_stamp()?;
+        let followed =
+            super::follow_search_of(&stage, table, "ca_current", None, (record, at), || {
+                super::offer_search(&stage, role, table)?;
+                super::finish_search(&stage, table).map(drop)
+            })?;
+        // Every current row is placed again (none of a removed key); only the one placed nowhere
+        // moved, and it carries the follow's record and instant.
+        let checked = if crate::silver_changes::removal_column(table).is_some() {
+            4
+        } else {
+            5
+        };
+        assert_eq!(
+            (followed.prefixes, followed.checked, followed.appended),
+            (None, checked, 1),
+            "{name}"
+        );
+        let appended = rows_as_text(
+            &stage,
+            &[
+                "case_no".to_owned(),
+                "pnu".to_owned(),
+                "source_record_id".to_owned(),
+                "source_snapshot_id".to_owned(),
+            ],
+            &followed.out,
+        )?;
+        assert_eq!(
+            appended,
+            [format!(
+                "20990130000001|9999910100100070000|{record}|20990103T040506Z"
+            )],
+            "{name}"
+        );
+        let checks = crate::silver_changes::result_checks(&stage, table, &followed.out)?;
+        assert_eq!(
+            (checks.rows, checks.duplicate_keys, checks.missing_required),
+            (1, 0, 0),
+            "{name}"
+        );
+    }
     Ok(())
 }
 

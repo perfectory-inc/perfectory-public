@@ -16,7 +16,9 @@ use std::fmt::Write as _;
 
 use anyhow::{ensure, Context};
 use chrono::{DateTime, Utc};
+use duckdb::Connection;
 use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
+use lakehouse_domain::SILVER_LAND_TRANSFER_HISTORY;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -258,22 +260,17 @@ pub fn load_inputs(
         "the catalog must be a plain identifier"
     );
     let connection = stage.connection();
-    // A snapshot from before the removal column has none; the contract's column reads NULL there.
-    let has_row_state = connection
-        .prepare(&format!(
-            "DESCRIBE SELECT * FROM {}",
-            crate::duckdb_parquet_stage::table_at_in(
-                catalog,
-                "silver.land_transfer_history",
-                pins.history
-            )
-        ))?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?
-        .iter()
-        .any(|column| column == "row_state");
     let mut all_sido = group.from_sido.clone();
     all_sido.extend(group.to_sido.iter().cloned());
+    let current_history = history_rows(
+        connection,
+        &crate::duckdb_parquet_stage::table_at_in(
+            catalog,
+            SILVER_LAND_TRANSFER_HISTORY.table_name,
+            pins.history,
+        ),
+        &in_sido("pnu", &all_sido)?,
+    )?;
     let sql = INPUTS_SQL
         .replace(
             "{boundaries_from}",
@@ -299,14 +296,7 @@ pub fn load_inputs(
                 pins.code_changes,
             ),
         )
-        .replace(
-            "{history}",
-            &crate::duckdb_parquet_stage::table_at_in(
-                catalog,
-                "silver.land_transfer_history",
-                pins.history,
-            ),
-        )
+        .replace("{history}", &current_history)
         .replace(
             "{number_changes}",
             &crate::duckdb_parquet_stage::table_at_in(
@@ -319,19 +309,46 @@ pub fn load_inputs(
         .replace("{to_snapshot_id}", &group.to_snapshot_id)
         .replace("{from_sido}", &in_sido("pnu", &group.from_sido)?)
         .replace("{to_sido}", &in_sido("pnu", &group.to_sido)?)
-        .replace("{every_sido}", &in_sido("pnu", &all_sido)?)
-        .replace("{from_old_pnu}", &in_sido("old_pnu", &group.from_sido)?)
-        .replace(
-            "{row_state}",
-            if has_row_state {
-                "row_state"
-            } else {
-                "CAST(NULL AS VARCHAR)"
-            },
-        );
+        .replace("{from_old_pnu}", &in_sido("old_pnu", &group.from_sido)?);
     connection
         .execute_batch(&sql)
         .context("DuckDB failed to read the lineage inputs from the lakehouse")
+}
+
+/// The columns of the land movement history `derive.sql` reads.
+const HISTORY_COLUMNS: [&str; 8] = [
+    "pnu",
+    "reason_code",
+    "reason",
+    "moved_at",
+    "erased_at",
+    "land_category_code",
+    "area_m2",
+    "transfer_history_seq",
+];
+
+/// The query of the history's current rows in `table` (the table as the load names it at its pin)
+/// among `filter` (a predicate on `pnu`), by its contract's `current_row_latest` (root ADR-0275,
+/// ADR-0564 §4): the newest rows per (`pnu`, `transfer_history_seq`), every tie, none for a key whose
+/// newest row is a removal marker. A snapshot from before a nullable column reads it as NULL
+/// (`with_contract_columns`).
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
+fn history_rows(connection: &Connection, table: &str, filter: &str) -> anyhow::Result<String> {
+    let template = SILVER_LAND_TRANSFER_HISTORY
+        .current_rows_sql_template()
+        .context("the land movement history keeps versions per key")?;
+    Ok(template
+        .replace("{columns}", &HISTORY_COLUMNS.join(", "))
+        .replace(
+            "{source}",
+            &crate::duckdb_parquet_stage::with_contract_columns(
+                connection,
+                &SILVER_LAND_TRANSFER_HISTORY,
+                table,
+            )?,
+        )
+        .replace("{filter}", filter))
 }
 
 /// What the derivation `connection` just ran found.

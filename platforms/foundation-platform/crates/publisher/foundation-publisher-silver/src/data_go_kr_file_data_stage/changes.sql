@@ -6,7 +6,7 @@
 -- Input: file_staged (the linked rows, the table's columns) and file_current (the table's current
 -- rows the edition is compared with, the same columns). Parameters: {content} (the content columns),
 -- {same} (`c.x IS NOT DISTINCT FROM s.x` per content column), {content_order} (`c.x` per content
--- column), {columns}, {marker_columns} (a current row's columns with `row_state`,
+-- column), {columns}, {marker_columns} (a current row's columns with the removal column,
 -- `source_snapshot_id` and `ingested_at_utc` this load's).
 -- Output: file_changes.
 

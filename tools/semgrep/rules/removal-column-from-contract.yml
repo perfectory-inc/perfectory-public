@@ -1,0 +1,44 @@
+# A Silver lane names a table's removal column only as its contract does:
+# `silver_changes::removal_column(contract)` (`current_row_latest.removal_column`), the predicate of a
+# marker `silver_changes::removed(contract)`, and the contract's own current-rows query, which already
+# leaves out a key whose newest row is a marker. No lane SQL spells the column.
+#
+# Prevents: 2026-11-27 22:06Z the court auction Silver load committed all 71 objects it owed, then
+# failed its 법정동 code-change follow with `Binder Error: Values list "c" does not have a column
+# named "row_state"`. The follow (#1647, 2026-11-23) tested the item table's removal column by hand
+# on every search table, and `silver.court_auction_sale_result` keeps no markers: its contract's
+# removal column is null and the table has no such column. Its tests followed the item table alone,
+# over a table they wrote by hand, so the follow failed only once a night first reached it. The same
+# spelling sat in eight other places of the crate (marker projections, marker counts, a hand copy of
+# a current-rows query), each right only while its table happened to keep markers.
+#
+# Threat model: honest-mistake detection (root ADR-0027). The prevention is the helpers above and
+# the tests that build each table from its contract's columns (`duckdb_parquet_stage::contract_table`),
+# where SQL naming any column the contract lacks fails to bind; this rule only stops the column being
+# spelled again by hand. Does not prevent: a name built at run time or held in another constant, a
+# Silver lane outside this crate, or SQL that assumes some other column a contract does not declare
+# (the contract-built test tables catch that, not this rule).
+#
+# Gold `_versions` tables are not Silver lanes: every one has the column by construction
+# (`lakehouse_domain::GOLD_VERSIONS_REMOVAL_COLUMN`), so this reads the Silver publisher alone. Test
+# files and fixtures are left out: a test may name the column of the table it stands in for.
+rules:
+  - id: a-silver-lane-takes-the-removal-column-from-its-contract
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      This spells a removal column in Silver lane code. Take it from the table's contract:
+      silver_changes::removal_column(contract), silver_changes::removed(contract) for a marker, or
+      the contract's current-rows query (silver_changes::current_rows_of), which already drops a
+      removed key. A table whose contract keeps no markers has no such column (2026-11-27).
+    paths:
+      include:
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/**/*.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/**/*.sql
+        - /tools/semgrep/rules/removal-column-from-contract.rs
+      exclude:
+        - "**/tests.rs"
+        - "**/tests/**"
+        - "**/*_tests.rs"
+        - "**/fixtures/**"
+    pattern-regex: \brow_state\b

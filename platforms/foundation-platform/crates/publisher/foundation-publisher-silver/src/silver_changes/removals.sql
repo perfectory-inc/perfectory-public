@@ -7,7 +7,7 @@
 -- Parameters: {current} (the table's current rows at the pinned head, every column), {staged},
 -- {out}, {key} (the key columns), {key_matches} and {content_matches} (`c.x IS NOT DISTINCT FROM
 -- s.x` per key / content column), {complete}, {columns}, {marker_columns} (the current row's
--- columns, with `row_state`, `source_snapshot_id`, `ingested_at_utc` and `source_record_id` this
+-- columns, with the removal column, `source_snapshot_id`, `ingested_at_utc` and `source_record_id` this
 -- load's).
 CREATE OR REPLACE TEMP TABLE {out}_current AS {current};
 

@@ -551,7 +551,9 @@ mod tests {
                 .columns
                 .iter()
                 .map(|column| column.name)
-                .filter(|name| *name != "row_state")
+                .filter(|name| {
+                    crate::silver_changes::removal_column(&SILVER_LAND_USE_ZONE_AREA) != Some(*name)
+                })
                 .collect();
             assert_eq!(keys, contract);
         }

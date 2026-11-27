@@ -1073,6 +1073,7 @@ pub fn finish_search(
     connection
         .execute_batch(search_place_part("place")?)
         .context("DuckDB failed to place the search rows")?;
+    let removal = silver_changes::removal_column(contract);
     let columns = contract
         .columns
         .iter()
@@ -1084,7 +1085,7 @@ pub fn finish_search(
             | "legal_dong_code" => {
                 format!("p.{}", column.name)
             }
-            "row_state" => "NULL::VARCHAR AS row_state".to_owned(),
+            name if removal == Some(name) => format!("NULL::VARCHAR AS {name}"),
             other => format!("r.{other}"),
         })
         .collect::<Vec<_>>()
@@ -1265,19 +1266,39 @@ pub fn appended_search(
 
 /// `ca_search_rows` of a follow: the current rows a code change can move.
 ///
-/// The rows of `current` (a query of the table's current rows) that are not removed and have no PNU
-/// or a code under `file_prefixes` (every row when the prefixes are unknown), each keeping the values
-/// it was observed with, stamped with the follow's record and instant. Returns how many.
+/// The current rows of `table` (the table as the load names it at its pinned head), by its
+/// contract's rule (`silver_changes::current_rows_of`: a key whose newest row is a removal marker
+/// has none, where the contract keeps markers), that have no PNU or a code under `file_prefixes`
+/// (every row when the prefixes are unknown), each keeping the values it was observed with, stamped
+/// with the follow's record and instant. Returns how many.
+///
+/// The follow names no column the contract does not: 2026-11-27 22:06Z its own `IS NULL` test of
+/// the item table's removal column failed the load on `silver.court_auction_sale_result`, which
+/// keeps no markers and has no such column.
 ///
 /// # Errors
 /// Refuses a record holding a quote; returns a `DuckDB` failure.
 pub fn follow_rows(
     stage: &DuckDbParquetStage,
-    current: &str,
+    contract: &LakehouseTableContract,
+    table: &str,
     prefixes_known: bool,
     record: &str,
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<u64> {
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let current = silver_changes::current_rows_of(
+        stage,
+        contract,
+        Some(table),
+        &columns,
+        &Role::staged(contract.table_name),
+        "TRUE",
+    )?;
     let under = |column: &str| {
         format!("EXISTS (SELECT 1 FROM file_prefixes p WHERE starts_with(c.{column}, p.prefix))")
     };
@@ -1294,7 +1315,7 @@ pub fn follow_rows(
         "CREATE OR REPLACE TEMP TABLE ca_search_rows AS \
          SELECT * REPLACE ('{record}' AS source_record_id, '{snapshot}' AS source_snapshot_id, \
                            to_timestamp({at}) AS ingested_at_utc) \
-         FROM ({current}) c WHERE c.row_state IS NULL AND ({affected})",
+         FROM ({current}) c WHERE {affected}",
         record = literal(record)?,
         snapshot = ingested_at.format("%Y%m%dT%H%M%SZ"),
         at = ingested_at.timestamp(),
@@ -1341,24 +1362,49 @@ pub fn follow_search(
         }
         None => None,
     };
-    let columns = contract
-        .columns
-        .iter()
-        .map(|column| column.name)
-        .collect::<Vec<_>>();
+    follow_search_of(
+        stage,
+        contract,
+        &silver_changes::at_head(contract, head),
+        prefixes,
+        (record, ingested_at),
+        || place_search(stage, role, contract, place).map(drop),
+    )
+}
+
+/// [`follow_search`] over `table` (the table as the load names it at its pinned head), the
+/// prefixes `file_prefixes` holds (`None`: every row), and `place`, which places `ca_search_rows`
+/// into the search's staging table ([`place_search`] in the load).
+///
+/// # Errors
+/// Refuses a record holding a quote and a follow that would mark a key removed; returns a `DuckDB`
+/// failure.
+pub(crate) fn follow_search_of(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    table: &str,
+    prefixes: Option<u64>,
+    (record, ingested_at): (&str, DateTime<Utc>),
+    place: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<Followed> {
+    let checked = follow_rows(
+        stage,
+        contract,
+        table,
+        prefixes.is_some(),
+        record,
+        ingested_at,
+    )?;
+    place()?;
     let staged = Role::staged(contract.table_name);
-    let current = silver_changes::current_rows(stage, contract, Some(head), &columns, &staged)?;
-    let checked = follow_rows(stage, &current, prefixes.is_some(), record, ingested_at)?;
-    place_search(stage, role, contract, place)?;
     let snapshot = ingested_at.format("%Y%m%dT%H%M%SZ").to_string();
     let out = format!("{staged}_changed");
     // The same keys on both sides: only the rows whose placement moved, and no marker.
-    let (appended, removed) = silver_changes::removal_changes(
+    let (appended, removed) = silver_changes::removal_changes_of(
         stage,
         contract,
-        Some(head),
-        &staged,
-        &out,
+        Some(table),
+        (&staged, &out),
         false,
         (record, &snapshot, ingested_at.timestamp()),
     )?;

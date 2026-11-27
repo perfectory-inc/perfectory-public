@@ -27,7 +27,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
-use crate::silver_changes::{self, same, table_key, LOAD_COLUMNS};
+use crate::silver_changes::{self, is_load_column, same, table_key, REMOVED};
 
 /// The plan file `plan-silver-load-objects` writes.
 pub const PLAN_SCHEMA: &str = "foundation-platform.silver_load_objects.v1";
@@ -35,8 +35,6 @@ pub const PLAN_SCHEMA: &str = "foundation-platform.silver_load_objects.v1";
 const KEY: [&str; 2] = ["cltr_mng_no", "pbct_cdtn_no"];
 /// Which round answered an item-level response: kept, but not content.
 const ASKED_THROUGH: [&str; 1] = ["pbct_cdtn_no"];
-/// The removal marker's value (root ADR-0275).
-const REMOVED: &str = "removed";
 
 const SOURCE_CONTRACT: &str =
     include_str!("../../../../infra/lakehouse/contracts/data-go-kr-onbid.contract.json");
@@ -256,7 +254,7 @@ pub fn content_columns(contract: &LakehouseTableContract) -> Vec<&'static str> {
         .filter(|name| {
             !KEY.contains(name)
                 && !key.contains(name)
-                && !LOAD_COLUMNS.contains(name)
+                && !is_load_column(contract, name)
                 && !ASKED_THROUGH.contains(name)
         })
         .collect()
@@ -934,10 +932,11 @@ pub fn item_changes(
         .collect::<Vec<_>>();
     let key = literal(&object.object_key)?;
     let run = literal(&object.source_snapshot_id)?;
+    let removal = silver_changes::removal_column(contract);
     let markers = columns
         .iter()
         .map(|column| match *column {
-            "row_state" => format!("'{REMOVED}' AS row_state"),
+            name if removal == Some(name) => format!("'{REMOVED}' AS {name}"),
             "source_snapshot_id" => format!("'{run}' AS source_snapshot_id"),
             "ingested_at_utc" => format!(
                 "to_timestamp({}) AS ingested_at_utc",
@@ -962,7 +961,10 @@ pub fn item_changes(
         )
     })?;
     let removed: i64 = stage.connection().query_row(
-        &format!("SELECT count(*) FROM onbid_changes WHERE row_state = '{REMOVED}'"),
+        &format!(
+            "SELECT count(*) FROM onbid_changes WHERE {}",
+            silver_changes::removed(contract)
+        ),
         [],
         |row| row.get(0),
     )?;

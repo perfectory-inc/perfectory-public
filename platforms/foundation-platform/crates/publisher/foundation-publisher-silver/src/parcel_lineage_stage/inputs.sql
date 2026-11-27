@@ -1,12 +1,12 @@
 -- The inputs of one lineage group, read once from the pinned snapshots of the lakehouse
 -- (root ADR-0113 §1): `derive.sql` reads only these tables.
--- Parameters: {boundaries_from}, {boundaries_to}, {code_changes}, {history}, {number_changes} (each table
+-- Parameters: {boundaries_from}, {boundaries_to}, {code_changes}, {number_changes} (each table
 -- at its pinned snapshot, from `duckdb_parquet_stage::table_at_in`), {from_snapshot_id}, {to_snapshot_id}
--- (parcel editions), {from_sido}, {to_sido}, {every_sido}: `pnu` predicates, {from_old_pnu}: the same
+-- (parcel editions), {from_sido}, {to_sido}: `pnu` predicates, {from_old_pnu}: the same
 -- as {from_sido} on `old_pnu`. A predicate is a range per sido prefix, so
 -- the scan skips the files of every other sido by their bounds; `substr(pnu, 1, 2) IN (…)` reads
--- the whole edition. {row_state}: the removal column, or a NULL where the pinned snapshot is from
--- before the column.
+-- the whole edition. {history}: the land movement history's current rows at its pin in every sido
+-- of the group (`history_rows`).
 
 CREATE OR REPLACE TEMP TABLE before_raw AS
 SELECT DISTINCT pnu FROM {boundaries_from}
@@ -21,23 +21,10 @@ SELECT kind, old_code, new_code, level, effective_date, source
 FROM {code_changes}
 WHERE kind IN ('pair', 'supersession') AND level IN ('eupmyeondong', 'ri');
 
--- The history's current rows, as its contract's `current_row_latest` says: the newest row per
--- (pnu, transfer_history_seq) by source_snapshot_id, then ingested_at_utc; rows that tie are all
--- current; a key whose newest row is a removal marker has none (root ADR-0275).
-CREATE OR REPLACE TEMP TABLE history AS
-SELECT pnu, reason_code, reason, moved_at, erased_at, land_category_code, area_m2, transfer_history_seq
-FROM (
-  SELECT h.*, rank() OVER (
-           PARTITION BY pnu, transfer_history_seq
-           ORDER BY source_snapshot_id DESC NULLS LAST, ingested_at_utc DESC NULLS LAST) AS newest
-  FROM (
-    SELECT pnu, transfer_history_seq, reason_code, reason, moved_at, erased_at, land_category_code, area_m2,
-           source_snapshot_id, ingested_at_utc, {row_state} AS row_state
-    FROM {history}
-    WHERE {every_sido}
-  ) h
-)
-WHERE newest = 1 AND (row_state IS NULL OR row_state <> 'removed');
+-- The history's current rows, as its contract's `current_row_latest` says (the contract's own query,
+-- never a copy): the newest rows per (pnu, transfer_history_seq), every tie; a key whose newest row
+-- is a removal marker has none (root ADR-0275).
+CREATE OR REPLACE TEMP TABLE history AS {history};
 
 -- The provider's official old -> new PNU records (VWorld 30527) whose old parcel lies in the earlier
 -- edition's sido. The table is events: a load appends only the events it does not hold, so every

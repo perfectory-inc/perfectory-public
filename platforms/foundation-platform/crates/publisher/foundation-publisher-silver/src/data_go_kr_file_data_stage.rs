@@ -32,13 +32,13 @@ use crate::{
     duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
     onbid_silver_stage::PLAN_SCHEMA,
     place_identity_stage::{self, PlacePins, CODE_CHANGE_TABLE},
+    silver_changes::{self, REMOVED},
 };
 
 pub(crate) const CONTRACT: &str =
     include_str!("../../../../infra/lakehouse/contracts/data-go-kr-file-data.contract.json");
 const CHANGES_SQL: &str = include_str!("data_go_kr_file_data_stage/changes.sql");
 const SEPARATOR: char = '\u{1f}';
-const REMOVED: &str = "removed";
 const PARCEL_LINK_COLUMNS: [&str; 4] = [
     "pnu",
     "pnu_basis",
@@ -989,6 +989,14 @@ pub(crate) fn epoch(instant: DateTime<Utc>) -> String {
     format!("to_timestamp({})", instant.timestamp())
 }
 
+/// `, NULL::VARCHAR AS <removal column>` of a staged row, which is never a removal marker; nothing
+/// for a table that keeps no markers.
+fn unremoved(contract: &LakehouseTableContract) -> String {
+    silver_changes::removal_column(contract)
+        .map(|column| format!(", NULL::VARCHAR AS {column}"))
+        .unwrap_or_default()
+}
+
 /// `file_staged`: the edition's rows (`file_keyed` and their `file_link`) as the table's columns.
 ///
 /// # Errors
@@ -1004,12 +1012,13 @@ pub fn staged_edition(
         .execute_batch(&format!(
             "CREATE OR REPLACE TEMP TABLE file_staged AS SELECT {columns} FROM (\
              SELECT k.row_key, k.provider_fields_json, l.* EXCLUDE (_row), {object} AS source_record_id, \
-                    k.source_line_number, {snapshot} AS source_snapshot_id, {at} AS ingested_at_utc, NULL::VARCHAR AS row_state \
+                    k.source_line_number, {snapshot} AS source_snapshot_id, {at} AS ingested_at_utc{unremoved} \
              FROM file_keyed k JOIN file_link l USING (_row))",
             columns = column_names(contract).join(", "),
             object = literal(&planned.object_key),
             snapshot = literal(planned.snapshot_id()),
             at = epoch(ingested_at),
+            unremoved = unremoved(contract),
         ))
         .with_context(|| format!("DuckDB failed to stage {}", planned.object_key))
 }
@@ -1041,10 +1050,11 @@ pub fn changes(
 ) -> anyhow::Result<Changes> {
     let content = file.content_columns()?;
     let columns = column_names(contract);
+    let removal = silver_changes::removal_column(contract);
     let markers = columns
         .iter()
         .map(|column| match *column {
-            "row_state" => format!("'{REMOVED}' AS row_state"),
+            name if removal == Some(name) => format!("'{REMOVED}' AS {name}"),
             "source_snapshot_id" => {
                 format!("{} AS source_snapshot_id", literal(source_snapshot_id))
             }
@@ -1080,7 +1090,7 @@ pub fn changes(
         appended: count(stage, "file_changes")?,
         removed: count(
             stage,
-            &format!("file_changes WHERE row_state = '{REMOVED}'"),
+            &format!("file_changes WHERE {}", silver_changes::removed(contract)),
         )?,
     })
 }
@@ -1213,15 +1223,20 @@ pub fn relinked(
         "CREATE OR REPLACE TEMP TABLE file_follow_in AS SELECT row_number() OVER () AS _row, * FROM file_current",
     )?;
     link(stage, file, "file_follow_in", place)?;
-    let replaced = file.place_link()?.columns().join(", ");
+    // The link's columns, the instant and the removal column are this run's.
+    let mut replaced = file.place_link()?.columns().to_vec();
+    replaced.push("ingested_at_utc");
+    replaced.extend(silver_changes::removal_column(contract));
     connection
         .execute_batch(&format!(
             "CREATE OR REPLACE TEMP TABLE file_staged AS SELECT {columns} FROM (\
-             SELECT i.* EXCLUDE (_row, {replaced}, ingested_at_utc, row_state), l.* EXCLUDE (_row), \
-                    {at} AS ingested_at_utc, NULL::VARCHAR AS row_state \
+             SELECT i.* EXCLUDE (_row, {replaced}), l.* EXCLUDE (_row), \
+                    {at} AS ingested_at_utc{unremoved} \
              FROM file_follow_in i JOIN file_link l USING (_row))",
             columns = column_names(contract).join(", "),
+            replaced = replaced.join(", "),
             at = epoch(ingested_at),
+            unremoved = unremoved(contract),
         ))
         .with_context(|| format!("DuckDB failed to link the rows of {} again", file.slug))
 }

@@ -5,22 +5,61 @@
 //! `DuckDB` stages share it here.
 
 use anyhow::{ensure, Context};
-use lakehouse_domain::{LakehouseRowVersions, LakehouseTableContract};
+use lakehouse_domain::{lakehouse::REMOVED_MARKER, LakehouseRowVersions, LakehouseTableContract};
 
 use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage};
 
-/// Columns a load writes, not the source: never compared.
-pub const LOAD_COLUMNS: [&str; 5] = [
+/// Columns a load writes, not the source: never compared. The table's removal column is one too
+/// ([`is_load_column`]).
+pub const LOAD_COLUMNS: [&str; 4] = [
     "source_record_id",
     "source_line_number",
     "source_snapshot_id",
     "ingested_at_utc",
-    "row_state",
 ];
+
+/// The table's removal column, as its contract's `current_row_latest.removal_column` names it:
+/// `None` for a table that keeps no removal markers (root ADR-0275).
+///
+/// Lane SQL names the column only through this: 2026-11-27 22:06Z the court auction Silver load
+/// failed on its 법정동 follow, which named the item table's removal column over
+/// `silver.court_auction_sale_result`, whose contract keeps no markers and whose table has no such
+/// column (`tools/semgrep/rules/removal-column-from-contract.yml`).
+#[must_use]
+pub fn removal_column(contract: &LakehouseTableContract) -> Option<&'static str> {
+    contract
+        .current_row_latest()
+        .and_then(|latest| latest.removal_column)
+}
+
+/// Whether the load writes `column` of the table: one of [`LOAD_COLUMNS`] or its removal column.
+#[must_use]
+pub fn is_load_column(contract: &LakehouseTableContract, column: &str) -> bool {
+    LOAD_COLUMNS.contains(&column) || removal_column(contract) == Some(column)
+}
+
+/// A predicate over the table's columns that holds on a removal marker; `FALSE` for a table that
+/// keeps none.
+#[must_use]
+pub fn removed(contract: &LakehouseTableContract) -> String {
+    removal_column(contract).map_or_else(
+        || "FALSE".to_owned(),
+        |column| format!("{column} = '{REMOVED}'"),
+    )
+}
 
 const CHANGED_SQL: &str = include_str!("silver_changes/changed.sql");
 const EDITIONS_SQL: &str = include_str!("silver_changes/editions.sql");
 const REMOVALS_SQL: &str = include_str!("silver_changes/removals.sql");
+
+/// The table at `head` as a load names it.
+///
+/// The one snapshot read of every compare here: a load's pinned head, read right before the append
+/// pinned on it (the lakehouse maintenance contract's `reader_pins` entry of this file).
+#[must_use]
+pub fn at_head(contract: &LakehouseTableContract, head: i64) -> String {
+    crate::duckdb_parquet_stage::table_at(contract.table_name, head)
+}
 
 /// The table's key: its contract's `current_row_latest` key.
 ///
@@ -48,7 +87,7 @@ pub fn content_columns(
         .iter()
         .map(|column| column.name)
         .filter(|name| {
-            !key.contains(name) && !LOAD_COLUMNS.contains(name) && !excluded.contains(name)
+            !key.contains(name) && !is_load_column(contract, name) && !excluded.contains(name)
         })
         .collect())
 }
@@ -95,20 +134,38 @@ pub fn current_rows_within(
     staged: &str,
     filter: &str,
 ) -> anyhow::Result<String> {
-    let Some(head) = head else {
+    let pinned = head.map(|head| at_head(contract, head));
+    current_rows_of(stage, contract, pinned.as_deref(), columns, staged, filter)
+}
+
+/// [`current_rows_within`] over `table`: the table as the load names it at its pinned head (`None`:
+/// it has no snapshot yet).
+///
+/// # Errors
+/// Refuses a table that keeps no versions per key; returns a `DuckDB` failure.
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
+pub(crate) fn current_rows_of(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    table: Option<&str>,
+    columns: &[&str],
+    staged: &str,
+    filter: &str,
+) -> anyhow::Result<String> {
+    let Some(table) = table else {
         return Ok(format!(
             "SELECT {} FROM {staged} WHERE false",
             columns.join(", ")
         ));
     };
-    let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
     Ok(contract
         .current_rows_sql_template()
         .with_context(|| format!("{} keeps no versions per key", contract.table_name))?
         .replace("{columns}", &columns.join(", "))
         .replace(
             "{source}",
-            &with_contract_columns(stage.connection(), contract, &pinned)?,
+            &with_contract_columns(stage.connection(), contract, table)?,
         )
         .replace("{filter}", filter))
 }
@@ -171,7 +228,7 @@ pub fn changed_editions(
     staged: &str,
     out: &str,
 ) -> anyhow::Result<u64> {
-    let pinned = head.map(|head| crate::duckdb_parquet_stage::table_at(contract.table_name, head));
+    let pinned = head.map(|head| at_head(contract, head));
     changed_editions_of(stage, contract, pinned.as_deref(), staged, out)
 }
 
@@ -203,7 +260,7 @@ fn changed_editions_of(
     let content = columns
         .iter()
         .copied()
-        .filter(|name| !per.contains(name) && !LOAD_COLUMNS.contains(name))
+        .filter(|name| !per.contains(name) && !is_load_column(contract, name))
         .collect::<Vec<_>>();
     let source = match table {
         Some(table) => with_contract_columns(stage.connection(), contract, table)?,
@@ -327,8 +384,8 @@ pub fn result_checks(
     })
 }
 
-/// The value of `row_state` that marks a key removed (root ADR-0275).
-pub const REMOVED: &str = "removed";
+/// The value of the removal column that marks a key removed (root ADR-0275): the contract's.
+pub const REMOVED: &str = REMOVED_MARKER;
 
 /// Builds `out` from `staged` of a newest-per-key table that keeps removal markers.
 ///
@@ -350,7 +407,31 @@ pub fn removal_changes(
     complete: bool,
     load: (&str, &str, i64),
 ) -> anyhow::Result<(u64, u64)> {
-    removal_changes_in(stage, contract, head, (staged, out), complete, "TRUE", load)
+    let pinned = head.map(|head| at_head(contract, head));
+    removal_changes_of(
+        stage,
+        contract,
+        pinned.as_deref(),
+        (staged, out),
+        complete,
+        load,
+    )
+}
+
+/// [`removal_changes`] over `table`: the table as the load names it at its pinned head (`None`: it
+/// has no snapshot yet).
+///
+/// # Errors
+/// Refuses a table that keeps no versions per key; returns a `DuckDB` failure.
+pub(crate) fn removal_changes_of(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    table: Option<&str>,
+    tables: (&str, &str),
+    complete: bool,
+    load: (&str, &str, i64),
+) -> anyhow::Result<(u64, u64)> {
+    removal_changes_in(stage, contract, table, tables, complete, "TRUE", load)
 }
 
 /// [`removal_changes`] of a load whose object is the whole of one part of the table.
@@ -370,7 +451,16 @@ pub fn removal_changes_within(
     within: &str,
     load: (&str, &str, i64),
 ) -> anyhow::Result<(u64, u64)> {
-    removal_changes_in(stage, contract, head, (staged, out), true, within, load)
+    let pinned = head.map(|head| at_head(contract, head));
+    removal_changes_in(
+        stage,
+        contract,
+        pinned.as_deref(),
+        (staged, out),
+        true,
+        within,
+        load,
+    )
 }
 
 // `{name}` is a placeholder of the SQL text, not a format argument.
@@ -378,7 +468,7 @@ pub fn removal_changes_within(
 fn removal_changes_in(
     stage: &DuckDbParquetStage,
     contract: &LakehouseTableContract,
-    head: Option<i64>,
+    table: Option<&str>,
     tables: (&str, &str),
     complete: bool,
     within: &str,
@@ -396,10 +486,11 @@ fn removal_changes_in(
         .map(|column| column.name)
         .collect::<Vec<_>>();
     let key = table_key(contract)?;
+    let removal = removal_column(contract);
     let markers = columns
         .iter()
         .map(|column| match *column {
-            "row_state" => format!("'{REMOVED}' AS row_state"),
+            name if removal == Some(name) => format!("'{REMOVED}' AS {name}"),
             "source_snapshot_id" => format!("'{snapshot_id}' AS source_snapshot_id"),
             "ingested_at_utc" => {
                 format!("to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc")
@@ -415,7 +506,7 @@ fn removal_changes_in(
             &REMOVALS_SQL
                 .replace(
                     "{current}",
-                    &current_rows_within(stage, contract, head, &columns, staged, within)?,
+                    &current_rows_of(stage, contract, table, &columns, staged, within)?,
                 )
                 .replace("{staged}", staged)
                 .replace("{out}", out)
@@ -439,17 +530,15 @@ fn removal_changes_in(
                 contract.table_name
             )
         })?;
-    let removed = if columns.contains(&"row_state") {
-        format!("count(*) FILTER (WHERE row_state = '{REMOVED}')")
-    } else {
-        "0".to_owned()
-    };
-    let (rows, removed): (i64, i64) = stage.connection().query_row(
-        &format!("SELECT count(*), {removed} FROM {out}"),
+    let (rows, markers): (i64, i64) = stage.connection().query_row(
+        &format!(
+            "SELECT count(*), count(*) FILTER (WHERE {}) FROM {out}",
+            removed(contract)
+        ),
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    Ok((u64::try_from(rows)?, u64::try_from(removed)?))
+    Ok((u64::try_from(rows)?, u64::try_from(markers)?))
 }
 
 #[cfg(test)]

@@ -813,7 +813,7 @@ fn copy_columns(shape: &TableShape, name: &str) -> anyhow::Result<(String, Strin
 /// A read pinned by snapshot id has that snapshot's schema, so a table that gained a nullable
 /// column after its last data commit is read without it, and the contract's current-rows query
 /// names a column the read does not have. On 2026-11-19 the first Onbid load here refused the
-/// register titles for lacking `row_state`. Iceberg reads such a column as null from every file
+/// register titles for lacking their removal column. Iceberg reads such a column as null from every file
 /// written before it; this is the same answer (Spark: `platform_contracts.with_contract_columns`).
 /// A required column is never invented: a query that names one the read lacks fails in `DuckDB`.
 ///
@@ -835,21 +835,13 @@ pub fn with_contract_columns(
         if column.required || have.contains(column.name) {
             continue;
         }
-        let sql_type = match column.logical_type {
-            "string" => "VARCHAR",
-            "int" => "INTEGER",
-            "long" => "BIGINT",
-            "double" => "DOUBLE",
-            "boolean" => "BOOLEAN",
-            "date" => "DATE",
-            "timestamp" => "TIMESTAMPTZ",
-            "binary" => "BLOB",
-            decimal if decimal.starts_with("decimal(") => decimal,
-            other => anyhow::bail!(
-                "{} ({source}) lacks {}, and a {other} column has no null reader",
+        let Some(sql_type) = duckdb_type(column.logical_type) else {
+            anyhow::bail!(
+                "{} ({source}) lacks {}, and a {} column has no null reader",
                 contract.table_name,
-                column.name
-            ),
+                column.name,
+                column.logical_type
+            );
         };
         added.push(format!("CAST(NULL AS {sql_type}) AS {}", column.name));
     }
@@ -857,6 +849,51 @@ pub fn with_contract_columns(
         return Ok(source.to_owned());
     }
     Ok(format!("(SELECT *, {} FROM {source})", added.join(", ")))
+}
+
+/// The `DuckDB` type of a contract column's logical type; `None` for one it has no reader for.
+fn duckdb_type(logical_type: &str) -> Option<&str> {
+    Some(match logical_type {
+        "string" => "VARCHAR",
+        "int" => "INTEGER",
+        "long" => "BIGINT",
+        "double" => "DOUBLE",
+        "boolean" => "BOOLEAN",
+        "date" => "DATE",
+        "timestamp" => "TIMESTAMPTZ",
+        "binary" => "BLOB",
+        decimal if decimal.starts_with("decimal(") => decimal,
+        _ => return None,
+    })
+}
+
+/// A test's table `name` with exactly the columns of `contract`, each of its type, filled by
+/// `rows` (a query naming any of them; every other column is NULL): a stand-in for the lakehouse
+/// table, whose shape a lane's SQL must not assume beyond its contract.
+///
+/// # Errors
+/// A column of a type `DuckDB` has no reader for here, or a `DuckDB` failure.
+#[cfg(test)]
+pub(crate) fn contract_table(
+    connection: &Connection,
+    contract: &LakehouseTableContract,
+    name: &str,
+    rows: &str,
+) -> anyhow::Result<()> {
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| {
+            let sql_type = duckdb_type(column.logical_type)
+                .with_context(|| format!("a {} column has no reader", column.logical_type))?;
+            Ok(format!("{} {sql_type}", column.name))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE {name} ({}); INSERT INTO {name} BY NAME {rows};",
+        columns.join(", ")
+    ))?;
+    Ok(())
 }
 
 #[cfg(test)]
