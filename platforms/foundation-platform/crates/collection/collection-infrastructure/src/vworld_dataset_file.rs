@@ -28,6 +28,10 @@ const LOGIN_PROVIDER: &str = "VWorld dataset login";
 
 const DATASET_DETAIL_PATH: &str = "dtmk/dtmk_ntads_s002.do";
 const SINGLE_FILE_DOWNLOAD_PATH: &str = "dtmk/downloadResourceFile.do";
+/// Where `VWorld` sends every page while the site is down for maintenance: a notice of when it comes
+/// back. 2026-11-27 18:00-24:00 KST the dataset page answered `302` to it, and the inventory read the
+/// notice as a dataset page without its count summary.
+const SERVICE_NOTICE_PATH: &str = "/notice/serviceNotice.html";
 const SELECTION_DOWNLOAD_PAGE_PATH: &str = "dtmk/downloadDtnaResourceFile.do";
 const LOGIN_PATH: &str = "v4po_usrlogin_a004.do";
 const MAX_DATASET_FILE_PAGE_COUNT: u64 = 10_000;
@@ -678,6 +682,7 @@ impl VWorldDatasetFileClient {
                 }
             });
         }
+        not_a_service_notice(&response)?;
         Ok(response)
     }
 
@@ -713,6 +718,7 @@ impl VWorldDatasetFileClient {
                 }
             });
         }
+        not_a_service_notice(&response)?;
         response
             .text()
             .await
@@ -790,6 +796,7 @@ impl VWorldDatasetFileClient {
                 }
             });
         }
+        not_a_service_notice(&response)?;
         response
             .text()
             .await
@@ -1064,6 +1071,20 @@ fn selection_download_page_mentions_raon_agent(
     html.contains("RAONKUPLOAD")
         && html.contains("AddUploadedFile")
         && html.contains(&provider_file_identity)
+}
+
+/// A response `VWorld` served from its service notice instead of the page asked: the site is down for
+/// maintenance. That is the provider not serving (root ADR-0363: exit 75, the input waits), not a page
+/// the release cannot read, and not worth asking again within one run: a maintenance lasts hours.
+fn not_a_service_notice(response: &reqwest::Response) -> Result<(), AttemptError> {
+    if response.url().path() == SERVICE_NOTICE_PATH {
+        return Err(AttemptError::Fatal(
+            outbound_http_infrastructure::OutboundHttpError::provider_unavailable(format!(
+                "VWorld is down for maintenance: it answered with its service notice ({SERVICE_NOTICE_PATH})"
+            )),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_download_token(name: &'static str, value: &str) -> Result<(), CollectionError> {

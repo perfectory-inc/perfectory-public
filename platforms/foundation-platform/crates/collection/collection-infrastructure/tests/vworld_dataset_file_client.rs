@@ -1069,3 +1069,49 @@ fn provider_detail_page_html(files_html: &str, total: u64, current: u64, pages: 
         "#
     )
 }
+
+/// 2026-11-27 18:00-24:00 KST `VWorld` was down for maintenance and answered every page with a `302`
+/// to its service notice; the inventory read the notice as a dataset page "without its count summary",
+/// a failure no release could clear (five releases refused at the staging smoke). It is the provider
+/// not serving: `ProviderUnavailable`, asked once, not retried within the run.
+#[tokio::test]
+async fn a_maintenance_redirect_to_the_service_notice_is_the_provider_not_serving() -> TestResult {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/dtmk/dtmk_ntads_s002.do"))
+        .respond_with(ResponseTemplate::new(302).insert_header(
+            "location",
+            format!("{}/notice/serviceNotice.html", server.uri()),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/notice/serviceNotice.html"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            "<html><body><h2>service notice</h2><p>synthetic maintenance window</p></body></html>",
+        ))
+        .mount(&server)
+        .await;
+
+    let client = VWorldDatasetFileClient::new(&VWorldDatasetFileConfig {
+        base_uri: server.uri(),
+        user_agent: "foundation-platform-test/1.0".to_owned(),
+        page_size: 100,
+        cookie_header: None,
+    })?;
+    let error = client
+        .fetch_dataset_file_inventory(&VWorldDatasetFileInventorySelector {
+            svc_cde: "MK".to_owned(),
+            ds_id: "30563".to_owned(),
+            listed_from: None,
+        })
+        .await
+        .err()
+        .ok_or("a service notice is no inventory")?;
+    assert!(
+        matches!(&error, CollectionError::ProviderUnavailable(message) if message.contains("maintenance")),
+        "{error:?}"
+    );
+    Ok(())
+}
