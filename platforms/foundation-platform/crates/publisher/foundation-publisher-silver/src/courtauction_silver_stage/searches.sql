@@ -4,8 +4,8 @@
 -- with a `data.dlt_srchResult` list. A row without its key refuses the object (the caller checks
 -- `ca_search_lines`). The PNU is not placed here: `place_rows` hands each row's source code PNU and
 -- its two addresses to the one place-identity resolver (place_identity_stage).
--- Parameters: {object_path}, {code_fields} (`code_of(item, FROM_CODE)` of `item`), {lot_field}, {object_key},
--- {snapshot_id}, {ingested_at_epoch_seconds}.
+-- Parameters: {object_path}, {maximum_line_bytes}, {code_fields} (`code_of(item, FROM_CODE)` of `item`),
+-- {lot_field}, {object_key}, {snapshot_id}, {ingested_at_epoch_seconds}.
 -- The file is read here once, not through lines.sql (root ADR-0616 §3-1): a search answers up to 165 KiB
 -- a line, and each body is parsed once by json_transform into what this file and the pages read
 -- (`ca_search_answers`: the 물건 list, each 물건 in its declared shape of the fields this file and
@@ -30,7 +30,7 @@ SELECT ordinality AS line_number, request,
                      "daepyoLotno": "JSON", "rdNm": "JSON", "buldNo": "JSON", "buldNm": "JSON", "printSt": "JSON",
                      "wgs84Xcordi": "JSON", "wgs84Ycordi": "JSON"}], "dma_pageInfo": {"totalCnt": "JSON"}}}') END AS b,
        coalesce(left(ltrim(json_extract_string(body, '$'), ' ' || chr(9) || chr(10) || chr(13)), 1) = '{', false) AS object_body
-FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = 33554432,
+FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = {maximum_line_bytes},
                columns = {request: 'JSON', http_status: 'JSON', body: 'JSON'})
      WITH ORDINALITY
 WHERE json_type(http_status) IN ('BIGINT', 'UBIGINT', 'DOUBLE')

@@ -4,8 +4,8 @@
 -- `cancellation`), the last detail line naming the notice winning (an empty list included). Only
 -- read lines whose body is an object with an object `data`. A detail line without its key refuses
 -- the object (the caller checks `ca_notice_detail_lines`).
--- Parameters: {object_path}, {list_operation}, {detail_operation}, {detail_request_object}, {object_key},
--- {snapshot_id}, {ingested_at_epoch_seconds}.
+-- Parameters: {object_path}, {maximum_line_bytes}, {list_operation}, {detail_operation},
+-- {detail_request_object}, {object_key}, {snapshot_id}, {ingested_at_epoch_seconds}.
 -- The file is read here, not through lines.sql (root ADR-0616 §3-1): a notice answers up to 130 KiB a
 -- line, and its body is parsed once by json_transform into only what the rows below read (the notice
 -- list, the case count and the three lists, each a list of JSON values), so no statement holds a whole
@@ -18,7 +18,7 @@ SELECT line_number, json_extract_string(operation, '$') AS operation, request,
                                                   "crrctPbancLst": ["JSON"], "rtrcnPbancLst": ["JSON"]}}}').data AS data
 FROM (SELECT ordinality AS line_number, operation, request, read_outcome, py_truthy(body) AS truthy,
              json_extract_string(body, '$') AS text
-      FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = 33554432,
+      FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = {maximum_line_bytes},
                      columns = {operation: 'JSON', request: 'JSON', read_outcome: 'JSON', body: 'JSON'})
            WITH ORDINALITY)
 WHERE coalesce(json_extract_string(read_outcome, '$') = 'read', false)

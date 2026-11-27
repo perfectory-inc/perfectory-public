@@ -9,7 +9,8 @@
 //! Every `DuckDB` the publisher opens is opened by [`open_engine`] (root ADR-0127):
 //! [`MEMORY_SHARE`] of the memory the process may still take, read from whatever runs it
 //! (`process_memory::available_bytes`: a unit's `MemoryMax`/`MemoryHigh`, a container's or a task's
-//! cgroup), `DuckDB`'s own thread count (it follows the cgroup's CPU quota), a spill directory the
+//! cgroup), `DuckDB`'s own thread count (it follows the cgroup's CPU quota) but no more than one
+//! per [`MEMORY_PER_THREAD`] of that memory, a spill directory the
 //! call owns, capped at [`DISK_SHARE`] of what its filesystem has free, and no extension installed
 //! or loaded at run time. A stage that does not read the lakehouse also reads and writes no file
 //! outside its directory.
@@ -39,16 +40,28 @@ pub const MEMORY_SHARE: (u64, u64) = (3, 5);
 /// (v2.0.0 `TemporaryFileManager::GetDefaultMax`).
 pub const DISK_SHARE: (u64, u64) = (1, 3);
 
+/// What a `DuckDB` of the publisher holds per thread: it runs at most one thread per this many
+/// bytes of its memory limit, and at least one.
+///
+/// `DuckDB`'s own sizing, v2.0 "Environment" guide
+/// (<https://duckdb.org/docs/2.0/guides/performance/environment>): "Aim for 1-4 GB memory per
+/// thread", 125 MB being its minimum. Its own thread count follows the CPUs only, so the lower
+/// end: a `DuckDB` that holds 16 GB still runs 16 threads. Prevents: a unit with no CPU quota ran 20 threads
+/// under a 1.4 GiB limit, and the court auction Silver load ran out of memory on a 52 MiB
+/// 매각공고 object (2026-11-26 21:35Z) that one thread reads at that limit (root ADR-0616 §3-1).
+pub const MEMORY_PER_THREAD: u64 = 1_000_000_000;
+
 /// Opens a `DuckDB` — the file `database`, or in memory — spilling into `spill` when given.
 ///
 /// `memory_limit` is [`MEMORY_SHARE`] of `process_memory::available_bytes`, taken when the
 /// connection opens; a platform that publishes no limit (not Linux) keeps `DuckDB`'s own default.
-/// `threads` is never set: `DuckDB` reads the cgroup's CPU quota itself (`cpu.max`, or v1's CFS
-/// quota) and takes the hardware threads when there is none (v2.0.0 `DBConfig::GetSystemMaxThreads`,
-/// `CGroups::GetCPULimit`), so a task's vCPU count reaches it unchanged. `max_temp_directory_size`
-/// is [`DISK_SHARE`] of what the filesystem of `spill` has free, set on the live buffer manager.
-/// This is the only place a memory limit, a thread count or a spill ceiling is written
-/// (`tools/semgrep/rules/duckdb-settings.yml`).
+/// `threads` is `DuckDB`'s own count, at most one per [`MEMORY_PER_THREAD`] of that limit
+/// (`held_threads`): `DuckDB` reads the cgroup's CPU quota itself (`cpu.max`, or v1's CFS quota)
+/// and takes the hardware threads when there is none (v2.0.0 `DBConfig::GetSystemMaxThreads`,
+/// `CGroups::GetCPULimit`), so a task's vCPU count reaches it unchanged and only its memory can
+/// lower it. `max_temp_directory_size` is [`DISK_SHARE`] of what the filesystem of `spill` has
+/// free, set on the live buffer manager. This is the only place a memory limit, a thread count or
+/// a spill ceiling is written (`tools/semgrep/rules/duckdb-settings.yml`).
 ///
 /// # Errors
 /// The free space of `spill` cannot be measured, or `DuckDB` refuses a setting.
@@ -58,6 +71,13 @@ pub fn open_engine(database: Option<&Path>, spill: Option<&Path>) -> anyhow::Res
         Some(database) => Connection::open_with_flags(database, config)?,
         None => Connection::open_in_memory_with_flags(config)?,
     };
+    let threads = held_threads(
+        line_parts::reported_memory_limit(&connection)?,
+        connection.query_row("SELECT current_setting('threads')::BIGINT", [], |row| {
+            row.get(0)
+        })?,
+    );
+    connection.execute("SET threads = ?", [threads])?;
     let ceiling = spill.map(spill_ceiling).transpose()?.flatten();
     if let Some(bytes) = ceiling {
         connection.execute("SET max_temp_directory_size = ?", [format!("{bytes}B")])?;
@@ -135,6 +155,13 @@ fn engine_config(spill: Option<&Path>) -> anyhow::Result<Config> {
         config = config.with("temp_directory", sql_path(spill)?)?;
     }
     Ok(config)
+}
+
+/// The threads a `DuckDB` of `memory_limit` bytes runs: its own count `threads` (the CPUs it may
+/// use), at most one per [`MEMORY_PER_THREAD`], at least one.
+fn held_threads(memory_limit: u64, threads: i64) -> i64 {
+    let held = i64::try_from(memory_limit / MEMORY_PER_THREAD).unwrap_or(i64::MAX);
+    threads.min(held).max(1)
 }
 
 /// [`MEMORY_SHARE`] of `available` bytes; `None` when the platform publishes no limit.

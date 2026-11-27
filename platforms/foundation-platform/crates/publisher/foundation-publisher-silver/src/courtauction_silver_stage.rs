@@ -501,6 +501,36 @@ impl CourtAuctionSource {
             })
     }
 
+    /// The longest line a read of an object takes (`silver_load.maximum_line_bytes`): `DuckDB`'s
+    /// JSON reader holds twice it per scan, so it is memory as well as a bound.
+    ///
+    /// # Errors
+    /// Returns an error when the contract records none.
+    pub fn maximum_line_bytes(&self) -> anyhow::Result<u64> {
+        self.contract["silver_load"]["maximum_line_bytes"]
+            .as_u64()
+            .filter(|bytes| *bytes > 0)
+            .context("courtauction-go-kr.contract.json records no silver_load.maximum_line_bytes")
+    }
+
+    /// The shared read (`lines.sql`) with the contract's values in it.
+    ///
+    /// # Errors
+    /// Returns an error when the contract lacks a value the SQL takes.
+    pub fn lines_sql(&self) -> anyhow::Result<String> {
+        self.with_read_values(LINES_SQL)
+    }
+
+    /// `sql` with the values every read of an object takes: its longest line.
+    // `{name}` is a placeholder of the SQL text, not a format argument.
+    #[allow(clippy::literal_string_with_formatting_args)]
+    fn with_read_values(&self, sql: &str) -> anyhow::Result<String> {
+        Ok(sql.replace(
+            "{maximum_line_bytes}",
+            &self.maximum_line_bytes()?.to_string(),
+        ))
+    }
+
     /// A role's SQL with the contract's values in it.
     ///
     /// # Errors
@@ -619,7 +649,7 @@ impl CourtAuctionSource {
             | Role::CaseFilings
             | Role::CaseSurveyReport => {}
         }
-        Ok(sql)
+        self.with_read_values(&sql)
     }
 }
 
@@ -871,7 +901,7 @@ pub fn read_object(
     if !object.role.reads_its_lines() {
         stage
             .connection()
-            .execute_batch(&fill(LINES_SQL)?)
+            .execute_batch(&fill(&source.lines_sql()?)?)
             .map_err(|error| {
                 read_failure(
                     error,

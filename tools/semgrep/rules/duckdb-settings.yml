@@ -2,8 +2,10 @@
 # function, `duckdb_parquet_stage::open_engine`: one share (`MEMORY_SHARE`) of what the process
 # may still take, read from the cgroup of whatever runs it (a unit, a container, an AWS task),
 # DuckDB's own thread count, which follows the cgroup's CPU quota (DuckDB v2.0.0
-# `GetSystemMaxThreads`), and a spill ceiling of one share (`DISK_SHARE`) of what the spill's
-# filesystem has free when it opens.
+# `GetSystemMaxThreads`), held to one thread per `MEMORY_PER_THREAD` of that memory (DuckDB's
+# sizing guide: 1-4 GB a thread; 2026-11-26 a unit with no CPU quota ran 20 threads under 1.4 GiB
+# and the court auction Silver load ran out of memory), and a spill ceiling of one share
+# (`DISK_SHARE`) of what the spill's filesystem has free when it opens.
 #
 # Prevents: seven ways to set it. Every stage held half the engine contract's compiled
 # `execution_profile` (4096 MiB / 2) and two threads whatever its unit held; 2026-11-22 the court
@@ -26,8 +28,8 @@ rules:
     message: >-
       This sets a DuckDB memory limit, thread count, spill ceiling or configuration of its own.
       Open the DuckDB with duckdb_parquet_stage::open_engine (or a DuckDbParquetStage): its memory
-      is the one share of what the task may still take, DuckDB counts the task's CPUs itself and
-      caps the spill at a share of the task disk.
+      is the one share of what the task may still take, DuckDB counts the task's CPUs itself (at
+      most one thread per gigabyte of that memory) and caps the spill at a share of the task disk.
     paths:
       include:
         - /platforms/foundation-platform/**/*.rs
