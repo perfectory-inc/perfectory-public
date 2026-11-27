@@ -16,6 +16,7 @@ With the vendor, Secrets Manager, R2 and the publisher replaced:
 import io
 import json
 import pathlib
+import shlex
 import sys
 import tarfile
 import tempfile
@@ -74,7 +75,8 @@ class Vendor:
     def __init__(self, answer=None):
         self.answer = answer or {"account_id": "synthetic", "bucket": "foundation-platform-lakehouse-prod",
                                  "expiration": "2026-11-27T09:00:00Z",
-                                 "writer": {"access_key_id": "k", "secret_access_key": "s", "session_token": "t"},
+                                 "writer": {"access_key_id": "k", "secret_access_key": "s", "session_token": "t",
+                                            "expiration": "2026-11-27T09:00:00Z"},
                                  "reader": None}
         self.calls = []
 
@@ -126,7 +128,7 @@ class Run(unittest.TestCase):
     def tearDown(self):
         self.scratch.cleanup()
 
-    def collect(self, store, word="unchanged", exit_code=0, vendor=None, secrets=None, lane=None):
+    def collect(self, store, word="unchanged", exit_code=0, vendor=None, secrets=None, lane=None, store_factory=None):
         import os
         lane = lane or self.LANE
         env = {"FAKE_PREFIX": LANES[lane]["env_prefix"], "FAKE_WORD": word, "FAKE_EXIT": str(exit_code)}
@@ -136,7 +138,7 @@ class Run(unittest.TestCase):
         try:
             return collect_lane.collect(lane, "run-1", secrets or secrets_for(*LANES[lane]["secrets"]),
                                         vendor or Vendor(), lines.append, program=[sys.executable, str(self.fake)],
-                                        store_factory=lambda credentials: store), lines
+                                        store_factory=store_factory or (lambda credentials: store)), lines
         finally:
             for key, value in old.items():
                 if value is None:
@@ -165,6 +167,19 @@ class Run(unittest.TestCase):
                        f"{self.prefix}aws/20261127T000000Z-r0.tar.gz": tarball({"state.json": b"aws"})})
         result, _ = self.collect(store)
         self.assertEqual(result["state_read"], f"{self.prefix}aws/20261127T000000Z-r0.tar.gz")
+
+    def test_a_run_longer_than_its_keys_saves_its_state_with_fresh_ones(self):
+        # 2026-11-27 onbid ran 2 h 12 min on a 1 h key (W101c): the state goes back with keys asked after the run.
+        store = Store({f"{self.prefix}host/20261127T000000Z.tar.gz": tarball({"state.json": b"host"})})
+        vendor, used = Vendor(), []
+
+        def store_factory(credentials):
+            used.append(len(vendor.calls))
+            return store
+
+        self.collect(store, vendor=vendor, store_factory=store_factory)
+        self.assertEqual(used, [1, 2], "the state is saved with the second vend, made after the run")
+        self.assertEqual(len(store.puts), 1)
 
     def test_a_failed_command_still_saves_its_state_then_fails(self):
         store = Store({f"{self.prefix}aws/20261127T000000Z-r0.tar.gz": tarball({"state.json": b"aws"})})
@@ -240,10 +255,28 @@ class TheLaneAsDeclared(unittest.TestCase):
             self.assertEqual(tags[collect_lane.KIND_TAG], "collect")
             self.assertFalse([tag for tag in tags if "runtime" in tag or "timeout" in tag], job_id)
 
+    def test_every_lane_refreshes_its_keys_through_the_sdk_whatever_its_run_time(self):
+        # One platform time limit for every lane (root ADR-0623 §1): the publisher asks the vendor again before the
+        # keys expire, so no lane's run time can outlive them (the SDK side: r2/credential_tests.rs).
+        work = pathlib.Path(tempfile.gettempdir()) / "w"
+        keys = {name: "k" for name in CONTRACT["collect"]["source_secrets"]}
+        for job_id, lane in LANES.items():
+            command = collect_lane.credential_process(job_id, "run-1")
+            env = collect_lane.environment(lane, Vendor().answer, "postgres://x", keys, work, command)
+            self.assertEqual(env[collect_lane.CREDENTIAL_PROCESS_ENV], command, job_id)
+            self.assertEqual(shlex.split(command)[-3:], [collect_lane.CREDENTIAL_PROCESS, job_id, "run-1"])
+        self.assertTrue(collect_lane.CREDENTIAL_PROCESS_ENV.startswith("FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_"))
+
+    def test_the_command_prints_the_writer_keys_as_credential_process_json(self):
+        self.assertEqual(collect_lane.credential_process_answer(Vendor().answer),
+                         {"Version": 1, "AccessKeyId": "k", "SecretAccessKey": "s", "SessionToken": "t",
+                          "Expiration": "2026-11-27T09:00:00Z"})
+
     def test_the_environment_carries_the_session_token_and_no_host_path(self):
         lane = LANES["onbid_public_auction_collect"]
         work = pathlib.Path(tempfile.gettempdir()) / "w"
-        env = collect_lane.environment(lane, Vendor().answer, "postgres://x", {"DATA_GO_KR_SERVICE_KEY": "k"}, work)
+        env = collect_lane.environment(lane, Vendor().answer, "postgres://x", {"DATA_GO_KR_SERVICE_KEY": "k"}, work,
+                                       "refresh")
         self.assertEqual(env["FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SESSION_TOKEN"], "t")
         self.assertEqual(env[f"{lane['env_prefix']}_LIVE_WRITE"], "1")
         self.assertEqual(env["FOUNDATION_PLATFORM_RUN_USAGE"], "1", "measured as the host copy is measured")

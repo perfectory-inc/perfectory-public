@@ -22,6 +22,9 @@ const READER_SECRET: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_
 // With R2's temporary credentials, the key pair's session token (root ADR-0616 A2).
 const WRITER_SESSION: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SESSION_TOKEN";
 const READER_SESSION: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SESSION_TOKEN";
+// A command for fresh temporary credentials, asked again before they expire (credential_process, W101c).
+const WRITER_PROCESS: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_CREDENTIAL_PROCESS";
+const READER_PROCESS: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_CREDENTIAL_PROCESS";
 
 /// What reading and writing the lakehouse bucket needs: the writer key pair.
 pub const LAKEHOUSE_WRITER_REQUIREMENTS: &[Requirement] = &[
@@ -30,6 +33,7 @@ pub const LAKEHOUSE_WRITER_REQUIREMENTS: &[Requirement] = &[
     Requirement::Required(WRITER_KEY),
     Requirement::Required(WRITER_SECRET),
     Requirement::Optional(WRITER_SESSION),
+    Requirement::Optional(WRITER_PROCESS),
     Requirement::Optional(REGION),
     Requirement::Optional(RUNTIME_ENVIRONMENT_ENV),
     Requirement::Optional(STAGING_MULTIPART_THRESHOLD_ENV),
@@ -42,6 +46,7 @@ pub const LAKEHOUSE_READER_REQUIREMENTS: &[Requirement] = &[
     Requirement::Required(READER_KEY),
     Requirement::Required(READER_SECRET),
     Requirement::Optional(READER_SESSION),
+    Requirement::Optional(READER_PROCESS),
     Requirement::Optional(REGION),
     Requirement::Optional(RUNTIME_ENVIRONMENT_ENV),
     Requirement::Optional(STAGING_MULTIPART_THRESHOLD_ENV),
@@ -58,9 +63,7 @@ impl R2ObjectStorageConfig {
         lakehouse_from(
             source,
             LAKEHOUSE_WRITER_REQUIREMENTS,
-            WRITER_KEY,
-            WRITER_SECRET,
-            WRITER_SESSION,
+            [WRITER_KEY, WRITER_SECRET, WRITER_SESSION, WRITER_PROCESS],
         )
     }
 
@@ -74,9 +77,7 @@ impl R2ObjectStorageConfig {
         lakehouse_from(
             source,
             LAKEHOUSE_READER_REQUIREMENTS,
-            READER_KEY,
-            READER_SECRET,
-            READER_SESSION,
+            [READER_KEY, READER_SECRET, READER_SESSION, READER_PROCESS],
         )
     }
 }
@@ -84,9 +85,7 @@ impl R2ObjectStorageConfig {
 fn lakehouse_from(
     source: &impl EnvSource,
     requirements: &[Requirement],
-    key: &str,
-    secret: &str,
-    session: &str,
+    [key, secret, session, process]: [&str; 4],
 ) -> Result<R2ObjectStorageConfig, PublishError> {
     if let Some(unmet) = first_unmet(requirements, source) {
         return Err(PublishError::Infrastructure(unmet_message(unmet)));
@@ -108,6 +107,7 @@ fn lakehouse_from(
         access_key_id: held(key)?,
         secret_access_key: held(secret)?,
         session_token: source.get(session),
+        credential_process: source.get(process),
         namespace: R2KeyNamespace::from_settings(
             source.get(RUNTIME_ENVIRONMENT_ENV).as_deref(),
             source.get(STAGING_MULTIPART_THRESHOLD_ENV).as_deref(),

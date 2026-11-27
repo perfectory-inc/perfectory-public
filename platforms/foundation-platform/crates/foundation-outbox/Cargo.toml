@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 apache-avro = { workspace = true }
 async-trait = { workspace = true }
+aws-config = { version = "1", default-features = false, features = ["credentials-process"] }
 aws-credential-types = "1"
 aws-sdk-s3 = { version = "1", default-features = false, features = ["rt-tokio", "default-https-client"] }
 aws-smithy-types = "1"

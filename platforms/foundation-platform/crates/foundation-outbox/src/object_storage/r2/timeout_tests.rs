@@ -85,6 +85,7 @@ fn the_production_client_bounds_connect_and_first_byte() -> TestResult {
         access_key_id: "local-access".to_owned(),
         secret_access_key: "local-secret".to_owned(),
         session_token: None,
+        credential_process: None,
         namespace: crate::object_storage::R2KeyNamespace::Production,
     });
     let timeouts = storage

@@ -120,3 +120,13 @@ A2 의 첫 수집기 초안(#1758)은 손으로 정한 수 하나(40 분)에 세
 적는다(시각은 호출 예산이 세는 KST 하루가 시작한 직후, 00:10 KST).
 
 2026-11-27 (W109c): §2-8 의 `metadata_location` 위 `iceberg_scan` 은 카탈로그 읽기가 대신하고, §2-10 에 열려 있던 Silver·Gold 커밋 길은 Lakekeeper 다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §2·결정 10-2.
+
+2026-11-27 (W101c): §5 의 갱신이 모든 레인에 들어왔다. 계기: 온비드의 첫 AWS run(15:11Z)은 하루 한 run 이라 2 시간 12 분을 돌았고, 끝에야 쓴
+첫 R2 객체에서 `SignatureDoesNotMatch` 로 멈췄다(열쇠 1 시간). 한 건도 남기지 않았고 상태 객체도 쓰지 못했다(마지막 상태 저장도 같은 열쇠였다).
+1단계의 조건("읽는 대로 커밋하는 수집기")을 온비드에 대 보지 않고 옮긴 것이 빈칸이었다. 이제 발행기의 R2 클라이언트는
+`FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_CREDENTIAL_PROCESS` 가 있으면 SDK 의 `credential_process`(`aws-config` 의 `CredentialProcessProvider`)로
+자격을 받고, SDK 가 만료 전에 그 명령을 다시 부른다. 레인이 주는 명령은 `collect_lane.py credential-process <작업> <run>` 이고, 레인 역할로
+제 alias 의 창구에 다시 묻는다. 유효 시간은 플랫폼 값 하나(`collect.credential_ttl_seconds`) 그대로이고 레인마다 같다. 레인의 상태 저장도
+run 뒤에 새로 받은 열쇠로 한다. 시험: 유효 시간이 run 보다 짧으면 두 번째 쓰기 전에 다시 묻고, 길면 한 번만 묻는다
+(`r2/credential_tests.rs`); 모든 레인의 환경이 그 명령을 싣는다(`test_aws_collect_lane.py`). 남은 것: 발행기에 주던 열쇠 환경 변수 지우기(위
+"지운다", 다음 PR: 요구 목록이 `describe-requirements` 를 바꾼다), 갱신을 넘는 multipart 를 실제 R2 에서 시험하기.

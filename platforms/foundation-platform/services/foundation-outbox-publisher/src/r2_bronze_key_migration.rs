@@ -410,6 +410,7 @@ fn r2_config_from_dotenv_str(raw: &str) -> anyhow::Result<R2ObjectStorageConfig>
             "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
         )?,
         session_token: None,
+        credential_process: None,
         namespace: R2KeyNamespace::from_env()?,
     })
 }

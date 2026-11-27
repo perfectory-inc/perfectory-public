@@ -70,6 +70,7 @@ impl TileDerivativeR2Config {
                 access_key_id: writer_access_key,
                 secret_access_key: writer_secret_key,
                 session_token: None,
+                credential_process: None,
                 namespace: R2KeyNamespace::from_settings(
                     lookup(RUNTIME_ENVIRONMENT_ENV).as_deref(),
                     lookup(STAGING_MULTIPART_THRESHOLD_ENV).as_deref(),
@@ -96,6 +97,7 @@ impl TileDerivativeR2Config {
             access_key_id: self.martin_read_access_key_id.clone(),
             secret_access_key: self.martin_read_secret_access_key.clone(),
             session_token: None,
+            credential_process: None,
             namespace: self.writer.namespace,
         }
     }
