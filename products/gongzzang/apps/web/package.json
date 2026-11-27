@@ -49,7 +49,7 @@
     "@biomejs/biome": "2.5.12",
     "@playwright/test": "^1.63.0",
     "@size-limit/file": "^13.1.1",
-    "@tailwindcss/postcss": "4.3.3",
+    "@tailwindcss/postcss": "4.3.5",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/navermaps": "^3.9.2",
@@ -60,7 +60,7 @@
     "happy-dom": "^21.0.4",
     "openapi-typescript": "^7.13.0",
     "size-limit": "^13.1.1",
-    "tailwindcss": "4.3.3",
+    "tailwindcss": "4.3.5",
     "typescript": "5.9.3",
     "vite": "8.3.4",
     "vitest": "5.0.5"

@@ -23,12 +23,12 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "5.9.3",
-    "tailwindcss": "4.3.3",
+    "tailwindcss": "4.3.5",
     "vite": "8.3.4",
     "vitest": "5.0.5",
     "turbo": "2.10.12",
     "@biomejs/biome": "2.5.12",
-    "@tailwindcss/postcss": "4.3.3"
+    "@tailwindcss/postcss": "4.3.5"
   },
   "container_images": {
     "acryldata/datahub-actions:v1.7.0.1-slim": "sha256:e55fbb8938b7b33791d554c3eb10c79fde0e88720d7a4d010f88bdd68b062bd3",
