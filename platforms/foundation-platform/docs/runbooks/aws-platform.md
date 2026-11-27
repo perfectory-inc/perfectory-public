@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-26
+last_reviewed: 2026-11-27
 ---
 
 # AWS 플랫폼 계정의 바탕 — 예산·상태 버킷·망을 노트북에서 적용한다
@@ -19,11 +19,11 @@ last_reviewed: 2026-11-26
 | 월 예산 `perfectory-platform-monthly`(한도 200, 실제 100·200, 예측 200 USD 를 넘으면 메일) | AWS Budgets | 이 스택. 계정의 첫 자원 |
 | 상태 버킷 `perfectory-platform-tofu-state-091109217099` | S3, 같은 계정 | 이 스택(처음 한 번은 아래 절차) |
 | VPC `perfectory-platform`(/16, 주소 블록은 적용 때 `TF_VAR_vpc_cidr`), 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음. VPC·서브넷은 `prevent_destroy` |
-| Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 `dagster`(웹서버 + 데몬, Fargate ARM 0.5 vCPU / 2 GB), run 마다 태스크(`EcsRunLauncher`: 레인이 역할을 주지 않으면 정책 없는 기본 run 역할, 동시에 10 개·수집 3·Silver 1 까지) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용할 릴리스 커밋 하나의 확인한 기록에서(아래 '이미지 고르기'). 일은 아직 없다 |
-| Dagster 의 코드 위치: 위치마다 서비스 `code-<위치>`(gRPC 코드 서버, Fargate ARM 0.25 vCPU / 1 GB), 웹서버·데몬은 `<위치>.perfectory-platform.internal`(Cloud Map) 로 부른다 | ECS, 공개 서브넷(같은 보안 그룹 안에서만 그 포트) | 이 스택(`infra/aws/code-servers.tf`, 계약의 `dagster.code_locations`). 코드 릴리스는 코드 서버만 다시 띄운다. 웹서버·데몬의 이미지는 Dagster 의 것(`Dockerfile.aws-dagster`)이라 그 입력이 바뀔 때만 바뀐다 |
+| Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 둘 `dagster-webserver`·`dagster-daemon`(각자 태스크, 크기는 계약의 `dagster.services`: 지금 각 Fargate ARM 0.25 vCPU / 0.5 GB), run 마다 태스크(`EcsRunLauncher`: 레인이 역할을 주지 않으면 정책 없는 기본 run 역할, 동시에 10 개·수집 3·Silver 1 까지) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용할 릴리스 커밋 하나의 확인한 기록에서(아래 '이미지 고르기'). 일은 아직 없다 |
+| Dagster 의 코드 위치: 위치마다 서비스 `code-<위치>`(gRPC 코드 서버, Fargate ARM 0.25 vCPU / 0.5 GB), 웹서버·데몬은 `<위치>.perfectory-platform.internal`(Cloud Map) 로 부른다 | ECS, 공개 서브넷(같은 보안 그룹 안에서만 그 포트) | 이 스택(`infra/aws/code-servers.tf`, 계약의 `dagster.code_locations`). 코드 릴리스는 코드 서버만 다시 띄운다. 웹서버·데몬의 이미지는 Dagster 의 것(`Dockerfile.aws-dagster`)이라 그 입력이 바뀔 때만 바뀐다 |
 | Dagster 의 저장소: RDS PostgreSQL 17 `perfectory-platform`(db.t4g.micro, 20 GB 에서 스스로 100 GB 까지, 사설 서브넷만) | RDS. Dagster 와 그 run 은 이 데이터베이스만 가진 역할 `dagster` 로 붙는다(비밀 `perfectory-platform/dagster-database`, 상태 파일에 없다). master 의 비밀은 부트스트랩·마무리 태스크만 읽는다 | 이 스택. 삭제 보호·마지막 스냅숏·`prevent_destroy` |
 | Bronze 원장의 자리(A1b): 같은 인스턴스의 데이터베이스 `foundation`. 데이터 호스트와 같은 스키마(같은 sqlx 마이그레이션), 빈 채로 | RDS. 마이그레이터 `foundation_migrator`(스키마의 주인)와 런타임 역할 `foundation_api`(줄만), 비밀은 각자 (`perfectory-platform/foundation-migrator`·`foundation-runtime`, 상태 파일에 없다) | 이 스택(`infra/aws/foundation-database.tf`). 스키마는 적용이 마이그레이션한다(아래 '배포 전 단계') |
-| 경보 `perfectory-platform-dagster-not-running`(10 분 동안 Dagster 태스크가 없으면)·`perfectory-platform-database-storage-low`(디스크가 늘지 못하고 1 GiB 밑), Dagster 의 센서 둘(run 실패: job·run id, 신선도 FAIL: 자산 키; `orchestration/dagster/aws/alerts.py`) → SNS `perfectory-platform-alarms` → Slack 채널 하나 | CloudWatch·SNS(ap-northeast-2). 채널 묶음 AWS Chatbot `perfectory-platform-alarms` 는 그 서비스의 제어 리전 us-east-2 | 이 스택(`infra/aws/chatbot.tf`). 저장하는 토큰은 없다. 사장이 Slack 작업 공간을 콘솔에서 한 번 허가한다(아래 'Slack 으로 잇기'). 작업 공간·채널 ID 는 적용 때 `TF_VAR_slack_team_id`·`TF_VAR_slack_channel_id` |
+| 경보 `perfectory-platform-dagster-webserver-not-running`·`perfectory-platform-dagster-daemon-not-running`(10 분 동안 그 서비스의 태스크가 없으면)·`perfectory-platform-database-storage-low`(디스크가 늘지 못하고 1 GiB 밑), Dagster 의 센서 둘(run 실패: job·run id, 신선도 FAIL: 자산 키; `orchestration/dagster/aws/alerts.py`) → SNS `perfectory-platform-alarms` → Slack 채널 하나 | CloudWatch·SNS(ap-northeast-2). 채널 묶음 AWS Chatbot `perfectory-platform-alarms` 는 그 서비스의 제어 리전 us-east-2 | 이 스택(`infra/aws/chatbot.tf`). 저장하는 토큰은 없다. 사장이 Slack 작업 공간을 콘솔에서 한 번 허가한다(아래 'Slack 으로 잇기'). 작업 공간·채널 ID 는 적용 때 `TF_VAR_slack_team_id`·`TF_VAR_slack_channel_id` |
 | 예산 메일 주소 | 적용할 때의 환경 변수 `TF_VAR_budget_alert_emails` | 사람이 적용할 때 준다. 파일·저장소에 적지 않는다(공개 저장소) |
 | 프런트 도어의 CloudFront 전용 예산 `perfectory-cdn-free-tier` | AWS Budgets | `infra/cdn`(호스트의 엣지 적용, [엣지 설정](./edge-settings.md)) |
 
@@ -116,8 +116,8 @@ CI 가 GitHub OIDC 역할(오래 사는 키 없음)로 적용한다.
 3. `dagster_image`(코드 위치)와 `runtime_image`(런타임)를 digest 로 `--out` 에 적는다. 스택은 계약의 저장소 밖 이미지를 거부한다.
 
 코드 릴리스는 코드 위치의 서비스만 옮긴다: 새 코드 서버가 뜨고 이름에 오른 뒤 옛 것이 멈춘다(위치는 늘 코드 서버를 가진다). Dagster
-서비스(웹서버·데몬)는 Dagster 이미지가 바뀔 때만 옮긴다. 그때는 옛 태스크를 멈춘 뒤 새 태스크를 띄우고(데몬은 언제나 하나) 그 사이 몇 분은
-Dagster 가 없다. 진행 중인 run 태스크는 어느 쪽이든 그대로 돈다.
+서비스 둘(웹서버·데몬)은 Dagster 이미지가 바뀔 때만 옮긴다. 웹서버는 새 태스크가 뜬 뒤 옛 것이 멈추고(UI 가 끊기지 않는다), 데몬은 옛 태스크를
+멈춘 뒤 새 태스크를 띄운다(데몬은 언제나 하나). 그 사이 몇 분은 예약·센서의 틱이 없다. 진행 중인 run 태스크는 어느 쪽이든 그대로 돈다.
 적용은 새 태스크가 도는 것을 기다린다(`wait_for_steady_state`). ECS 가 배포를 되돌리면 적용이 실패한다: 초록 적용은 새 태스크가 돈다는 뜻이다.
 
 ## Slack 으로 잇기 (AWS Chatbot, 처음 한 번)
@@ -148,7 +148,7 @@ export TF_VAR_slack_team_id="$(aws chatbot describe-slack-workspaces --region us
 export TF_VAR_slack_channel_id=<받은 링크 끝의 C…>
 # 위 '적용' 그대로(plan → apply). 그다음 경보를 한 번 일부러 울려 채널에 뜨는지 본다.
 # 경보는 다음 평가(5 분 안)에 실제 상태로 돌아가고, 그것도 채널에 뜬다.
-aws cloudwatch set-alarm-state --alarm-name perfectory-platform-dagster-not-running --state-value ALARM --state-reason 'Slack 연결 확인'
+aws cloudwatch set-alarm-state --alarm-name perfectory-platform-dagster-daemon-not-running --state-value ALARM --state-reason 'Slack 연결 확인'
 ```
 
 Slack 이 앱 승인을 요구하면 작업 공간 관리자가 승인한다. 채널을 바꾸려면 `TF_VAR_slack_channel_id` 만 바꿔 적용한다.
@@ -201,7 +201,7 @@ MSYS_NO_PATHCONV=1 aws logs tail "/aws/lambda/$(tofu output -raw credential_vend
 공개 주소도 부하 분산기도 없다. ECS Exec 의 SSM 세션으로 노트북의 포트를 웹서버로 잇는다. AWS CLI 의 Session Manager 플러그인이 있어야 한다.
 
 ```bash
-task="$(aws ecs list-tasks --cluster perfectory-platform --service-name dagster --query 'taskArns[0]' --output text)"
+task="$(aws ecs list-tasks --cluster perfectory-platform --service-name dagster-webserver --query 'taskArns[0]' --output text)"
 runtime="$(aws ecs describe-tasks --cluster perfectory-platform --tasks "$task" \
   --query "tasks[0].containers[?name=='webserver'].runtimeId | [0]" --output text)"
 aws ssm start-session --target "ecs:perfectory-platform_${task##*/}_$runtime" \
@@ -217,10 +217,10 @@ aws budgets describe-budget --account-id 091109217099 --budget-name perfectory-p
 aws budgets describe-notifications-for-budget --account-id 091109217099 --budget-name perfectory-platform-monthly \
   --query 'Notifications[].[NotificationType,Threshold]' --output text
 aws s3api get-bucket-versioning --bucket perfectory-platform-tofu-state-091109217099
-aws ecs describe-services --cluster perfectory-platform --services dagster \
-  --query 'services[0].[runningCount,deployments[0].rolloutState]' --output text   # 1 COMPLETED
-aws cloudwatch describe-alarms --alarm-names perfectory-platform-dagster-not-running \
-  --query 'MetricAlarms[0].StateValue' --output text   # OK (처음 10 분은 INSUFFICIENT_DATA 이거나 ALARM 일 수 있다)
+aws ecs describe-services --cluster perfectory-platform --services dagster-webserver dagster-daemon \
+  --query 'services[].[serviceName,runningCount,deployments[0].rolloutState]' --output text   # 서비스마다 1 COMPLETED
+aws cloudwatch describe-alarms --alarm-names perfectory-platform-dagster-webserver-not-running perfectory-platform-dagster-daemon-not-running \
+  --query 'MetricAlarms[].[AlarmName,StateValue]' --output text   # 둘 다 OK (처음 10 분은 INSUFFICIENT_DATA 이거나 ALARM 일 수 있다)
 aws rds describe-db-instances --db-instance-identifier perfectory-platform \
   --query 'DBInstances[0].[DBInstanceStatus,PubliclyAccessible,StorageEncrypted]' --output text   # available False True
 tofu plan -input=false -detailed-exitcode   # 0 이면 코드와 계정이 같다

@@ -59,9 +59,11 @@
     "reason": "One cluster for the Dagster service and every run task it launches (root ADR-0616 §1-§2). Container Insights stays off: the alarm reads the service metrics ECS publishes for free. Every role a run task may carry (the default run role with no policy, the run execution role, each lane's role) is under run_role_path, and Dagster may pass a role under that path and no other."
   },
   "dagster": {
-    "service": "dagster",
-    "cpu": 512,
-    "memory": 2048,
+    "services": {
+      "webserver": { "name": "dagster-webserver", "cpu": 256, "memory": 512 },
+      "daemon": { "name": "dagster-daemon", "cpu": 256, "memory": 512 }
+    },
+    "services_reason": "The webserver and the daemon are each their own always-on service (coordinator 2026-11-27; Dagster's Docker and Helm deployments run them apart): one can be sized, restarted and deployed without the other, and a webserver that dies no longer stops the daemon (both containers of the one task were essential). Any number of webservers may run, so its deploy starts the new task before it stops the old one; a deployment has a single daemon, so its deploy stops the old one first (Dagster 1.13 docs, deploying-dagster-as-a-service). Each is Fargate's smallest ARM size, 0.25 vCPU and 0.5 GB, by root ADR-0574's rule (limit >= 1.5 x measured peak). Measured 2026-11-27 on AWS in the one task they shared (9.3 h, ECS task stats, ECS Exec): daemon 0.085 vCPU over 180 s, peak 263.6 MiB; webserver 0.018 vCPU, peak 246.7 MiB; the task's per-minute CloudWatch average 0.15 vCPU (p99 0.17), 301-303 MiB. On ai-server with 71 jobs (cAdvisor since 2026-11-25): daemon peak 299 MiB, 0.15 cores median and 0.25 at most (i5-13600KF); webserver 287 MiB, 0.02 cores. Both peaks x 1.5 fit 512 MiB. The daemon's CPU grows with the sensors and automation conditions the lanes bring: measure it again as lanes move in, and raise its size here. At root ADR-0616 §10's Seoul prices each is 6.8 + 1.5 USD a month and 3.65 for its public IPv4.",
     "log_group": "/perfectory-platform/dagster",
     "log_retention_days": 30,
     "workspace": "/opt/dagster/workspace.yaml",
@@ -70,13 +72,13 @@
       "foundation-aws": {
         "port": 4000,
         "cpu": 256,
-        "memory": 1024,
+        "memory": 512,
         "python_file": "/opt/foundation-platform/current/orchestration/dagster/aws/definitions.py"
       }
     },
-    "code_locations_reason": "One ECS service per code location (coordinator 2026-11-26, the layout of Dagster's ECS deployment guide): a gRPC code server from the location's image, reached by the webserver and the daemon as <location>.<namespace> (Cloud Map private DNS) on its port, listed in orchestration/dagster/aws/workspace.yaml. 0.25 vCPU and 1 GB on Fargate ARM: about 6.8 + 3.0 USD a month, 3.65 for its public IPv4 and 0.5 for the namespace's hosted zone (computed at root ADR-0616 §10's unit prices). The webserver and the daemon run the Dagster image (Dockerfile.aws-dagster), which holds no location's code.",
+    "code_locations_reason": "One ECS service per code location (coordinator 2026-11-26, the layout of Dagster's ECS deployment guide): a gRPC code server from the location's image, reached by the webserver and the daemon as <location>.<namespace> (Cloud Map private DNS) on its port, listed in orchestration/dagster/aws/workspace.yaml. 0.25 vCPU and 0.5 GB on Fargate ARM, Fargate's smallest, by root ADR-0574's rule: the one location's server peaked at 242 MiB (CloudWatch, 2026-11-26..27; 204 MiB steady) and 0.05 vCPU on average, so 1.5 x its peak is 363 MiB. A reload holds a second code process until the first stops (dagster code-server). The location grows as lanes move in (on ai-server the code process of 71 jobs is 209 MiB, the proxy about 100): measure it again then and raise its size here. About 6.8 + 1.5 USD a month, 3.65 for its public IPv4, 0.10 for its Cloud Map instance and 0.5 for the namespace's hosted zone (Seoul prices, root ADR-0616 §10). The webserver and the daemon run the Dagster image (Dockerfile.aws-dagster), which holds no location's code.",
     "run_task_definition_prefix": "platform-run",
-    "reason": "Owner approval 2026-11-25 (root ADR-0616 A1): the webserver and the daemon in one always-on Fargate ARM task of 0.5 vCPU and 2 GB (on ai-server the three containers use 687 MiB together). The image is the release's AWS code location by digest (root ADR-0620), given at apply time; the workspace is the AWS code location, which holds no job until A2 moves collectors one at a time. Runs are tasks of their own (EcsRunLauncher), sized per run. No inbound rule and no public address of its own beyond the task's IPv4 for egress; the UI is reached by SSM port forwarding (ECS Exec). EcsRunLauncher registers every run's task definition in the family <run_task_definition_prefix>_<hashes> (dagster-aws get_task_definition_family; dagster-aws 0.29.27 refuses a prefix over 16 characters when it builds the launcher), and Dagster's role may start only that family: never the database bootstrap, which carries the master user's secret."
+    "reason": "Owner approval 2026-11-25 (root ADR-0616 A1): Dagster always on, on Fargate ARM; first the webserver and the daemon in one task of 0.5 vCPU and 2 GB, since 2026-11-27 each its own service (services). Their image is the release's Dagster image by digest (root ADR-0620), given at apply time; the workspace is the AWS code locations, which hold no job until A2 moves collectors one at a time. Runs are tasks of their own (EcsRunLauncher), sized per run. No inbound rule and no public address of its own beyond the task's IPv4 for egress; the UI is reached by SSM port forwarding (ECS Exec). EcsRunLauncher registers every run's task definition in the family <run_task_definition_prefix>_<hashes> (dagster-aws get_task_definition_family; dagster-aws 0.29.27 refuses a prefix over 16 characters when it builds the launcher), and Dagster's role may start only that family: never the database bootstrap, which carries the master user's secret."
   },
   "database": {
     "identifier": "perfectory-platform",

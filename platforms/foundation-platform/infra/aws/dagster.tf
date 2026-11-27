@@ -1,8 +1,8 @@
 # Dagster on AWS (root ADR-0616 A1): its cluster, its database and the role it connects as, its always-on
-# service (webserver and daemon), the roles its run tasks may carry, and the alarms that say it is not
-# running or its disk is filling. Names and sizes are the contract's (config/aws-platform.contract.json:
-# ecs, dagster, database, alarms); the image is the release's AWS code location by digest (root ADR-0620),
-# given at apply time. Collectors move in from A2, one at a time.
+# services (the webserver and the daemon, each its own), the roles its run tasks may carry, and the alarms
+# that say one is not running or the disk is filling. Names and sizes are the contract's
+# (config/aws-platform.contract.json: ecs, dagster, database, alarms); the image is the release's Dagster
+# image by digest (root ADR-0620), given at apply time. Collectors move in from A2, one at a time.
 
 variable "dagster_image" {
   description = "The release's AWS code-location image by digest, from the commit's verified record (scripts/deploy/aws-release-images.py writes it). The service runs it, and every run task Dagster launches runs it too."
@@ -333,21 +333,12 @@ locals {
   }
 }
 
-resource "aws_ecs_task_definition" "dagster" {
-  family                   = "perfectory-platform-dagster"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = local.dagster.cpu
-  memory                   = local.dagster.memory
-  execution_role_arn       = aws_iam_role.dagster_execution.arn
-  task_role_arn            = aws_iam_role.dagster.arn
-  runtime_platform {
-    cpu_architecture        = "ARM64"
-    operating_system_family = "LINUX"
-  }
-  container_definitions = jsonencode([
-    merge(local.dagster_container, {
-      name    = "webserver"
+locals {
+  # What each always-on process runs and how its service deploys; the contract's dagster.services names each
+  # one and its size, under the same key. Both run the same container settings (local.dagster_container) and
+  # roles: the webserver too stops a run's task when an operator terminates it (EcsRunLauncher.terminate).
+  dagster_processes = {
+    webserver = {
       command = ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", local.dagster.workspace]
       healthCheck = {
         command     = ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/server_info', timeout=5)"]
@@ -356,9 +347,11 @@ resource "aws_ecs_task_definition" "dagster" {
         retries     = 3
         startPeriod = 120
       }
-    }),
-    merge(local.dagster_container, {
-      name    = "daemon"
+      # Any number of webservers may run: a deploy starts the new task before it stops the old one.
+      minimum_healthy_percent = 100
+      maximum_percent         = 200
+    }
+    daemon = {
       command = ["dagster-daemon", "run", "-w", local.dagster.workspace]
       healthCheck = {
         command     = ["CMD", "dagster-daemon", "liveness-check"]
@@ -367,24 +360,69 @@ resource "aws_ecs_task_definition" "dagster" {
         retries     = 3
         startPeriod = 180
       }
+      # One daemon at a time (a deployment has a single daemon): a deploy stops the old task before it
+      # starts the new one.
+      minimum_healthy_percent = 0
+      maximum_percent         = 100
+    }
+  }
+}
+
+resource "aws_ecs_task_definition" "dagster" {
+  for_each                 = local.dagster.services
+  family                   = "perfectory-platform-dagster-${each.key}"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = each.value.cpu
+  memory                   = each.value.memory
+  execution_role_arn       = aws_iam_role.dagster_execution.arn
+  task_role_arn            = aws_iam_role.dagster.arn
+  runtime_platform {
+    cpu_architecture        = "ARM64"
+    operating_system_family = "LINUX"
+  }
+  container_definitions = jsonencode([
+    merge(local.dagster_container, {
+      name        = each.key
+      command     = local.dagster_processes[each.key].command
+      healthCheck = local.dagster_processes[each.key].healthCheck
     }),
   ])
   # The role's secret has its value before a task reads it.
   depends_on = [aws_secretsmanager_secret_version.dagster_database]
 }
 
+# Until 2026-11-27 one service (`dagster`) ran both processes in one task. It moves to the daemon's address,
+# so the plan replaces it, and a replacement destroys before it creates (no create_before_destroy): AWS
+# provider 6.72.0 sets its desired count to 0, deletes it and waits until it is INACTIVE (its task stopping
+# or stopped) before the daemon's new service is created, as a deploy of the one daemon does.
+moved {
+  from = aws_ecs_task_definition.dagster
+  to   = aws_ecs_task_definition.dagster["daemon"]
+}
+
+moved {
+  from = aws_ecs_service.dagster
+  to   = aws_ecs_service.dagster["daemon"]
+}
+
+moved {
+  from = aws_cloudwatch_metric_alarm.dagster_not_running
+  to   = aws_cloudwatch_metric_alarm.dagster_not_running["daemon"]
+}
+
 resource "aws_ecs_service" "dagster" {
-  name                   = local.dagster.service
-  cluster                = aws_ecs_cluster.platform.id
-  task_definition        = aws_ecs_task_definition.dagster.arn
-  desired_count          = 1
-  launch_type            = "FARGATE"
-  platform_version       = "LATEST"
-  enable_execute_command = true
-  propagate_tags         = "SERVICE"
-  # One daemon at a time: a deploy stops the old task before it starts the new one.
-  deployment_minimum_healthy_percent = 0
-  deployment_maximum_percent         = 100
+  for_each                           = local.dagster.services
+  name                               = each.value.name
+  cluster                            = aws_ecs_cluster.platform.id
+  task_definition                    = aws_ecs_task_definition.dagster[each.key].arn
+  desired_count                      = 1
+  launch_type                        = "FARGATE"
+  platform_version                   = "LATEST"
+  enable_execute_command             = true
+  propagate_tags                     = "SERVICE"
+  deployment_minimum_healthy_percent = local.dagster_processes[each.key].minimum_healthy_percent
+  deployment_maximum_percent         = local.dagster_processes[each.key].maximum_percent
   deployment_circuit_breaker {
     enable   = true
     rollback = true
@@ -413,13 +451,14 @@ resource "aws_sns_topic" "alarms" {
 }
 
 # ECS publishes a running service's CPU every minute; with no task there is no datapoint, which counts
-# as breaching. So the alarm fires when Dagster has not run for ten minutes, whatever stopped it.
+# as breaching. So an alarm fires when its process has not run for ten minutes, whatever stopped it.
 resource "aws_cloudwatch_metric_alarm" "dagster_not_running" {
-  alarm_name          = "perfectory-platform-dagster-not-running"
-  alarm_description   = "The Dagster service (webserver and daemon) has had no running task for 10 minutes."
+  for_each            = local.dagster.services
+  alarm_name          = "perfectory-platform-dagster-${each.key}-not-running"
+  alarm_description   = "The Dagster ${each.key} (service ${each.value.name}) has had no running task for 10 minutes."
   namespace           = "AWS/ECS"
   metric_name         = "CPUUtilization"
-  dimensions          = { ClusterName = aws_ecs_cluster.platform.name, ServiceName = aws_ecs_service.dagster.name }
+  dimensions          = { ClusterName = aws_ecs_cluster.platform.name, ServiceName = aws_ecs_service.dagster[each.key].name }
   statistic           = "SampleCount"
   period              = 300
   evaluation_periods  = 2
@@ -453,8 +492,8 @@ output "ecs_cluster" {
   value = aws_ecs_cluster.platform.name
 }
 
-output "dagster_service" {
-  value = aws_ecs_service.dagster.name
+output "dagster_services" {
+  value = { for process, service in aws_ecs_service.dagster : process => service.name }
 }
 
 output "alarm_topic_arn" {
