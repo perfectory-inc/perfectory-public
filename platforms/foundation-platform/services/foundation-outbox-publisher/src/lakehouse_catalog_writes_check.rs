@@ -25,8 +25,9 @@ use std::{
 use anyhow::{bail, ensure, Context};
 use arrow_array::{ArrayRef, Int64Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
-use foundation_publisher_core::lakehouse_data_commit::{
-    AppendOutcome, DataAppend, LakehouseDataCommitter, StagedFile,
+use foundation_publisher_core::{
+    lakehouse_data_commit::{AppendOutcome, DataAppend, LakehouseDataCommitter, StagedFile},
+    lakehouse_rest_catalog,
 };
 use lakehouse_domain::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
@@ -198,8 +199,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let staging = tempfile::tempdir()?;
     let table = settings.table.as_str();
 
-    let committer = match LakehouseDataCommitter::open(settings.vended()).await {
-        Ok(committer) => committer,
+    let committer = match lakehouse_rest_catalog::open(settings.vended()).await {
+        Ok(catalog) => LakehouseDataCommitter::new(catalog),
         Err(error) => {
             checks.record(
                 "open the catalog with client credentials and no storage key",
@@ -299,9 +300,9 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let mut wrong = settings.vended();
     wrong.insert("s3.access-key-id".to_owned(), WRONG_KEY_ID.to_owned());
     wrong.insert("s3.secret-access-key".to_owned(), WRONG_SECRET.to_owned());
-    let refused = match LakehouseDataCommitter::open(wrong).await {
-        Ok(committer) => append(
-            &committer,
+    let refused = match lakehouse_rest_catalog::open(wrong).await {
+        Ok(catalog) => append(
+            &LakehouseDataCommitter::new(catalog),
             staging.path(),
             table,
             &format!("t8-{run_id}-3"),

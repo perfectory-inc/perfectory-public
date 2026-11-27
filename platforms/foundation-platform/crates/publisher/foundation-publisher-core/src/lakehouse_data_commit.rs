@@ -38,10 +38,8 @@ use iceberg::{
     table::Table,
     transaction::{ApplyTransactionAction, Transaction},
     transform::create_transform_function,
-    Catalog, CatalogBuilder, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
+    Catalog, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
 };
-use iceberg_catalog_rest::RestCatalogBuilder;
-use iceberg_storage_opendal::OpenDalStorageFactory;
 use lakehouse_domain::LakehouseTableContract;
 use lakehouse_infrastructure::{IcebergSnapshotManifestList, LakehouseCatalogConfig};
 use parquet::{
@@ -323,27 +321,9 @@ impl LakehouseDataCommitter {
         if let Some(token) = catalog.catalog_token {
             properties.insert("token".to_owned(), token);
         }
-        Self::open(properties).await
-    }
-
-    /// Commits through the REST catalog `properties` name, in iceberg-rust's own words (`uri`,
-    /// `warehouse`, `token`, or `credential` with `oauth2-server-uri` and `scope`, and `s3.*`
-    /// settings), writing through `OpenDAL`. With no `s3.*` key of its own a table's files are
-    /// written with the credential the catalog vends for that table on load; a key given here wins
-    /// over the vended one (iceberg-catalog-rest 0.11 `load_table` lays these properties over the
-    /// table's config), so a vending catalog is opened with none (root ADR-0624).
-    ///
-    /// # Errors
-    /// Returns the catalog's refusal of the configuration.
-    pub async fn open(properties: HashMap<String, String>) -> anyhow::Result<Self> {
-        let catalog = RestCatalogBuilder::default()
-            .with_storage_factory(Arc::new(OpenDalStorageFactory::S3 {
-                customized_credential_load: None,
-            }))
-            .load("lakehouse", properties)
-            .await
-            .context("failed to open the lakehouse REST catalog for data commits")?;
-        Ok(Self::new(Arc::new(catalog)))
+        Ok(Self::new(
+            crate::lakehouse_rest_catalog::open(properties).await?,
+        ))
     }
 
     /// Creates `contract`'s table when the catalog does not hold it yet, as Spark's
