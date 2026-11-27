@@ -128,9 +128,10 @@
     "state_reason": "A collector keeps state between runs in its state dir (onbid state.json with the KST day's call budget, rt.molit state.json with its 90-a-day count, data.go.kr accepted.json and past.json, juso cursor.json), and a task's disk ends with its run. So the state is one R2 object per lane per run (root ADR-0616 §8 C, its third kind: one R2 object; coordinator 2026-11-27): <state_prefix><lane>/aws/<UTC time>-<run id>.tar.gz, written after every run that started its command and never overwritten (append-only); a run reads the newest. A lane with none of its own starts from the newest <state_prefix><lane>/host/ object, which the host copy of the collector writes after each of its runs (scripts/ops/collector-state-publish.sh); with neither it asks its source nothing. A collector never starts from empty state: that would ask its whole history again and, for a quota source, spend the day's budget twice. The vendor grants each lane <state_prefix><lane>/ beside its write prefixes, generated from the lane's id, never declared per lane.",
     "size_classes": {
       "small": { "cpu": 256, "memory": 1024 },
-      "medium": { "cpu": 512, "memory": 4096 }
+      "medium": { "cpu": 512, "memory": 4096 },
+      "large": { "cpu": 1024, "memory": 6144 }
     },
-    "size_reason": "Fargate ARM sizes by root ADR-0574's rule (limit >= 1.5 x the measured peak), from the host units' systemd `memory peak` and cAdvisor, 7 days to 2026-11-27 (W110 survey): rt.molit 308 MiB, pension workplace 0.45 GiB, juso 0.05 GiB -> small (0.25 vCPU, 1 GB); employment insurance workplace 1.43 GiB, onbid 2.29 GiB -> medium (0.5 vCPU, 4 GB, the most Fargate gives 0.5 vCPU). Every collector averaged under 0.1 core on the host. Measure the AWS runs and change a lane's size here.",
+    "size_reason": "Fargate ARM sizes by root ADR-0574's rule (limit >= 1.5 x the measured peak), from the host units' systemd `memory peak` over the 14 days to 2026-11-27 (journal, read-only): rt.molit 460 MiB -> small (0.25 vCPU, 1 GB); pension and employment insurance workplace 1.7 GB each (the run that lands earlier editions holds one file and its copy) -> medium (0.5 vCPU, 4 GB, the most Fargate gives 0.5 vCPU); onbid and juso 2.6 GB each -> large (1 vCPU, 6 GB): 1.5 x 2.6 is 3.9 GB, and onbid's one daily run does what 24 hourly runs did. cAdvisor's 7-day unit figures (0.45 GiB for pension, 0.05 GiB for juso) were below these and are not the size. Every collector averaged under 0.1 core on the host. Measure the AWS runs and change a lane's size here.",
     "handover_reason": "Root ADR-0616 §7 (coordinator 2026-11-27). overlap: the host copy keeps running beside the AWS lane until the AWS lane's checks have passed for three days; both write Bronze and the objects dedupe by content key (a create-only write that meets the same bytes records its ledger row, root ADR-0016). handoff (a provider quota, so never two copies at once): the AWS lane runs only while its job is off on the host in the same release (orchestration/jobs.v1.json, job_specs.runs_on_host false), so the one switch that turns the host copy off turns the AWS lane on, and its first run starts from the host's last state object.",
     "source_secrets": {
       "DATA_GO_KR_SERVICE_KEY": "data-go-kr-service-key",
@@ -168,7 +169,7 @@
         "command": "collect-data-go-kr-onbid",
         "env_prefix": "FOUNDATION_PLATFORM_DATA_GO_KR_ONBID",
         "beat": "data-go-kr-onbid.contract.json#/beat",
-        "size": "medium",
+        "size": "large",
         "handover": "handoff",
         "secrets": ["DATA_GO_KR_SERVICE_KEY"],
         "environment": {},
@@ -203,7 +204,7 @@
         "command": "collect-data-go-kr-file-data",
         "env_prefix": "FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA",
         "beat": "data-go-kr-file-data.contract.json#/files/pension_workplace/beat",
-        "size": "small",
+        "size": "medium",
         "handover": "overlap",
         "secrets": [],
         "environment": {"DATASETS": "pension_workplace"},
@@ -217,7 +218,7 @@
         "command": "collect-juso-electronic-map",
         "env_prefix": "FOUNDATION_PLATFORM_JUSO_ELECTRONIC_MAP",
         "beat": "juso-electronic-map.contract.json#/beat",
-        "size": "small",
+        "size": "large",
         "handover": "overlap",
         "secrets": ["FOUNDATION_PLATFORM_JUSO_APP_KEY"],
         "environment": {},
