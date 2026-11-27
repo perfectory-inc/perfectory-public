@@ -16,7 +16,8 @@ platform="$here/../../config/aws-platform.contract.json"
 name="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["name"])' "$contract")"
 region="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["region"])' "$platform")"
 account="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["account"]["id"])' "$platform")"
-[ "$(aws sts get-caller-identity --query Account --output text)" = "$account" ] || { echo "not the rig's account" >&2; exit 2; }
+caller="$(aws sts get-caller-identity --query Account --output text)"
+[ "$caller" = "$account" ] || { echo "not the rig's account" >&2; exit 2; }
 
 principal="$1"
 shift
@@ -38,7 +39,9 @@ printf '{"probe": "%s", "step": %s, "task": "%s"}\n' "$principal" "$command_json
 
 # Wait until it stops (a step is minutes at most; the expiry step waits for a 5-minute token).
 deadline=$((SECONDS + 20 * 60))
-until [ "$(aws ecs describe-tasks --region "$region" --cluster "$name" --tasks "$task" --query 'tasks[0].lastStatus' --output text)" = STOPPED ]; do
+while :; do
+  status="$(aws ecs describe-tasks --region "$region" --cluster "$name" --tasks "$task" --query 'tasks[0].lastStatus' --output text)"
+  [ "$status" = STOPPED ] && break
   ((SECONDS < deadline)) || { echo "probe $id still running after 20 minutes" >&2; exit 3; }
   sleep 10
 done
