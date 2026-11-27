@@ -1,6 +1,11 @@
 {
   "$comment": "Root ADR-0280. How 차세대 온비드 (KAMCO Onbid) public-auction data is fetched from data.go.kr, what a response must look like, and the call budget. The collector (`collect-data-go-kr-onbid` in services/foundation-outbox-publisher), the Silver load (infra/lakehouse/spark/jobs/data_go_kr_onbid.py) and their tests read this file; nothing else restates these values. The service key is the platform's DATA_GO_KR_SERVICE_KEY and is never written here or into Bronze (the request fingerprint drops it). Measured 2026-10-19: every list item carries a 19-digit ltnoPnu; about 78,400 real-estate items are open (pvctTrgtYn N about 61,600, Y about 16,800); one full item pass is about 95 calls and 137 MB of JSON, 8.8 MB gzipped.",
   "version": 1,
+  "beat": {
+    "cron": "10 15 * * *",
+    "timezone": "UTC",
+    "reason": "Once a day like every collector (owner decision 2026-11-27, after the check the owner asked for on 2026-11-26), at 00:10 KST, just after the KST day the call budget counts (daily_call_limit_per_api). The owner accepts the rounds a daily read never sees: a round leaves the item list when its bidding ends and a round the list never showed is never asked at item_bid_result, so a round listed under a day is lost for good. Measured in Silver 2026-11-27 (rounds first listed 11-10..11-26 that had ended): 12 of 2,227 rounds (0.54 %) were listed under 24 h, 9 under 12 h; median 167.7 h. The bid results of the rounds it does see are not lost: a closed round is asked after it closes (pending_results). On the host the job ran hourly with a full list pass every 3 hours (item_list.every_hours)."
+  },
   "base_url": "https://apis.data.go.kr/B010003",
   "user_agent": "foundation-platform-onbid-collector/1 (+root ADR-0280)",
   "request_spacing_ms": 500,

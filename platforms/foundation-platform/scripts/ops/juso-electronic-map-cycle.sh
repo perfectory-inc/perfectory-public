@@ -21,6 +21,8 @@ shopt -s inherit_errexit
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
+# After every run the state goes to R2 for the AWS lane of this job (config/aws-platform.contract.json collect.lanes).
+source "$(dirname "${BASH_SOURCE[0]}")/collector-state-publish.sh"
 
 STATE_ROOT="${FOUNDATION_JUSO_ELECTRONIC_MAP_STATE_ROOT:-/var/lib/foundation-platform/juso-electronic-map}"
 CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/juso-electronic-map.contract.json"
@@ -62,6 +64,7 @@ fi
 mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "juso electronic map FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
+trap 'collector_state_publish juso_electronic_map "${STATE_ROOT}/collector" "${work}"' EXIT
 
 # 2. 수집. 거부·실패는 수집기가 0 이 아닌 값으로 끝내고, 받은 것까지는 manifest 에 남는다.
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \

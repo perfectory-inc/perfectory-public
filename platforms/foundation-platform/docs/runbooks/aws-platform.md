@@ -39,7 +39,7 @@ export AWS_PROFILE=perfectory-platform-prod-admin
 export TF_DATA_DIR="$HOME/.cache/perfectory/tofu/aws-platform"
 # 1) 계정 확인: 계약의 account.id 가 아니면 여기서 멈춘다(공급자의 allowed_account_ids 가 같은 것을 다시 막는다).
 test "$(aws sts get-caller-identity --query Account --output text)" = \
-     "$(python3 -c 'import json;print(json.load(open("../../config/aws-platform.contract.json"))["account"]["id"])')"
+     "$(python3 -c 'import json;print(json.load(open("../../config/aws-platform.contract.json", encoding="utf-8"))["account"]["id"])')"
 # 2) 예산 메일 주소: 계정의 등록 주소를 JSON 목록으로. 화면 기록·파일에 남기지 않는다.
 export TF_VAR_budget_alert_emails='["<계정의 등록 주소>"]'
 # 3) VPC 의 주소 블록: VPC 가 있으면 AWS 에서 읽어 온다(공개 저장소에는 사설 주소를 적지 않는다).
@@ -155,35 +155,53 @@ Slack 이 앱 승인을 요구하면 작업 공간 관리자가 승인한다. �
 
 ## 자격 발급 창구 (레이크하우스 자격, ADR-0623 §2)
 
-AWS 의 일이 레이크하우스(R2)에 닿는 길은 함수 하나다(`tofu output -raw credential_vendor`). Cloudflare 토큰 둘은 그 함수만 읽는다.
+AWS 의 일이 레이크하우스(R2)에 닿는 길은 함수 하나다(`tofu output -raw credential_vendor`). Cloudflare 토큰은 그 함수만 읽는다.
 레인마다 그 함수의 alias 와 run 역할이 하나씩 있다(`tofu output lane_roles`, 경로 `/perfectory-platform/run/`). 레인의 run 은 제 alias 만 부른다.
 
-- `pin`: run 마다 한 번 부른다. 레인이 읽는 표들의 현재 스냅숏을 준다(`metadata_location`·manifest list). run 은 끝까지 그 스냅숏을 읽는다.
-- `credentials`: R2 임시 자격 증명과 만료(`expiration`)를 준다. 쓰기는 레인의 쓰기 접두사에만, 읽기는 그 표들의 위치에만 된다.
-  유효 시간은 계약의 `collect.credential_ttl_seconds` 하나다. 범위가 비면 거부하고, 버킷 전체로 넓히지 않는다.
+- `credentials` 한 가지다: R2 임시 자격 증명과 만료(`expiration`). 쓰기는 레인의 쓰기 접두사와 제 상태 접두사(`collector-state/<레인>/`)에만,
+  읽기는 레인이 적은 읽기 접두사에만 된다. 유효 시간은 계약의 `collect.credential_ttl_seconds` 하나다. 범위가 비면 거부하고, 버킷 전체로 넓히지 않는다.
+- 객체 절반만 있다(코디네이터 2026-11-27). 표를 읽는 길(`pin`, 카탈로그 토큰)은 없다: 카탈로그 결정(ADR-0624)을 기다린다.
 - 접근은 태스크가 끝나고 한 유효 시간 안에 끝난다. 한 자격을 일찍 철회하는 길은 R2 에 없다.
 
-### 사장이 한 번 하는 것: Cloudflare 토큰 둘을 넣기
+### 사장이 한 번 하는 것: 토큰과 원천 키 넣기
 
-토큰 둘은 코디네이터가 Cloudflare 에서 AWS 전용으로 만든다.
-- 민팅: `Workers R2 Storage Bucket Item Write`, 레이크하우스 버킷 하나.
-- 카탈로그 읽기: `Workers R2 Data Catalog Read` + `Workers R2 Storage Bucket Item Read`, 같은 버킷.
+값은 사장이 노트북의 **새 PowerShell 창**에서 넣는다. 값은 화면·명령 기록·디스크에 남지 않는다. 따옴표가 없어 PowerShell 5.1 이 그대로 넘긴다.
+슬롯마다 제 정책이 다른 모든 주체의 읽기를 거부한다(적용하는 관리자도 `AccessDeniedException`).
 
-그 값을 넣는 것은 사장이 노트북의 PowerShell 에서 한다. 값은 화면·명령 기록·디스크에 남지 않는다.
-비밀 이름은 `tofu output credential_vendor_secrets` 와 같다. 민팅 비밀은 `<계정 ID>:<토큰>` 한 줄이다. 따옴표가 없어 PowerShell 5.1 이 그대로 넘긴다.
+1. 민팅 토큰(발급 창구만 읽는다): Cloudflare 계정 API 토큰 `perfectory-r2-vend-prod`, 권한 **R2 Admin Read & Write**(R2 의 임시 자격 끝점이
+   이것만 받는다). 기존 `CLOUDFLARE_API_TOKEN` 이나 Lakekeeper dev 토큰은 쓰지 않는다. 비밀은 `<계정 ID>:<Token value>` 한 줄이다
+   (Access Key ID·Secret Access Key 는 넣지 않는다: 창구가 토큰의 id 를 Cloudflare 의 확인 끝점에서 읽는다).
 
 ```powershell
-$account = Read-Host 'Cloudflare 계정 ID'
-$secure = Read-Host '민팅 토큰' -AsSecureString
-$value = $account + ':' + [System.Net.NetworkCredential]::new('', $secure).Password
+$account = Read-Host 'Cloudflare account ID'
+$token = Read-Host 'perfectory-r2-vend-prod Token value' -AsSecureString
+$value = $account + ':' + [System.Net.NetworkCredential]::new('', $token).Password
 aws secretsmanager put-secret-value --profile perfectory-platform-prod-admin --region ap-northeast-2 --secret-id perfectory-platform/r2-mint-token --secret-string $value --query VersionId --output text
-$secure = Read-Host '카탈로그 읽기 토큰' -AsSecureString
-$value = [System.Net.NetworkCredential]::new('', $secure).Password
-aws secretsmanager put-secret-value --profile perfectory-platform-prod-admin --region ap-northeast-2 --secret-id perfectory-platform/r2-catalog-reader-token --secret-string $value --query VersionId --output text
-Remove-Variable value, secure, account
+Remove-Variable value, token, account
 ```
 
-넣기 전에는 함수가 `inert` 라고 답한다. 레인은 그것을 실패하는 검사로 보인다. 토큰을 바꿀 때도 같은 명령이다. 다음 부름부터 새 값을 쓴다.
+2. 원천 키(그 키를 읽는 레인의 역할만 읽는다; 슬롯 이름은 `tofu output source_secrets`, 계약 `collect.source_secrets`):
+   `perfectory-platform/source/data-go-kr-service-key`(온비드, 호스트의 `DATA_GO_KR_SERVICE_KEY`),
+   `perfectory-platform/source/juso-app-key`(주소 전자지도, 호스트의 `FOUNDATION_PLATFORM_JUSO_APP_KEY`). 슬롯마다 같은 꼴이다:
+
+```powershell
+$key = Read-Host 'source key' -AsSecureString
+$value = [System.Net.NetworkCredential]::new('', $key).Password
+aws secretsmanager put-secret-value --profile perfectory-platform-prod-admin --region ap-northeast-2 --secret-id perfectory-platform/source/data-go-kr-service-key --secret-string $value --query VersionId --output text
+Remove-Variable value, key
+```
+
+넣기 전에는 창구가 `inert` 라고 답하고, 원천 키가 빈 레인은 원천에 묻지 않는다. 둘 다 그 레인의 검사 `ready` 가 실패로 보인다(무엇을 기다리는지
+이름을 단다). 바꿀 때도 같은 명령이다. 다음 부름부터 새 값을 쓴다.
+
+### 수집 레인 (ADR-0616 A3)
+
+- 레인은 계약의 `collect.lanes` 하나다: 발행기 명령, 환경 접두사, 박자(원천 계약의 `beat` 를 가리킨다), 크기 등급, 넘기는 법, 범위.
+  자산은 `collect/<작업>`, 검사는 `ready`·`collected`, 센서는 `<작업>_automation` 이다. 레인마다의 코드는 없다.
+- 상태: run 마다 `collector-state/<레인>/aws/<UTC 시각>-<run id>.tar.gz`(덮어쓰지 않는다). 제 것이 없으면 호스트 쪽이 run 마다 쓰는
+  `collector-state/<레인>/host/` 의 가장 새것에서 시작하고, 둘 다 없으면 묻지 않는다.
+- `handoff` 레인(온비드, 실거래)은 그 작업이 호스트에서 꺼진 릴리스에서만 AWS 에 정의된다. 작업 정의의 `enabled: false` 하나가 양쪽을 바꾼다.
+- 첫 run 은 박자의 다음 틱이다(조건은 이미 지난 틱을 처리하지 않는다).
 
 ### 확인과 비상
 

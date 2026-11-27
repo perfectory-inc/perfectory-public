@@ -91,7 +91,7 @@ class OnbidCommands(unittest.TestCase):
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
         for name in ("onbid-collect.sh", "onbid-silver-load.sh", "admitted-writer-runtime.sh", "job-journal.sh",
-                     "database-url.sh"):
+                     "database-url.sh", "collector-state-publish.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         contracts = release / "infra/lakehouse/contracts"

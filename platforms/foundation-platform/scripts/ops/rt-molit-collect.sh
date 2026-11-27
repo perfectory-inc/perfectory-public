@@ -19,6 +19,8 @@ set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
+# After every run the state goes to R2 for the AWS lane of this job (config/aws-platform.contract.json collect.lanes).
+source "$(dirname "${BASH_SOURCE[0]}")/collector-state-publish.sh"
 
 # 0. 부작용 전에 전부 확인한다(루트 ADR-0152).
 required_env=(
@@ -49,6 +51,7 @@ work="${STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "rt.molit collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
+trap 'collector_state_publish rt_molit_real_transaction_collect "${STATE_ROOT}/collector" "${work}"' EXIT
 
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
   "${PUBLISHER_BIN}" collect-rt-molit-real-transaction >> "${run_log}" 2>&1

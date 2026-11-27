@@ -37,6 +37,9 @@ COPY definitions /opt/foundation-platform/current/definitions
 COPY contracts /opt/foundation-platform/current/contracts
 COPY infra/lakehouse/contracts /opt/foundation-platform/current/infra/lakehouse/contracts
 COPY docs/catalog /opt/foundation-platform/current/docs/catalog
+# job_specs (orchestration/dags) imports it: a lane reads whether its job runs on the host through
+# job_specs.runs_on_host, the host's one answer (aws/collect_lane.py lanes_here, root ADR-0625).
+COPY infra/datahub/dataset_names.py /opt/foundation-platform/current/infra/datahub/dataset_names.py
 # The instance on AWS (root ADR-0616 A1): Postgres storage, EcsRunLauncher; the workspace is aws/workspace.yaml.
 COPY orchestration/dagster/aws/dagster.yaml /opt/dagster/home/dagster.yaml
 

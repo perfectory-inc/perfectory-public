@@ -1,19 +1,17 @@
 """The credential vendor (root ADR-0623 §2): the one way an AWS job reaches the lakehouse, the way Lake Formation
 or Unity Catalog vend scoped credentials.
 
-This function alone reads the two Cloudflare tokens (its own execution role, infra/aws/collect.tf). A lane's run
-invokes it through that lane's alias, which its task role alone may invoke: the lane is the alias, never the
-request body (§2-2). Two calls, both with the run's id:
+This function alone reads the minting token (its own execution role, infra/aws/collect.tf; the token's slot
+refuses every other reader). A lane's run invokes it through that lane's alias, which its task role alone may
+invoke: the lane is the alias, never the request body (§2-2). One call, `credentials`, with the run's id: R2
+temporary credentials, object read-write on the lane's write prefixes (its Bronze and media prefixes and its own
+state prefix, infra/aws/collect.tf) and, for a lane that reads another source's objects, object read-only on its
+read prefixes, for the platform's one lifetime (CREDENTIAL_TTL_SECONDS).
 
-- `pin`, once per run: for each table the lane reads, its current snapshot (`snapshot_id`,
-  `snapshot_timestamp_ms`, `manifest_list_location`, `metadata_location`; null for a table with none). The run
-  reads those snapshots to its end (the publisher's `vended` catalog provider; a DuckDB stage's `iceberg_scan` on
-  the metadata location). Fetching credentials again never moves it (§2-4).
-- `credentials`, at the start and, from step two, whenever they near their `expiration`: R2 temporary
-  credentials, object read-write on the lane's write prefixes and object read-only on its tables' locations
-  only, for the platform's one lifetime (CREDENTIAL_TTL_SECONDS).
+Only the object half is here (coordinator 2026-11-27): no lane reads a table, so there is no `pin` and no catalog
+token. Which tables a lane may read, and at which snapshot, waits for the catalog decision (root ADR-0624).
 
-A scope that is empty is refused, never widened to the bucket (§2-3). Before the owner has placed a token the
+A scope that is empty is refused, never widened to the bucket (§2-3). Before the owner has placed the token the
 answer is `{"inert": "<secret>"}`. Each call writes one log line, the lane, the run, the call and the expiry,
 never a value (§2-7).
 """
@@ -22,10 +20,9 @@ import datetime
 import json
 import os
 
-import iceberg_catalog
 import r2_credentials
 
-CALLS = ("pin", "credentials")
+CALLS = ("credentials",)
 
 
 class Refused(Exception):
@@ -51,60 +48,36 @@ def lane_of(invoked_function_arn, lanes, asked=None):
     return alias
 
 
-def location_prefix(location, bucket):
-    """The key prefix of a table's storage location, which must be in the lakehouse bucket."""
-    scheme_bucket = f"s3://{bucket}/"
-    if not location.startswith(scheme_bucket) or len(location) <= len(scheme_bucket):
-        raise Refused(f"a table location outside {bucket}")
-    return location[len(scheme_bucket):].rstrip("/") + "/"
-
-
-def minting(secrets):
-    """(account id, minting token, catalog token), or None while one is not placed; and what is missing."""
-    mint_value, catalog_token = secrets
+def minting(mint_value):
+    """(account id, minting token), or None while it is not placed; and what is missing."""
     if not mint_value:
         return None, "r2-mint-token"
-    if not catalog_token:
-        return None, "r2-catalog-reader-token"
     account, separator, token = mint_value.partition(":")
     if not separator or not account or not token:
         return None, "r2-mint-token (not <account id>:<token>)"
-    return (account, token, catalog_token), None
+    return (account, token), None
 
 
-def resolve(lane, account, bucket, catalog_token, get):
-    """{table: {location, snapshot}} for the tables the lane reads."""
-    if not lane["read_tables"]:
-        return {}
-    uri, warehouse = iceberg_catalog.catalog_uri(account, bucket)
-    catalog_prefix = iceberg_catalog.prefix(catalog_token, uri, warehouse, get)
-    return {table: iceberg_catalog.current(catalog_token, account, bucket, table, get, catalog_prefix)
-            for table in lane["read_tables"]}
-
-
-def vend(lane_name, call_name, lanes, bucket, ttl_seconds, secrets, now=None, call=None, get=None):
+def vend(lane_name, call_name, lanes, bucket, ttl_seconds, mint_value, now=None, call=None):
     """The answer for one call of lane `lane_name`."""
     if call_name not in CALLS:
-        raise Refused(f"no call {call_name!r}")
+        raise Refused(f"no call {call_name!r}: this vendor serves objects only (root ADR-0624 decides tables)")
     lane = lanes[lane_name]
     if not lane.get("write_prefixes"):
         raise Refused(f"{lane_name} has no write prefix")
-    held, missing = minting(secrets)
+    if lane.get("read_tables"):
+        raise Refused(f"{lane_name} names tables: the table half waits for the catalog decision (root ADR-0624)")
+    held, missing = minting(mint_value)
     if held is None:
         return {"inert": missing}
-    account, token, catalog_token = held
+    account, token = held
     call = call or r2_credentials.cloudflare
-    get = get or iceberg_catalog.http
-    tables = resolve(lane, account, bucket, catalog_token, get)
-    if call_name == "pin":
-        return {"account_id": account, "bucket": bucket,
-                "tables": {table: resolved["snapshot"] for table, resolved in tables.items()}}
-    read_prefixes = [location_prefix(resolved["location"], bucket) for resolved in tables.values() if resolved["location"]]
     parent = r2_credentials.token_id(token, account, call)
     issued = now or datetime.datetime.now(datetime.timezone.utc)
     expiration = (issued + datetime.timedelta(seconds=ttl_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
     writer = r2_credentials.mint(token, account, bucket, "object-read-write", lane["write_prefixes"], ttl_seconds,
                                  call, parent)
+    read_prefixes = lane.get("read_prefixes") or []
     reader = (r2_credentials.mint(token, account, bucket, "object-read-only", read_prefixes, ttl_seconds, call, parent)
               if read_prefixes else None)
     return {"account_id": account, "bucket": bucket, "expiration": expiration,
@@ -125,12 +98,10 @@ def handler(event, context):
             raise Refused("no run id")
         client = boto3.client("secretsmanager")
         answer = vend(lane, call_name, lanes, os.environ["BUCKET"], int(os.environ["CREDENTIAL_TTL_SECONDS"]),
-                      (secret(client, os.environ["MINT_SECRET"]), secret(client, os.environ["CATALOG_SECRET"])))
+                      secret(client, os.environ["MINT_SECRET"]))
         record.update({key: answer[key] for key in ("inert", "expiration") if key in answer})
-        if "tables" in answer:
-            record["tables"] = len(answer["tables"])
         return answer
-    except (Refused, r2_credentials.MintError, iceberg_catalog.CatalogError) as error:
+    except (Refused, r2_credentials.MintError) as error:
         # The message names the lane, the HTTP status and Cloudflare's codes, never a value.
         record["refused"] = str(error)
         return {"refused": str(error)}
