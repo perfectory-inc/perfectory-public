@@ -198,8 +198,11 @@ class TheHostScope(unittest.TestCase):
         self.assertNotIn("enabled_since", view["gold_panel_rebuild"])
         self.assertTrue(view["court_auction_collect"]["enabled"])
         self.assertNotIn("host_scope_off", view["court_auction_collect"])
-        # The reconciler stays and reconciles none of the derived jobs it did.
-        self.assertEqual(view["asset_reconcile"]["reconciles"], [])
+        # The reconciler stays, its list as written, and the copy is still a valid job list: the
+        # reconciler reads its job nodes from it (2026-11-27 06:30Z: an emptied list failed every tick).
+        self.assertEqual(view["asset_reconcile"]["reconciles"],
+                         next(job for job in self.jobs["jobs"] if job["id"] == "asset_reconcile")["reconciles"])
+        job_specs.job_nodes(job_specs.on_host(collection, self.graph), self.graph)
         # A job that is off and derived is still out: an operator's run-now of it is refused.
         self.assertTrue(view["parcel_tile_bake"]["host_scope_off"])
         self.assertEqual(job_specs.on_host(dict(self.jobs, host_scope="all"))["jobs"],
