@@ -191,7 +191,7 @@ def step_authz(expect_role_create):
     """T7 without storage: what this principal may do in the default project, decided by OpenFGA."""
     jwt = my_token()
     status, kind, body = call("GET", "/management/v1/project/actions", jwt)
-    emit(note="project actions", status=status, error=kind, actions=sorted((body or {}).get("allowed-actions", [])))
+    emit(note="project actions", status=status, error=kind, actions=(body or {}).get("allowed-actions", []))
     status, kind, _ = call("POST", "/management/v1/project", jwt, {"project-name": f"probe-{PRINCIPAL}-{int(time.time())}"})
     check("create project", 403, status, error=kind)
     status, kind, _ = call("POST", "/management/v1/server/grants", jwt, {"writes": [
@@ -358,6 +358,11 @@ def warehouse():
     return json.loads(os.environ["WAREHOUSE"])
 
 
+def object_key(rest):
+    """The object key of <key prefix>/<rest> in the warehouse's bucket."""
+    return f"{root()}/{rest}".split(f"s3://{warehouse()['bucket']}/", 1)[1]
+
+
 def root():
     """s3://<bucket>/<key prefix>: where the warehouse's namespaces and tables live (decision 2, 2026-11-27: a
     tables-only key prefix, so no location outside it can hold a table)."""
@@ -475,7 +480,9 @@ def step_lake_setup():
         for name, privilege in tables.items():
             status, kind, _ = call("POST", f"/management/v1/permissions/warehouse/{wid}/table/{ids[name]}/assignments", jwt,
                                    {"writes": [{"type": privilege, "user": user_id(lane)}]})
-            check(f"grant {privilege} on silver.{name} to {lane}", 204, status, error=kind)
+            # A rerun (the upgrade canary) finds the grant there: the same end state.
+            granted = "already" if status == 409 and kind == "TupleAlreadyExistsError" else status
+            check(f"grant {privilege} on silver.{name} to {lane}", [204, "already"], granted, error=kind)
 
 
 def step_lake_scope(canary=None):
@@ -493,17 +500,17 @@ def step_lake_scope(canary=None):
     bucket = warehouse()["bucket"]
     writer = DECLARED.get(PRINCIPAL, {}).get("w109_smoke") == "write"
     metadata_key = body["metadata-location"].split(f"s3://{bucket}/", 1)[1]
-    probe_key = f"silver/w109_smoke/data/w109-probe-{time.time_ns()}.txt"
+    probe_key = object_key(f"silver/w109_smoke/data/w109-probe-{time.time_ns()}.txt")
     check("GET the table's metadata", 200, s3_status(lambda: s3.get_object(Bucket=bucket, Key=metadata_key)))
-    check("LIST the table's own prefix", 200, s3_status(lambda: s3.list_objects_v2(Bucket=bucket, Prefix="silver/w109_smoke/")))
+    check("LIST the table's own prefix", 200, s3_status(lambda: s3.list_objects_v2(Bucket=bucket, Prefix=object_key("silver/w109_smoke/"))))
     check("PUT inside the table", 200 if writer else 403,
           s3_status(lambda: s3.put_object(Bucket=bucket, Key=probe_key, Body=b"w109 probe")))
     if writer:
         emit(note="DELETE inside the table with a write credential (R2 cannot forbid it)",
              status=s3_status(lambda: s3.delete_object(Bucket=bucket, Key=probe_key)))
     check("LIST the string-prefix sibling silver/w109_smoke_versions/", 403,
-          s3_status(lambda: s3.list_objects_v2(Bucket=bucket, Prefix="silver/w109_smoke_versions/")))
-    sibling_object = "silver/w109_smoke_versions/metadata/x.json"
+          s3_status(lambda: s3.list_objects_v2(Bucket=bucket, Prefix=object_key("silver/w109_smoke_versions/"))))
+    sibling_object = object_key("silver/w109_smoke_versions/metadata/x.json")
     check("GET in the sibling", 403, s3_status(lambda: s3.get_object(Bucket=bucket, Key=sibling_object)))
     check("LIST the bucket root", 403, s3_status(lambda: s3.list_objects_v2(Bucket=bucket, Delimiter="/")))
     if canary:
@@ -610,15 +617,17 @@ def step_lake_history(commits):
     table.append(rows("history-0"))
     table = cat.load_table("silver.w109_smoke_history")
     first, first_metadata = table.current_snapshot().snapshot_id, table.metadata_location
+    # The rows the first snapshot holds now (a rerun appends to the same table): what reads of it must return later.
+    first_rows = table.scan().to_arrow().num_rows
     tag = f"w109_pin_{int(time.time())}"
     check("tag the first snapshot", 200, outcome(lambda: table.manage_snapshots().create_tag(first, tag).commit()))
     for index in range(1, commits + 1):
         cat.load_table("silver.w109_smoke_history").append(rows(f"history-{index}", start=index))
     table = cat.load_table("silver.w109_smoke_history")
     emit(note="commits made", commits=commits, metadata_log=len(table.metadata.metadata_log))
-    check("read by snapshot id", 1, table.scan(snapshot_id=first).to_arrow().num_rows)
+    check("read by snapshot id", first_rows, table.scan(snapshot_id=first).to_arrow().num_rows)
     pinned = table.metadata.refs.get(tag)
-    check("read by tag", 1, table.scan(snapshot_id=pinned.snapshot_id).to_arrow().num_rows if pinned else None)
+    check("read by tag", first_rows, table.scan(snapshot_id=pinned.snapshot_id).to_arrow().num_rows if pinned else None)
     status, kind, body = load(my_token(), "w109_smoke_history")
     s3 = s3_client(vended_s3(body))
     bucket = warehouse()["bucket"]

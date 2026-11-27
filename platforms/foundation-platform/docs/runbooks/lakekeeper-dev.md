@@ -8,7 +8,7 @@ last_reviewed: 2026-11-27
 # Lakekeeper dev 리그 — 카탈로그 전환 관문 시험을 AWS 의 dev 에서 돌린다
 
 W109(코디네이터 2026-11-27). 사장은 카탈로그의 끝 상태를 자체 호스팅 오픈소스 Lakekeeper 로 정했다(옵션 C, dev 시험이 통과하면).
-이 리그는 그 시험을 돌리는 곳이고 dev 에만 있다. 카탈로그의 결정은 루트 ADR-0624 다. 리그는 T8·T17 이 끝날 때까지 남고, 그동안
+이 리그는 그 시험을 돌리는 곳이고 dev 에만 있다. 카탈로그의 결정은 루트 ADR-0624 다. 리그는 T8·T17 이 끝날 때까지 남고(T17 은 A1 의 운영 리그에서 돈다), 그동안
 업그레이드 카나리아다(코디네이터 결정 6, 아래 "업그레이드 카나리아"): Lakekeeper·OpenFGA 의 새 버전은 여기서 먼저 카나리아를 통과한다.
 
 ## 결론
@@ -111,6 +111,10 @@ Lakekeeper 는 그것을 제 데이터베이스에 암호화해 둔다(`catalog-
 
 Lakekeeper·OpenFGA 의 새 버전은 버전 계약(`tools/technology-versions.contract.json`)에서 바꾸고, 이 리그에 먼저 적용하고(rust 탐침은 그
 버전을 쓸 릴리스의 `code_location_image` 로), `canary.sh` 가 통과해야 다른 곳에 핀한다. 걸음과 기대는 계약의 `upgrade_canary` 다.
+첫 실행(2026-11-27, #1777 병합 커밋의 이미지, 두 번): T13 을 빼고 모든 걸음이 기대대로였다(T31·T36 은 기대한 실패). 첫 번에 탐침이 다시 돌 때의
+버그 넷을 찾아 고쳤다(T3 이미 있는 권한 409, T5 키 접두를 모르는 키, T7 객체인 `allowed-actions` 의 정렬, T33 앞 실행의 행). T13(동시 50)은 공유
+micro 위에서 간헐 실패라(시험 기록의 T13) 지금 카나리아는 T13 에서 실패할 수 있다.
+
 `known_failure` 가 있는 걸음(T31, T36)은 실패가 기대이고 엄격하다: 통과하면 카나리아가 실패한다. T36 이 통과하면 lakekeeper#2217 을 담은
 릴리스가 들어온 것이니 그 버전을 핀하고 그 항목을 지운다(결정 3). T31 이 통과하면 상류가 `write` 를 좁힌 것이니 결정 1 을 다시 본다.
 
@@ -130,7 +134,7 @@ Lakekeeper·OpenFGA 의 새 버전은 버전 계약(`tools/technology-versions.c
 | T11a | 통과 | `lake-drop drop`, `lake-drop purge` | 보호된 표 지우기 거부, 소프트 삭제·목록·복구, 정리 전 같은 이름은 `LocationAlreadyTaken`, 만료 뒤 퍼지 작업이 파일을 지우고 같은 이름이 다시 선다. PyIceberg 는 `purgeRequested=false` 를 보내므로 그때는 파일이 영영 남는다 |
 | T11b | 통과(설정 하나) | `lake-maint setup`, `warehouse-put`, `maintenance`, `warehouse-hash`, `lake-maint verify` | 참조(main·태그·브랜치)가 모두 읽히고 태그 없는 옛 스냅숏이 만료(태그된 스냅숏의 조상도), 표의 고아만 지워지고 형제·`work/`·`bronze/` 의 파일은 해시가 그대로, Spark 의 `DROP … PURGE` 는 소프트 삭제를 거친다. 단 정비 실행기에 `s3.delete-enabled=true` 가 있어야 한다: 없으면 Lakekeeper 가 보낸 false 로 아무것도 지우지 않고 지웠다고 센다 |
 | T12 | 일부 | `lake-refresh` | 자격이 끝나는 시각(3,600 초)과 갱신 끝점이 오고, 갱신 끝점이 같은 표 접두의 자격을 준다. 자격보다 긴 스캔·두 자격에 걸친 멀티파트는 돌리지 않았다 |
-| T13 | 통과(결정 4 뒤) | `lake-mints 100 50`, `lake-mints 200 50` | 처음(OpenFGA 풀 4): 동시 50 은 100 번 모두 503(OpenFGA 의 확인이 DB 연결 4 개에서 3 초 기한을 넘김), 동시 10 은 모두 200. 풀 16·유휴 4(W109b): 조용한 뒤 첫 동시 50 은 100 번 중 49 번 503(연결을 여는 동안 OpenFGA p95 3.3 초), 바로 다음 200 번은 모두 200, 1.8 초(p95 88 ms). 풀 16 을 시작 때 다 열고 두니(`min_open_connections`) 새 태스크의 첫 동시 50 이 100 번 모두 200, 0.7 초, 다음 200 번도 모두 200, 1.8 초. 자격 발급은 어느 경우나 1 번(캐시). 그때 공유 RDS 의 연결 24, 여유 메모리 최저 약 99 MB |
+| T13 | 통과(결정 4 뒤) | `lake-mints 100 50`, `lake-mints 200 50` | 처음(OpenFGA 풀 4): 동시 50 은 100 번 모두 503(OpenFGA 의 확인이 DB 연결 4 개에서 3 초 기한을 넘김), 동시 10 은 모두 200. 풀 16·유휴 4(W109b): 조용한 뒤 첫 동시 50 은 100 번 중 49 번 503(연결을 여는 동안 OpenFGA p95 3.3 초), 바로 다음 200 번은 모두 200, 1.8 초(p95 88 ms). 풀 16 을 시작 때 다 열고 두니(`min_open_connections`) 새 태스크의 첫 동시 50 이 100 번 모두 200, 0.7 초, 다음 200 번도 모두 200, 1.8 초. 자격 발급은 어느 경우나 1 번(캐시). 그때 공유 RDS 의 연결 24, 여유 메모리 최저 약 99 MB. 단 간헐적이다: 업그레이드 카나리아 안의 두 묶음(10:25Z, 11:06Z)은 풀이 이미 열려 있는데도 100 번 중 22 번·9 번 503(OpenFGA p95 3.1 초, RDS 는 1 분 단위로 포화 없음, CPU 크레딧 충분), 따로 돌린 세 묶음은 100/100(1.5·0.8·0.8 초). 공유 micro 위에서 동시 50 은 Lakekeeper 의 약 3 초 권한 기한에 닿을 수 있다: 운영은 제 DB(결정 4), ADR-0624 §7 의 순서, `AuthorizationBackendError` 경보 |
 | T14 | 일부 | `loop`, `lake-commits` + 태스크 멈춤 | 호출 3,992 번 중 1 번, 커밋 129 번 중 4 번 태스크를 멈춰도 실패·중복·누락 0. 전부 내리면 새 호출은 곧바로 실패. 동시 두 쓰기·RDS 장애 조치는 돌리지 않았다(공유 단일 AZ 인스턴스) |
 | T15 | 일부 | `lake-register-from` | 카탈로그가 잃은 표가 metadata.json 하나로 스냅숏·행 그대로 돌아온다. Lakekeeper 에는 `unregister` 가 없다(404). DB 스냅숏 복원·키 없는 비밀 저장소는 돌리지 않았다 |
 | T16 | 통과 | `loop` + v0.15.0→v0.15.1 적용, `lake-commits` + 강제 재배포 | 업그레이드(migrate 뒤 롤링) 동안 호출 9,596 번 실패 0, 롤링 재시작 동안 커밋 155 번 실패 0 |
@@ -140,7 +144,8 @@ Lakekeeper·OpenFGA 의 새 버전은 버전 계약(`tools/technology-versions.c
 | T33 | 통과 | `lake-history 101` | 커밋 101 번 뒤 스냅숏 id·태그로 읽히고, 첫 metadata 파일은 지워져(404) `metadata_location` 고정은 깨진다 |
 | T35 | 통과 | 계획에 `allowall` 또는 `LAKEKEEPER__INSECURE_ALLOW_UNAUTHENTICATED` | 두 경우 모두 `tofu plan` 이 전제 조건으로 멈춘다. 정적 R2 키로 작업이 시작을 거부하는 것은 작업 코드의 일이라 여기 없다 |
 | T36 | 실패 | `lake-escape` | 다른 표의 파일을 가리키는 커밋이 v0.15.1 에서 받아들여진다. 고친 것(lakekeeper#2217, 2026-11-26 닫힘)은 아직 어느 릴리스에도 없다(2026-11-27 확인: 최신 v0.15.1). 결정 3: 그것이 든 첫 릴리스를 나오는 대로 핀하고, 그때까지 쓰는 쪽은 iceberg-rust 이고 표 위치 아래에만 쓴다. 카나리아의 알려진 실패 |
-| T8 | 앞 조건 통과, 본 시험은 릴리스 이미지 뒤 | `lake-vended-keys`, 그다음 `rust check-lakehouse-catalog-writes` | load-table 의 `config` 에 벤딩 자격(키·비밀·세션 토큰), `s3.endpoint`(R2), `s3.region` `apac` 이 있고 경로 방식 키는 없다. iceberg-rust 0.11 은 표의 파일 접근을 `config` 로만 만들고(`storage-credentials` 는 읽기만 하고 쓰지 않는다) 그 위에 사용자 속성을 덮으니, 정적 키를 옆에 두면 그 키가 이긴다(`iceberg-catalog-rest` 0.11 `load_table`). 본 시험은 CI 가 지은 arm64 퍼블리셔(릴리스의 코드 위치 이미지)로 돈다 |
+| T8 | 통과 | `lake-vended-keys`, 그다음 `rust check-lakehouse-catalog-writes`(#1777 병합 커밋 39d0e92c3 의 arm64 코드 위치 이미지, 서명 확인 뒤) | 앞 조건: load-table 의 `config` 에 벤딩 자격(키·비밀·세션 토큰), `s3.endpoint`(R2), `s3.region` `apac` 이 있고 경로 방식 키는 없다. iceberg-rust 0.11 은 표의 파일 접근을 `config` 로만 만들고(`storage-credentials` 는 읽기만 하고 쓰지 않는다) 그 위에 사용자 속성을 덮는다. 본 시험(저장 키 없이, OAuth2 클라이언트 자격만): 우리 커미터가 `silver.w109_rust_smoke` 를 만들고 3 행씩 두 번 덧붙였고(파일은 `tables/silver/w109_rust_smoke/data/` 아래), 우리 REST 클라이언트의 `create_tag`·`remove_stale_branch`(`main` 이 떠난 가지 지움)·`publish_branch`·`remove_tag` 가 모두 되었고, 끝에 `main` 만 남았다. 틀린 정적 키를 옆에 두자 같은 덧붙이기가 첫 저장 호출(manifest list 읽기)에서 실패했고 `main` 은 그대로였다: 정적 키가 벤딩 자격을 이긴다 |
+| T17 | A1 에서 | — | 이전 방법(DuckDB 가 Basin 을 읽기 전용으로, Lakekeeper 를 함께 `ATTACH` 하고 `INSERT … SELECT`, 수·키 유일·열마다 해시)의 시험이다. dev 에는 Basin 읽기 자격이 없고(AWS 에 없다), A1 의 운영 리그가 제 Basin 읽기 길을 설계로 가지므로 거기서 실제 꼴로 돈다(코디네이터 2026-11-27). dev 를 위해 비밀을 옮기거나 노트북에 설치하지 않는다 |
 
 잰 값: Lakekeeper 태스크의 메모리 최대 약 18 MB(0.5 GB 의 3.6 %), CPU 최대 21 %(0.25 vCPU 의). OpenFGA 는 CPU 최대 45 %(동시 100 로드), 메모리 최대 약 98 MB.
 공유 RDS 의 여유 메모리는 시험 전 약 160 MB 에서 시험 중 최저 84 MB 로, 연결은 최대 16 개로 늘었다. 로그는 시험이 가장 바쁠 때 4 시간에 56 MB 였다(감사 로그가 권한 확인마다 한 줄).
