@@ -82,7 +82,7 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
 3. **구분자.** 모든 식별자는 소문자 snake_case 다. `_` 는 낱말을, `__` 는 두 식별자(원천 id, 표와 그 역할)를 잇는다. 케밥은 DNS 가 `_` 를
    막는 곳에만 쓴다(버킷 이름, 호스트 이름, Worker·Cognito 이름): `dns(id)` = `_` → `-`. 경로 조각은 id 그대로이거나 `<key>=<value>` 다.
    적힌 예외 하나: Bronze 문법 `bronze/source=<provider>__<dataset>/…` 는 바꾸지 않는다(옵션 K, FP-ADR-0014 D4).
-4. **세대·사다리·실행 표시**는 `generation=<n>/patch=<n>`(묶음), `ladder=<n>`(사진 사다리), `run=<id>`(작업 공간)다. 순서와 은퇴는
+4. **세대·사다리·실행 표시**는 `generation=<n>/patch=<n>`(묶음), `ladder=<n>`(사진 사다리), `run=<id>`(작업 공간의 한 번의 실행)다. 순서와 은퇴는
    manifest 가 말한다(ADR-0242). 그래서 0 채우기가 없다.
 5. **최상위에는 영역만 있다**: `bronze/ media/ serving/ tables/ work/ control/`. 모든 경로는
    `<영역>/<주제>/<꼴>/[<key>=<value>/…]<잎>` 이다. 꼴의 낱말은 표 이름처럼 단수다(`profile`, `rendition`, `document`, `release`, `pack`).
@@ -242,7 +242,7 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
 | `courtauction-go-kr/sale-specifications/sha256/<h>.pdf` | `media/document/sha256/<h>.pdf`(공개, §6-3) | 이 ADR 의 이동 |
 | `gold/industrial-complex/profiles/<uuid>.json` | `serving/industrial_complex/profile/<uuid>.json` | 이 ADR 의 이동 |
 | `gold/industrial-complex/index.json`, `…/index-history/<g>.json` | `serving/industrial_complex/index/current.json`, `…/index/<g>.json` | 같음 |
-| `silver-handoff/<원천 id>/…` | `work/<레인>/run=<id>/…`(관리 규칙으로 만료) | 같음: 쓰는 쪽·읽는 쪽을 바꾼 뒤 옛것을 지운다. 레인마다 다음 판을 Bronze 에서 한 번 다시 내보낸다 |
+| `silver-handoff/<원천 id>/…/attempt=<id>/…` | `work/<원천 id>/…/run=<id>/…`(관리 규칙으로 7 일 뒤 만료) | 같음: 쓰는 쪽·읽는 쪽을 바꾼 뒤 옛것을 지운다. 레인마다 다음 판을 Bronze 에서 한 번 다시 내보낸다 |
 | `serving/**/by-pnu/v<n>/…`(필지별 문서) | 지운다(게이트웨이는 묶음만 서빙, ADR-0274) | 이 ADR 의 지움. 레인마다의 `manifest.json`·`manifest-history/` 는 서빙 다시 짓기까지 그 자리에 남는다(게이트웨이가 읽는다) |
 | `serving/<lane>/…/packs/<section>/g<n>[/p<n>]/<unit>.pack` | `serving/<product>/pack/<section>/generation=<n>/[patch=<n>/]<unit>.pack` | 서빙 다시 짓기(N-serving). Worker 패턴은 영역의 틀에서 생성한다 |
 | `collector-state/<lane>/` | `control/collector_state/<lane>/` | ADR-0623 쓰기 범위를 생성할 때 |
