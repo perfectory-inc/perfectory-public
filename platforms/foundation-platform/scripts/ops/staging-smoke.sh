@@ -12,31 +12,23 @@
 #     creates from empty with the release's own bootstrap, migrations, grants and finalize.
 #
 # Steps, each bounded by config/staging-gate.contract.json; the first that fails stops the run:
-#   clear     empty staging/ (the previous run's sample)
+#   clear     empty staging/ (the previous run's objects), through the release's own R2 client and its
+#             staging namespace guard
 #   image     build the release's runtime image (its migrator) under a staging image name
 #   database  foundation_staging from empty through the release's schema chain
-#   plan      hub and VWorld plans and the VWorld file inventory, read-only, against the real providers
-#   ingest    a sample of the inventory through the daily sweep's own VWorld lane settings: the two
-#             smallest files (single PUT) and one large enough for the multipart path
-#   measure   bronze-object-members on what landed, with the read-only key pair
 #
-# Every check counts what happened: a lane that lands nothing, or a measure that measures nothing,
-# fails the smoke rather than passing it.
-#
-# The smoke judges the release, not the providers (root ADR-0363). 2026-10-30 VWorld answered the
-# collection account's login `useChk` (new terms to accept) and the smoke refused every release
-# until the owner accepted them. A publisher command that exits 75 (the provider did not serve) or
-# 77 (the provider refuses the account) is the provider's side: that input is skipped and recorded,
-# what depends on it is skipped with it, and provider_alert.py pages it — the account's owner action
-# and the skipped inputs. Any other failure is the release's and refuses it as before. A smoke whose
-# every provider input was skipped is inconclusive and still passes: the release's own steps (image,
-# schema from empty) passed, and holding every release would also hold the fixes; the next run of
-# the same lane in production (vworld-sweep-lane.sh is one set of settings) is the check it lacked.
+# The smoke judges the release and asks no provider (root ADR-0363, amended 2026-11-27). Until then it
+# also read the hub and VWorld plans, the VWorld inventory and a sample download against the live sites,
+# and a provider answer the release did not recognise refused every release: 2026-11-27 09:35-09:44Z
+# VWorld's scheduled maintenance redirected its dataset page to a service notice, the inventory parse
+# failed and five releases in a row were not deployed, the fixes among them. How the release reads a
+# provider is judged before merge, against recorded responses, by the collectors' own tests in CI
+# (collection-infrastructure's VWorld and hub clients, the publisher's VWorld file ingest, the R2
+# client's single and multipart writes); whether a provider answers today is the collector's own run
+# check and alert in production (source_sweep, root ADR-0260).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --installed
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/vworld-login.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/vworld-sweep-lane.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 required_env=(
@@ -49,15 +41,10 @@ required_env=(
   FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
   FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID
   FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
-  FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID
-  FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY
 )
 missing=()
 for name in "${required_env[@]}"; do
   [ -n "${!name:-}" ] || missing+=("${name}")
-done
-for name in $(vworld_login_missing "${RELEASE_ROOT}/config/environment-variable-naming.contract.json"); do
-  missing+=("${name}")
 done
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "staging-smoke: refused before any side effect: missing ${missing[*]}" >&2
@@ -75,25 +62,14 @@ DATABASE_URL="$(foundation_database_url)"
 export DATABASE_URL
 
 CONTRACT="${RELEASE_ROOT}/config/staging-gate.contract.json"
-CATALOG="${RELEASE_ROOT}/docs/catalog/public-source-endpoint-catalog.v1.json"
 STATE_ROOT="${FOUNDATION_STAGING_SMOKE_STATE_ROOT:-/data/foundation-platform/staging-smoke}"
-SPOOL_DIR="${STATE_ROOT}/spool"
 # The Docker CLI keeps its state under DOCKER_CONFIG, and the service account's home is
 # /nonexistent: the first real smoke (2026-10-10) failed its image step with "mkdir /nonexistent:
 # permission denied". Same answer as raon-large-files.sh; set after admitted-writer-runtime.sh,
 # which unsets any DOCKER_CONFIG a caller passed.
 export DOCKER_CONFIG="${STATE_ROOT}/docker-config"
 POSTGRES_PROJECT="${FOUNDATION_PLATFORM_COMPOSE_PROJECT:-foundation-platform-runtime}"
-hub_plan="${STATE_ROOT}/hub-plan.json"
-vworld_plan="${STATE_ROOT}/vworld-plan.json"
-inventory="${STATE_ROOT}/vworld-inventory.json"
-sample="${STATE_ROOT}/vworld-sample-inventory.json"
-evidence="${STATE_ROOT}/vworld-evidence.json"
 run_log="${STATE_ROOT}/run.log"
-# "<input><TAB><outcome line>" per input the provider's side kept from being checked (root ADR-0363).
-skipped="${STATE_ROOT}/skipped-inputs.tsv"
-ALERT=(python3 -I "${RELEASE_ROOT}/scripts/ops/provider_alert.py")
-
 contract() {
   python3 -I - "${CONTRACT}" "$@" <<'PY'
 import json, sys
@@ -120,26 +96,7 @@ staging_psql() {
     "$(postgres_container)" psql -X -q -v ON_ERROR_STOP=1 -U "${role}" -d "${database}" "$@"
 }
 
-# One provider-facing publisher command for <input>. Exit 75/77 is the provider's side: the input is
-# recorded with the command's outcome line and the step goes on. Any other failure stops the step.
-provider_input() {
-  local input="$1" rc=0 err
-  shift
-  err="$(mktemp "${STATE_ROOT}/stderr-XXXXXX")"
-  "$@" 2>"${err}" || rc=$?
-  cat "${err}" >&2
-  if [[ "${rc}" == 75 || "${rc}" == 77 ]]; then
-    printf '%s\t%s\n' "${input}" "$(grep '^foundation-provider-outcome ' "${err}" | tail -1)" >>"${skipped}"
-    echo "${input} skipped: the provider's side (exit ${rc}), not the release's (root ADR-0363)"
-    rc=0
-  fi
-  rm -f "${err}"
-  return "${rc}"
-}
-is_skipped() { grep -q "^$1"$'\t' "${skipped}" 2>/dev/null; }
-
 step_clear() {
-  find "${SPOOL_DIR}" -mindepth 1 -maxdepth 1 -name '.provider-*.part' -delete 2>/dev/null || true
   "${PUBLISHER_BIN}" clear-staging-namespace
 }
 
@@ -165,117 +122,14 @@ step_database() {
     <"${RELEASE_ROOT}/infra/compose/finalize-foundation.sql"
 }
 
-step_plan() {
-  export FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_PLAN_PATH="${hub_plan}"
-  provider_input hub "${PUBLISHER_BIN}" plan-building-hub-bulk-collection
-  vworld_sweep_lane_env "${CATALOG}" "${vworld_plan}" "${inventory}" "${evidence}" "${SPOOL_DIR}"
-  provider_input vworld "${PUBLISHER_BIN}" plan-vworld-dataset-collection
-  is_skipped vworld || provider_input vworld "${PUBLISHER_BIN}" inventory-vworld-dataset-files
-  local skip_hub=0 skip_vworld=0
-  is_skipped hub && skip_hub=1
-  is_skipped vworld && skip_vworld=1
-  python3 -I - "${hub_plan}" "${vworld_plan}" "${inventory}" "${skip_hub}" "${skip_vworld}" <<'PY'
-import json, sys
-def load(path, skipped):
-    return {"jobs": []} if skipped == "1" else json.load(open(path, encoding="utf-8"))
-hub = load(sys.argv[1], sys.argv[4])
-plan, inventory = load(sys.argv[2], sys.argv[5]), load(sys.argv[3], sys.argv[5])
-files = sum(len(job.get("files", [])) for job in inventory.get("jobs", []))
-print(f"plan hub_jobs={len(hub.get('jobs', []))} vworld_jobs={len(plan.get('jobs', []))} inventory_files={files}"
-      f" skipped={','.join(n for n, s in (('hub', sys.argv[4]), ('vworld', sys.argv[5])) if s == '1') or 'none'}")
-# A provider that answered and listed nothing is still a failure; one that did not answer was skipped.
-if (sys.argv[4] != "1" and not hub.get("jobs")) or (sys.argv[5] != "1" and (not plan.get("jobs") or not files)):
-    sys.exit("a provider listed nothing: a plan or the inventory is empty")
-PY
-}
-
-# The sample: the smallest files and the smallest one large enough for the multipart path, each a
-# file the sweep would take (a RAON selection archive never is). Written as an inventory of its own.
-write_sample() {
-  python3 -I - "${CONTRACT}" "${inventory}" "${sample}" <<'PY'
-import json, sys
-contract, inventory_path, sample_path = sys.argv[1:4]
-rules = json.load(open(contract, encoding="utf-8"))["sample"]
-inventory = json.load(open(inventory_path, encoding="utf-8"))
-files = [(job_index, item) for job_index, job in enumerate(inventory["jobs"]) for item in job.get("files", [])
-         if item.get("download_kind") != "selection_archive"]
-size = lambda pair: int(pair[1].get("size_kib") or 0) * 1024
-by_size = sorted(files, key=size)
-small = by_size[: rules["smallest_files"]]
-large = [pair for pair in by_size
-         if rules["multipart_threshold_bytes"] <= size(pair) <= rules["multipart_max_bytes"]
-         and pair not in small][: rules["multipart_files"]]
-if len(small) < rules["smallest_files"] or len(large) < rules["multipart_files"]:
-    sys.exit(f"the inventory has no sample: {len(small)} small files and {len(large)} between "
-             f"{rules['multipart_threshold_bytes']} and {rules['multipart_max_bytes']} bytes")
-chosen = small + large
-jobs = []
-for job_index, job in enumerate(inventory["jobs"]):
-    picked = [item for index, item in chosen if index == job_index]
-    if picked:
-        jobs.append({**job, "files": picked})
-json.dump({**inventory, "jobs": jobs}, open(sample_path, "w", encoding="utf-8"), ensure_ascii=False)
-print("sample " + " ".join(f"{item['download_ds_id']}-{item['file_no']}:{size((i, item))}" for i, item in chosen))
-PY
-}
-
-step_ingest() {
-  if is_skipped vworld; then
-    echo "ingest skipped: VWorld did not list a sample"
-    return 0
-  fi
-  vworld_sweep_lane_env "${CATALOG}" "${vworld_plan}" "${sample}" "${evidence}" "${SPOOL_DIR}"
-  FOUNDATION_PLATFORM_R2_STAGING_MULTIPART_THRESHOLD_BYTES="$(contract sample multipart_threshold_bytes)" \
-    provider_input vworld-ingest "${PUBLISHER_BIN}" ingest-vworld-dataset-files
-  # 2026-10-30: the login answered useChk here. The sample's download and landing are unchecked.
-  is_skipped vworld-ingest && return 0
-  python3 -I - "${sample}" "${evidence}" <<'PY'
-import json, sys
-sample, evidence = (json.load(open(path, encoding="utf-8")) for path in sys.argv[1:3])
-wanted = sum(len(job["files"]) for job in sample["jobs"])
-landed = evidence.get("succeeded_file_count")
-print(f"ingest wanted={wanted} landed={landed} failed={evidence.get('failed_file_count')} status={evidence.get('status')}")
-if evidence.get("status") != "ready" or evidence.get("failed_file_count") or landed != wanted:
-    sys.exit("the sample did not land whole")
-PY
-}
-
-step_measure() {
-  if is_skipped vworld || is_skipped vworld-ingest; then
-    echo "measure skipped: nothing of the sample landed"
-    return 0
-  fi
-  # Read-only, as the measure runs in production (root ADR-0152): the writer pair goes first.
-  unset FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
-  local sources output
-  sources="$(python3 -I - "${sample}" <<'PY'
-import json, sys
-print(",".join(sorted({job["source_slug"] for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]})))
-PY
-)"
-  output="$(FOUNDATION_PLATFORM_BRONZE_MEMBER_SOURCES="${sources}" FOUNDATION_PLATFORM_RELEASE_ID="${RELEASE_ID}" \
-    "${PUBLISHER_BIN}" measure-bronze-object-members)"
-  printf '%s\n' "${output}"
-  python3 -I - "${sample}" "${output}" <<'PY'
-import json, sys
-wanted = sum(len(job["files"]) for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"])
-line = [l for l in sys.argv[2].splitlines() if l.startswith("bronze-object-members-json ")]
-summary = json.loads(line[-1].split(" ", 1)[1]) if line else {}
-print(f"measure wanted={wanted} measured={summary.get('measured')} failed={summary.get('failed')}")
-if summary.get("measured") != wanted or summary.get("failed"):
-    sys.exit("the landed sample was not measured whole")
-PY
-}
-
 # One step in its own process, so `timeout` can bound it: `staging-smoke.sh --step <name>`.
 if [[ "${1:-}" == --step ]]; then
   "step_${2:?}"
   exit 0
 fi
 
-mkdir -p "${STATE_ROOT}" "${SPOOL_DIR}" "${DOCKER_CONFIG}"
+mkdir -p "${STATE_ROOT}" "${DOCKER_CONFIG}"
 : >"${run_log}"
-: >"${skipped}"
 durations=()
 run_step() {
   local name="$1" limit started status=0
@@ -296,33 +150,4 @@ run_step() {
 run_step clear
 run_step image
 run_step database
-run_step plan
-if ! is_skipped vworld; then
-  write_sample >>"${run_log}" 2>&1 || {
-    echo "staging-smoke: sample FAILED for release ${RELEASE_ID}; the release is not deployed (root ADR-0177)" >&2
-    job_run_log_tail "${run_log}"
-    exit 1
-  }
-fi
-run_step ingest
-run_step measure
-grep -E '^(plan|sample|ingest|measure) ' "${run_log}" || true
-
-# The provider's side (root ADR-0363): the account's owner action (or its recovery) and what was
-# skipped are paged; an alert that cannot be posted is said here and does not hold the release.
-"${ALERT[@]}" accounts --source staging-smoke "${run_log}" >/dev/null ||
-  echo "staging-smoke: the provider account alert was not posted; see the lines above" >&2
-skips=()
-while IFS=$'\t' read -r input line; do
-  skips+=("--skipped" "${input}=${line}")
-  echo "staging-smoke: skipped ${input}: ${line:-no outcome line}"
-done <"${skipped}"
-"${ALERT[@]}" smoke --release "${RELEASE_ID}" "${skips[@]}" ||
-  echo "staging-smoke: the skipped-input alert was not posted" >&2
-if [[ ! -s "${skipped}" ]]; then
-  echo "staging-smoke: passed release=${RELEASE_ID} ${durations[*]}"
-elif is_skipped hub && { is_skipped vworld || is_skipped vworld-ingest; }; then
-  echo "staging-smoke: inconclusive release=${RELEASE_ID}: the release's own steps passed and every provider input was the provider's side; deploying (root ADR-0363) ${durations[*]}"
-else
-  echo "staging-smoke: passed release=${RELEASE_ID} with provider inputs skipped (root ADR-0363) ${durations[*]}"
-fi
+echo "staging-smoke: passed release=${RELEASE_ID} ${durations[*]}"

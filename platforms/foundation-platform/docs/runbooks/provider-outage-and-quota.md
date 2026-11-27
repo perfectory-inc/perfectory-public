@@ -77,10 +77,9 @@ circuit breaker는 프로세스 로컬이다. 영속 DLQ/quarantine 테이블·p
 | `result=useChk` | 이용약관이 바뀌었다(2026-10-30 첫 사례) | vworld.kr 에 수집 계정으로 로그인해 새 약관에 동의 |
 | 그 밖의 `result=` | 비밀번호 만료·잠금·휴면 등 | vworld.kr 에 수집 계정으로 로그인해 사이트가 요구하는 조치 |
 
-- 그동안: 배포는 막히지 않는다(스테이징 스모크가 그 입력을 건너뛰고 `FoundationStagingSmokeInputSkipped` 로
-  알린다). `source_sweep`·`vworld_parcel_edition` 은 `waiting provider account action required — …` 로 끝나
+- 그동안: 배포는 막히지 않는다(스테이징 스모크는 공급자에게 묻지 않는다, 루트 ADR-0363 의 2026-11-27 개정). `source_sweep`·`vworld_parcel_edition` 은 `waiting provider account action required — …` 로 끝나
   빨강이 되지 않는다. 받지 못한 파일은 다음 실행이 이어 받는다.
-- 조치 뒤: 따로 할 것 없다. 다음 로그인(매일 훑기, 다음 배포의 스모크)이 성공하면 알림이 닫힌다. 바로 확인하려면
+- 조치 뒤: 따로 할 것 없다. 다음 로그인(매일 훑기)이 성공하면 알림이 닫힌다. 바로 확인하려면
   `foundation-source-sweep.service` 를 운영자 시작 한 번으로 돌린다.
 - 알림이 올라가지 않으면(Alertmanager 다운) 작업은 대기 대신 실패로 끝나 기존 실패 알림이 간다.
 - 공급자가 응답하지 않음(재시도 뒤 5xx·시간초과·점검 페이지, 종료 75)은 계정 조치가 아니다: 스모크는 그 입력을

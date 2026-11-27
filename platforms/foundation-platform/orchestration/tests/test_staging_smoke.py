@@ -1,15 +1,14 @@
 """The staging smoke (scripts/ops/staging-smoke.sh, root ADR-0177) against stand-ins.
 
 The script runs from an installed release that is not `current` (the deploy runs it before the
-switch). The publisher and docker are stand-ins: the publisher answers each command the way a
-scenario file says and records the environment it was given, docker records what it was asked.
-What runs for real is the script, the step bounds and sample rules of config/staging-gate.contract.json,
-database-url.sh and the daily sweep's VWorld lane settings: every publisher call runs as staging
-against foundation_staging, the sample is the two smallest files plus one large enough to go
-multipart, and a step that lands or measures less than it should fails the smoke.
+switch). The publisher and docker are stand-ins: the publisher records the command and environment it
+was given, docker records what it was asked. What runs for real is the script, the step bounds of
+config/staging-gate.contract.json and database-url.sh: every publisher call runs as staging against
+foundation_staging, the schema is built from empty, and no provider is asked (root ADR-0363, amended
+2026-11-27): 2026-11-27 09:35-09:44Z VWorld's scheduled maintenance refused five releases in a row
+through the smoke's live inventory read.
 """
 
-import datetime
 import hashlib
 import json
 import os
@@ -26,7 +25,6 @@ sys.path.insert(0, str(ORCHESTRATION / "dags"))
 import job_specs  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from alertmanager_stub import AlertmanagerStub  # noqa: E402
 
 PLATFORM = job_specs.PLATFORM_ROOT
 sys.path.insert(0, str(PLATFORM / "scripts/deploy"))
@@ -35,14 +33,12 @@ import runtime_secrets  # noqa: E402
 RUN = "staging-smoke"
 CONTRACT = PLATFORM / "config/staging-gate.contract.json"
 NAMING = PLATFORM / "config/environment-variable-naming.contract.json"
-CATALOG = PLATFORM / "docs/catalog/public-source-endpoint-catalog.v1.json"
 NEEDS = sorted(runtime_secrets.load().consumer(RUN).needs)
-VWORLD_LOGIN = json.loads(NAMING.read_text(encoding="utf-8"))[
-    "compatibility_migrations"]["foundation-vworld-credentials"]["credentials"]
-SAMPLE = json.loads(CONTRACT.read_text(encoding="utf-8"))["sample"]
 RELEASE_ID = "e" * 40
 CURRENT_ID = "c" * 40
-MIB = 1024 * 1024
+# Every command a provider answers; the smoke runs none of them.
+PROVIDER_COMMANDS = ("plan-building-hub-bulk-collection", "plan-vworld-dataset-collection",
+                     "inventory-vworld-dataset-files", "ingest-vworld-dataset-files")
 
 FAKE_PUBLISHER = r"""#!/usr/bin/env python3
 import json, os, sys
@@ -52,43 +48,13 @@ scenario = json.load(open(os.path.join(state, "scenario.json"), encoding="utf-8"
 env = os.environ
 seen = {"command": command, "runtime_env": env.get("FOUNDATION_PLATFORM_RUNTIME_ENV"),
         "database": env.get("DATABASE_URL", "").rsplit("/", 1)[-1],
-        "threshold": env.get("FOUNDATION_PLATFORM_R2_STAGING_MULTIPART_THRESHOLD_BYTES"),
-        "writer": bool(env.get("FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID")),
-        "inventory": env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"),
-        "bronze_key": env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY"),
-        "sources": env.get("FOUNDATION_PLATFORM_BRONZE_MEMBER_SOURCES")}
+        "writer": bool(env.get("FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID"))}
 with open(os.path.join(state, "calls.jsonl"), "a", encoding="utf-8") as log:
     log.write(json.dumps(seen) + "\n")
 if command == scenario.get("die"):
     sys.exit(command + " died")
-# The provider's side (root ADR-0363): the publisher's own exit code and outcome line.
-provider = scenario.get("provider", {}).get(command)
-if provider:
-    sys.stderr.write("foundation-provider-outcome " + json.dumps(provider["outcome"]) + "\n")
-    sys.exit(provider["rc"])
 if command == "clear-staging-namespace":
     print("staging-namespace cleared prefix=staging/ objects=0 bytes=0")
-elif command == "plan-building-hub-bulk-collection":
-    json.dump({"jobs": scenario.get("hub_jobs", [{"endpoint_slug": "hub"}])},
-              open(env["FOUNDATION_PLATFORM_BUILDING_HUB_BULK_COLLECTION_PLAN_PATH"], "w"))
-elif command == "plan-vworld-dataset-collection":
-    json.dump({"status": "ready", "job_count": 1, "jobs": [{"endpoint_slug": "v"}]},
-              open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_COLLECTION_PLAN_PATH"], "w"))
-elif command == "inventory-vworld-dataset-files":
-    json.dump({"jobs": scenario["inventory"]}, open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"], "w"))
-elif command == "ingest-vworld-dataset-files":
-    sample = json.load(open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"], encoding="utf-8"))
-    files = [f for job in sample["jobs"] for f in job["files"]]
-    json.dump({"sampled": [f["file_no"] for f in files]}, open(os.path.join(state, "sample.json"), "w"))
-    sys.stderr.write('foundation-provider-outcome {"outcome": "ok", "provider": "vworld.kr"}\n')
-    failed = scenario.get("ingest_failed", 0)
-    json.dump({"status": "blocked" if failed else "ready", "selected_file_count": len(files),
-               "succeeded_file_count": len(files) - failed, "failed_file_count": failed},
-              open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH"], "w"))
-elif command == "measure-bronze-object-members":
-    landed = len(json.load(open(os.path.join(state, "sample.json")))["sampled"])
-    measured = scenario.get("measured", landed)
-    print("bronze-object-members-json " + json.dumps({"measured": measured, "failed": 0}))
 else:
     sys.exit("unexpected command " + command)
 """
@@ -121,18 +87,6 @@ with open(os.path.join(state, "docker.jsonl"), "a", encoding="utf-8") as log:
 """
 
 
-def vfile(file_no, mib, kind="single_resource_file"):
-    return {"download_ds_id": "9991", "file_no": file_no, "size_kib": mib * 1024, "download_kind": kind}
-
-
-INVENTORY = [{"source_slug": "vworldkr__synthetic", "endpoint_slug": "v", "files": [
-    vfile("tiny", 1), vfile("small", 2), vfile("middle", 8),
-    vfile("large", SAMPLE["multipart_threshold_bytes"] // MIB + 4),
-    vfile("larger", SAMPLE["multipart_threshold_bytes"] // MIB + 40),
-    vfile("archive", 0, kind="selection_archive"),
-]}]
-
-
 class StagingSmoke(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="staging-smoke-")
@@ -141,18 +95,12 @@ class StagingSmoke(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("staging-smoke.sh", "admitted-writer-runtime.sh", "database-url.sh", "vworld-login.sh",
-                     "vworld-sweep-lane.sh", "job-journal.sh", "provider_alert.py"):
+        for name in ("staging-smoke.sh", "admitted-writer-runtime.sh", "database-url.sh", "job-journal.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (release / "config").mkdir()
         shutil.copy(CONTRACT, release / "config")
         shutil.copy(NAMING, release / "config")
-        shutil.copy(PLATFORM / "config/provider-accounts.contract.json", release / "config")
-        self.alertmanager = AlertmanagerStub()
-        self.addCleanup(self.alertmanager.close)
-        (release / "docs/catalog").mkdir(parents=True)
-        shutil.copy(CATALOG, release / "docs/catalog")
         (release / "infra/compose").mkdir(parents=True)
         for sql in ("bootstrap-foundation.sql", "grant-foundation-runtime.sql", "finalize-foundation.sql"):
             shutil.copy(PLATFORM / "infra/compose" / sql, release / "infra/compose")
@@ -184,13 +132,11 @@ class StagingSmoke(unittest.TestCase):
             "FOUNDATION_PLATFORM_RUNTIME_ENV": "production",
             # The service account's home in production; Docker cannot keep its state there.
             "HOME": "/nonexistent", "DOCKER_CONFIG": "/nonexistent/.docker",
-            "FOUNDATION_ALERTMANAGER_PORT": self.alertmanager.port,
-            VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
         }
         self.scenario()
 
     def scenario(self, **fields):
-        (self.fake / "scenario.json").write_text(json.dumps({"inventory": INVENTORY, **fields}), encoding="utf-8")
+        (self.fake / "scenario.json").write_text(json.dumps(fields), encoding="utf-8")
 
     def run_smoke(self, env=None):
         return subprocess.run(["bash", str(self.script)], env=env or self.env, capture_output=True, text=True,
@@ -200,27 +146,25 @@ class StagingSmoke(unittest.TestCase):
         path = self.fake / name
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
 
-    def test_a_good_release_passes_every_step_as_staging(self):
+    def test_a_good_release_passes_every_step_as_staging_and_asks_no_provider(self):
         result = self.run_smoke()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"staging-smoke: passed release={RELEASE_ID}", result.stdout)
         calls = self.lines("calls.jsonl")
-        self.assertEqual([call["command"] for call in calls], [
-            "clear-staging-namespace", "plan-building-hub-bulk-collection", "plan-vworld-dataset-collection",
-            "inventory-vworld-dataset-files", "ingest-vworld-dataset-files", "measure-bronze-object-members"])
-        for call in calls:
-            with self.subTest(call["command"]):
-                self.assertEqual(call["runtime_env"], "staging", "every publisher call runs in the staging namespace")
-                self.assertEqual(call["database"], "foundation_staging", "and against the staging database")
-        ingest = calls[4]
-        self.assertEqual(ingest["threshold"], str(SAMPLE["multipart_threshold_bytes"]))
-        self.assertEqual(ingest["bronze_key"], "content_addressed", "the sweep's own lane settings")
-        self.assertTrue(ingest["inventory"].endswith("vworld-sample-inventory.json"))
-        self.assertFalse(calls[5]["writer"], "the measure reads with the read-only pair only")
-        self.assertEqual(calls[5]["sources"], "vworldkr__synthetic")
-        # The two smallest files and the smallest one from the multipart threshold; never an archive.
-        sampled = json.loads((self.fake / "sample.json").read_text())["sampled"]
-        self.assertEqual(sampled, ["tiny", "small", "large"])
+        self.assertEqual([call["command"] for call in calls], ["clear-staging-namespace"])
+        self.assertFalse(set(call["command"] for call in calls) & set(PROVIDER_COMMANDS))
+        (clear,) = calls
+        self.assertEqual(clear["runtime_env"], "staging", "the publisher call runs in the staging namespace")
+        self.assertEqual(clear["database"], "foundation_staging", "and against the staging database")
+        self.assertTrue(clear["writer"], "the clear step empties staging/ with the writer pair")
+
+    def test_the_gate_has_no_step_that_reads_a_provider(self):
+        steps = json.loads(CONTRACT.read_text(encoding="utf-8"))["steps"]
+        self.assertEqual(sorted(steps), ["clear", "database", "image"])
+        script = self.script.read_text(encoding="utf-8")
+        for command in PROVIDER_COMMANDS:
+            self.assertNotIn(command, script)
+        self.assertNotIn("vworld-login.sh", script)
 
     def test_docker_keeps_its_state_in_the_smoke_directory(self):
         # 2026-10-10, the first real smoke: the image step failed with "mkdir /nonexistent: permission
@@ -246,33 +190,6 @@ class StagingSmoke(unittest.TestCase):
             self.assertEqual((step["database"], step["role"]), ("foundation_staging", role))
         self.assertNotIn("foundation", [call.get("database") for call in docker])
 
-    def test_a_sample_that_does_not_land_whole_refuses_the_release(self):
-        self.scenario(ingest_failed=1)
-        result = self.run_smoke()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("ingest FAILED", result.stderr)
-        self.assertNotIn("measure-bronze-object-members", [c["command"] for c in self.lines("calls.jsonl")])
-
-    def test_a_measure_that_measures_less_than_landed_refuses_the_release(self):
-        self.scenario(measured=0)
-        result = self.run_smoke()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("measure FAILED", result.stderr)
-
-    def test_an_inventory_without_a_file_for_the_multipart_path_refuses_the_release(self):
-        small_only = [{**INVENTORY[0], "files": [vfile("tiny", 1), vfile("small", 2), vfile("middle", 8)]}]
-        self.scenario(inventory=small_only)
-        result = self.run_smoke()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("sample FAILED", result.stderr)
-        self.assertNotIn("ingest-vworld-dataset-files", [c["command"] for c in self.lines("calls.jsonl")])
-
-    def test_a_provider_that_lists_nothing_refuses_the_release(self):
-        self.scenario(hub_jobs=[])
-        result = self.run_smoke()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("plan FAILED", result.stderr)
-
     def test_a_step_that_dies_names_itself(self):
         self.scenario(die="clear-staging-namespace")
         result = self.run_smoke()
@@ -280,62 +197,12 @@ class StagingSmoke(unittest.TestCase):
         self.assertIn("clear FAILED", result.stderr)
         self.assertEqual(self.lines("docker.jsonl"), [], "nothing after the failed step ran")
 
-    # Root ADR-0363: the smoke judges the release, not the providers.
-    TERMS_CHANGED = {"rc": 77, "outcome": {
-        "outcome": "provider_account_action_required", "provider": "vworld.kr", "reason": "useChk",
-        "message": "VWorld dataset login failed result=useChk message=이용약관 변경안내 페이지로 이동합니다."}}
-    NOT_SERVING = {"rc": 75, "outcome": {"outcome": "provider_unavailable", "message": "HTTP 503 after 3 attempts"}}
-
-    def test_the_2026_10_30_terms_change_skips_the_sample_and_deploys_with_an_owner_page(self):
-        # 2026-10-30 13:07Z: the 2026-10-30 deploy stopped at "ingest FAILED … VWorld dataset login failed
-        # result=useChk". No release can accept a provider's terms.
-        self.scenario(provider={"ingest-vworld-dataset-files": self.TERMS_CHANGED})
-        result = self.run_smoke()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(f"staging-smoke: passed release={RELEASE_ID} with provider inputs skipped", result.stdout)
-        self.assertIn("staging-smoke: skipped vworld-ingest", result.stdout)
-        self.assertNotIn("measure-bronze-object-members", [c["command"] for c in self.lines("calls.jsonl")],
-                         "nothing landed, so nothing is measured")
-        [account] = self.alertmanager.named("FoundationProviderAccountActionRequired")
-        self.assertEqual(account["labels"]["provider"], "vworld.kr")
-        self.assertIn("accept the new terms", account["annotations"]["summary"])
-        [skipped] = self.alertmanager.named("FoundationStagingSmokeInputSkipped")
-        self.assertIn("vworld-ingest", skipped["annotations"]["summary"])
-        self.assertIn("useChk", skipped["annotations"]["summary"])
-
-    def test_a_provider_that_serves_no_input_is_inconclusive_and_still_deploys(self):
-        self.scenario(provider={"plan-building-hub-bulk-collection": self.NOT_SERVING,
-                                "plan-vworld-dataset-collection": self.NOT_SERVING})
-        result = self.run_smoke()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(f"staging-smoke: inconclusive release={RELEASE_ID}", result.stdout)
-        commands = [c["command"] for c in self.lines("calls.jsonl")]
-        self.assertNotIn("inventory-vworld-dataset-files", commands)
-        self.assertNotIn("ingest-vworld-dataset-files", commands)
-        self.assertEqual(len(self.alertmanager.named("FoundationStagingSmokeInputSkipped")), 1)
-
-    def test_the_releases_own_failure_still_refuses_it_while_a_provider_is_down(self):
-        # A provider being down does not excuse what the release broke: the image, the schema, a crash.
-        self.scenario(provider={"plan-building-hub-bulk-collection": self.NOT_SERVING},
-                      die="ingest-vworld-dataset-files")
-        result = self.run_smoke()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("ingest FAILED", result.stderr)
-
-    def test_a_clean_smoke_resolves_what_an_earlier_one_paged(self):
-        self.assertEqual(self.run_smoke().returncode, 0)
-        [account] = self.alertmanager.named("FoundationProviderAccountActionRequired")
-        [skipped] = self.alertmanager.named("FoundationStagingSmokeInputSkipped")
-        for alert in (account, skipped):
-            ends = datetime.datetime.fromisoformat(alert["endsAt"].replace("Z", "+00:00"))
-            self.assertLessEqual(ends, datetime.datetime.now(datetime.timezone.utc), alert)
-
     def test_a_missing_setting_refuses_before_any_side_effect(self):
         env = dict(self.env)
-        del env["FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"]
+        del env["FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID"]
         result = self.run_smoke(env)
         self.assertEqual(result.returncode, 78)
-        self.assertIn("FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID", result.stderr)
+        self.assertIn("FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID", result.stderr)
         self.assertEqual((self.lines("calls.jsonl"), self.lines("docker.jsonl")), ([], []))
 
     def test_no_secret_reaches_the_output(self):
