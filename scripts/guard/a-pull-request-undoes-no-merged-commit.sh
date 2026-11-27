@@ -75,9 +75,16 @@ added_anywhere = set().union(*(add for add, _ in changed.values()))
 named = set(NAMED.findall(git("log", "--format=%B", f"{fork}..{head}")))
 forked = datetime.datetime.fromtimestamp(int(git("show", "-s", "--format=%ct", fork).strip()), datetime.timezone.utc)
 since = (forked - datetime.timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
-# One process for every recent commit's patch: a CI checkout is blobless, and one log fetches its blobs in batches.
+# Only a file the pull request deletes lines from can undo a commit's lines in it (`gone` below counts nothing in
+# any other), so only those files' history is read. One process for every recent commit's patch: a CI checkout is
+# blobless, and one log fetches its blobs in batches. 2026-11-28: a pull request adding to the 152 KB platform
+# definition and ten ADRs read their whole 14-day history and took 30 s of a 20 s budget (#1790).
+deleting = sorted(path for path, (_, gone) in changed.items() if gone)
+if not deleting:
+    print("OK a-pull-request-undoes-no-merged-commit: the pull request deletes no line")
+    sys.exit(0)
 recent = git("log", f"--since={since}", "--patch", "--no-renames", "-U0", "--format=%x00%H%x09%s", fork, "--",
-             *sorted(changed)).split("\x00")[1:]
+             *deleting).split("\x00")[1:]
 undone = []
 for entry in recent:
     header, _, patch = entry.partition("\n")
