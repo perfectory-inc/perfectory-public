@@ -162,6 +162,10 @@ def assets(jobs: dict, graph: dict, contract: dict) -> list[Asset]:
     carried = job_specs.job_nodes(jobs, graph)
     found = []
     for job_id in listing[RECONCILER]["reconciles"]:
+        # A job that is off here has no asset to keep current: under host_scope collection every job the
+        # reconciler names is (job_specs.on_host, root ADR-0625).
+        if not listing[job_id]["enabled"]:
+            continue
         inputs, outputs = carried[job_id]
         service = listing[job_id]["systemd_service"]
         if len(outputs) == 1 and nodes[outputs[0]].get("table_name"):

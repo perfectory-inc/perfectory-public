@@ -228,6 +228,18 @@ class Reconciler(unittest.TestCase):
         self.assertEqual((auction.lane, auction.lane_table, auction.follows),
                          ("parcel-public-auction", "gold.parcel_public_auction", None))
 
+    def test_under_host_scope_collection_the_reconciler_reads_the_host_view_and_keeps_no_asset(self):
+        # Root ADR-0625. 2026-11-27 06:30Z the first tick on the host view failed: the view emptied the
+        # reconciler's list and job_nodes refused it, every five minutes, so the collectors' outcome
+        # pages went unwritten. main() reads the host view; every job it reconciles is derived, so off.
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        contract = asset_reconcile.gold_rebuild.load_contract()
+        collection = job_specs.on_host(dict(self.jobs, host_scope="collection"), graph)
+        self.assertEqual(asset_reconcile.assets(collection, graph, contract), [])
+        everywhere = job_specs.on_host(dict(self.jobs, host_scope="all"), graph)
+        self.assertEqual({asset.job for asset in asset_reconcile.assets(everywhere, graph, contract)},
+                         {"by_pnu_serving_bake", "gold_panel_rebuild", "gold_kind_rebuild", *self.assets})
+
     def test_event_3912_replayed_the_bake_is_owed_and_unscheduled_from_the_commit(self):
         owed, metrics, state, errors = self.tick()
         self.assertEqual(errors, [])

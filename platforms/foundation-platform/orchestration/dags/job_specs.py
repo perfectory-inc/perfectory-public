@@ -972,13 +972,14 @@ def kept_on_host(jobs, graph=None):
 
 def on_host(jobs, graph=None):
     """The job list as this host runs it: a copy in which a job its host_scope leaves out is off (`enabled`
-    false, `host_scope_off` true, the scope as its `disabled_reason`) and the reconciler reconciles only jobs
-    that run here.
+    false, `host_scope_off` true, the scope as its `disabled_reason`). Everything else is as written, the
+    reconciler's `reconciles` too, so the copy is still a valid list (job_nodes): the reconciler skips the
+    jobs it names that are off here (asset_reconcile.assets).
 
     For the readers of `enabled` that run nothing themselves (the forced command, the sudoers, the deploy,
     the Airflow pauses, the reconciler's metrics); load_specs takes the list as it is written. Under `all`
     it is the list unchanged."""
-    kept, here = kept_on_host(jobs, graph), runs_on_host(jobs, graph)
+    kept = kept_on_host(jobs, graph)
     view = json.loads(json.dumps(jobs))
     scope = host_scope(jobs)
     for job in view["jobs"]:
@@ -989,8 +990,6 @@ def on_host(jobs, graph=None):
                 job.pop("enabled_since", None)
                 job["disabled_reason"] = (f"host_scope {scope}: this host runs only {', '.join(HOST_SCOPES[scope])} "
                                           "jobs (root ADR-0625)")
-        if "reconciles" in job:
-            job["reconciles"] = [name for name in job["reconciles"] if name in here]
     return view
 
 
