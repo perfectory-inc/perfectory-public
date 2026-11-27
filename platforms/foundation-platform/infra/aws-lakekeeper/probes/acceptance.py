@@ -167,18 +167,23 @@ def step_lake_migrate(source):
         check("client credentials are alphanumeric", True, False)
         return
 
-    def run(sql):
+    def run(sql, holds_secret=False):
         try:
             return 200, con.execute(sql).fetchall()
-        except Exception as error:  # the message is redacted of every held secret by emit
-            return f"{type(error).__name__}: {str(error)[:240]}", None
+        except Exception as error:
+            if holds_secret:  # DuckDB's message for a failed statement can repeat it: the type only
+                return type(error).__name__, None
+            message = str(error)
+            for secret in SECRETS:  # before cutting, so no part of a secret survives the cut
+                message = message.replace(secret, "<redacted>")
+            return f"{type(error).__name__}: {message[:240]}", None
 
-    # The secrets go into SQL text: never let a statement's text reach a traceback (run prints only the error).
+    # The secrets go into SQL text: never let a statement's text reach a traceback or a printed line.
     for label, sql in (
             ("Basin", f"CREATE SECRET basin (TYPE ICEBERG, TOKEN '{basin_token}')"),
             ("Lakekeeper", f"CREATE SECRET lk (TYPE ICEBERG, CLIENT_ID '{client_id}', CLIENT_SECRET '{client_secret}', "
                            f"OAUTH2_SERVER_URI '{TOKEN_URL}', OAUTH2_SCOPE '{SCOPE}')")):
-        status, _ = run(sql)
+        status, _ = run(sql, holds_secret=True)
         if not check(f"CREATE SECRET for {label}", 200, status):
             return
     status, _ = run(f"ATTACH '{basin_warehouse}' AS basin (TYPE ICEBERG, ENDPOINT '{basin_uri}', SECRET basin, READ_ONLY)")
