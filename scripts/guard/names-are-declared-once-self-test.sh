@@ -45,7 +45,9 @@ expect() {
   if bash "$guard" "$repo" >/dev/null 2>"$repo.err"; then
     [ "$verdict" = pass ] || fail "accepted $literal"
   else
-    [ "$verdict" = fail ] || fail "refused $literal: $(cat "$repo.err")"
+    local refusal
+    refusal="$(cat "$repo.err")"
+    [ "$verdict" = fail ] || fail "refused $literal: $refusal"
     grep -q "names-are-declared-once: .*$literal is no table" "$repo.err" || fail "refused $literal without naming it"
   fi
 }
