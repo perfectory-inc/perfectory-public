@@ -105,6 +105,11 @@
   },
   "alarms": {
     "topic": "perfectory-platform-alarms",
+    "near_limit": {
+      "memory_percent": 90,
+      "cpu_percent": 80,
+      "reason": "Root ADR-0574 §5 on AWS (coordinator 2026-11-27): a service near its task size is named before it dies or starves. Every always-on service (dagster.services and every code location) has two alarms on the ECS service metrics, which are free and, with one container per task, that container's own: memory (MemoryUtilization, the minute's maximum, which leaves out reclaimable cache) above memory_percent of the task's memory, and CPU (CPUUtilization, average) above cpu_percent of its vCPU, each for 15 minutes. Memory is the host's FoundationContainerMemoryNearCap (90 % for 15 minutes): on ai-server foundation-api sat at its cap for two weeks and was killed 69 times (root ADR-0573), and the daemon's working set stood at 379 of its 384 MiB on 2026-11-19. CPU is lower because Fargate throttles at the task's vCPU instead of killing: a daemon past it runs its ticks late and nothing fails, so 80 % sustained is the warning. On 2026-11-27 the daemon used 34 % of its 0.25 vCPU and its memory peaked at 52 % (264 of 512 MiB). The fix is a measured size in this contract (dagster.services, dagster.code_locations)."
+    },
     "chatbot": {
       "configuration_name": "perfectory-platform-alarms",
       "control_region": "us-east-2",

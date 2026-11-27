@@ -469,6 +469,41 @@ resource "aws_cloudwatch_metric_alarm" "dagster_not_running" {
   ok_actions          = [aws_sns_topic.alarms.arn]
 }
 
+# Every always-on service near its task size (root ADR-0574 §5; contract alarms.near_limit): memory above its
+# share for 15 minutes, before the kernel kills the task, and CPU above its share for 15 minutes, before the
+# throttled process falls behind. One container per task, so the service's metric is its process's. No datapoint
+# (no task) keeps the state: a service that is not running is its not-running alarm's.
+locals {
+  always_on_services = merge(
+    { for process, service in local.dagster.services : service.name => aws_ecs_service.dagster[process].name },
+    { for location in keys(local.code_locations) : "code-${location}" => aws_ecs_service.code_server[location].name },
+  )
+  near_limit = {
+    memory = { metric = "MemoryUtilization", statistic = "Maximum", percent = local.contract.alarms.near_limit.memory_percent }
+    cpu    = { metric = "CPUUtilization", statistic = "Average", percent = local.contract.alarms.near_limit.cpu_percent }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "near_limit" {
+  for_each = {
+    for pair in setproduct(keys(local.always_on_services), keys(local.near_limit)) :
+    "${pair[0]}-${pair[1]}" => { service = local.always_on_services[pair[0]], resource = pair[1] }
+  }
+  alarm_name          = "perfectory-platform-${each.key}-near-limit"
+  alarm_description   = "The service ${each.value.service} has used over ${local.near_limit[each.value.resource].percent} % of its task's ${each.value.resource} for 15 minutes: measure it and raise its size in the contract."
+  namespace           = "AWS/ECS"
+  metric_name         = local.near_limit[each.value.resource].metric
+  dimensions          = { ClusterName = aws_ecs_cluster.platform.name, ServiceName = each.value.service }
+  statistic           = local.near_limit[each.value.resource].statistic
+  period              = 300
+  evaluation_periods  = 3
+  threshold           = local.near_limit[each.value.resource].percent
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "missing"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
+}
+
 # The disk grows by itself (max_allocated_storage): RDS adds storage when less than 10 % is free. This alarm
 # is below that, so it fires only when the disk could not grow: at its ceiling, or within the six hours RDS
 # waits between two growths. A full disk stops Dagster and every collector at once.
