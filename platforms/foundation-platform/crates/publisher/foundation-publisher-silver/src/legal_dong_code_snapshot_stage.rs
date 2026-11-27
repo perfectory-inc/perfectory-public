@@ -31,9 +31,11 @@ pub const CODE_GO_KR_TABLE_SOURCE: &str = "codegokr__legal_dong_code";
 /// code.go.kr snapshot only with earlier code.go.kr snapshots: another source lists another set.
 pub const CODE_GO_KR_TABLE_PREFIX: &str = "bronze/source=codegokr__legal_dong_code/";
 
-/// The prefixes a code.go.kr snapshot's `source_record_id` starts with: the source's, and those of
-/// the ids it had before the Bronze epoch renamed it (`codegokr__legal_dong_code_table`, root
-/// ADR-0626 §4), which the rows loaded before the epoch keep until the table is rebuilt from Bronze.
+/// The prefixes a code.go.kr snapshot's `source_record_id` starts with.
+///
+/// The source's own, and those of the ids it had before the Bronze epoch renamed it
+/// (`codegokr__legal_dong_code_table`, root ADR-0626 §4), which the rows loaded before the epoch
+/// keep until the table is rebuilt from Bronze.
 #[must_use]
 pub fn code_go_kr_table_prefixes() -> Vec<String> {
     std::iter::once(CODE_GO_KR_TABLE_SOURCE)

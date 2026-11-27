@@ -133,6 +133,11 @@ HELD_OFF = {
     # 2026-11-24: its national join never finished (tile-join's time bound, six runs from 11-19) and its
     # failing runs held the one spark slot 33.8 of 44 h; back on once root ADR-0613's release is live.
     "parcel_tile_bake": "off until the publisher's own partition merge (root ADR-0613) is live",
+    # 2026-11-28: the Bronze epoch (root ADR-0626 §8 N2) renames the V-World industrial complex datasets
+    # these read (sandan_* to industrial_complex_*); the source sweep keeps collecting everything else.
+    # The resume pull request turns both on and deletes these lines.
+    "silver_industrial_complexes": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
+    "complex_boundary_release": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
 }
 
 

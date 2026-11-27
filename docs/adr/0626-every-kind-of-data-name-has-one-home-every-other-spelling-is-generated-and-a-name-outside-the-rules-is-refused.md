@@ -380,8 +380,9 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
   `control/evidence/r2_move/<날짜>-bronze-epoch.jsonl.gz` 먼저, 만들기만 복사와 전체 바이트 SHA-256 재해시와 옛 ETag 비교, 원천마다 한
   트랜잭션의 제자리 `UPDATE`(원천 줄의 slug, 객체 줄의 키와 키에서 지은 칸들; `bronze_object_id` 는 그대로), 확인 보고를 목록 옆에, 그 뒤에만
   버킷 잠금(`bronze/` 30 일)이 놓아주는 대로 옛 키를 지운다. 옮길 원천의 쓰는 쪽이 줄 쓰기의 닫힘 간격 두 번 안에 돌았으면 아무것도 옮기지
-  않는다. 그 기간 쓰는 쪽과 읽는 쪽 14 작업은 꺼 두고, 온비드의 AWS 레인은 `paused`(config/aws-platform.contract.json)다. 재개 PR 이 그것들을
-  켜고, 그 커밋의 AWS 이미지를 적용한다.
+  않는다. 그 기간 쓰는 쪽과 읽는 쪽 13 작업은 꺼 두고(꺼진 작업의 규칙대로 `dagster_stage` 는 `airflow`), V-World 산업단지 7 엔드포인트는
+  원천 훑기에서 뺀다(`daily_collection` 없음: 훑기 작업을 끄면 그것이 먹이는 Silver 33 작업도 꺼야 한다). 온비드의 AWS 레인은
+  `paused`(config/aws-platform.contract.json)다. 재개 PR 이 그것들을 되돌리고, 그 커밋의 AWS 이미지를 적용한다.
 - **다시 쓰지 않는 것**(그 구성 요소의 Lakekeeper 전환이 Bronze 에서 다시 짓는다, ADR-0624 10-6): 법원경매 Silver 28 표, 온비드 8 표,
   산업용지 분양공고 2 표(`_read`·`_attachment`), ILIS 고시 2 표의 `source_record_id` 와 키에서 나온 줄 출처; `reference.legal_dong_code_snapshot`
   ·`silver.industrial_complexes`·`silver.industrial_complex_boundaries`·`silver.complex_parcel_memberships` 의 `source_record_id`;

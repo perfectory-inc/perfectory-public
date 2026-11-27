@@ -196,8 +196,8 @@ class TheHostScope(unittest.TestCase):
         self.assertTrue(view["gold_panel_rebuild"]["host_scope_off"])
         self.assertIn("host_scope collection", view["gold_panel_rebuild"]["disabled_reason"])
         self.assertNotIn("enabled_since", view["gold_panel_rebuild"])
-        self.assertTrue(view["court_auction_collect"]["enabled"])
-        self.assertNotIn("host_scope_off", view["court_auction_collect"])
+        self.assertTrue(view["source_sweep"]["enabled"])
+        self.assertNotIn("host_scope_off", view["source_sweep"])
         # The reconciler stays, its list as written, and the copy is still a valid job list: the
         # reconciler reads its job nodes from it (2026-11-27 06:30Z: an emptied list failed every tick).
         self.assertEqual(view["asset_reconcile"]["reconciles"],
@@ -1382,7 +1382,8 @@ class TheDagsterStage(unittest.TestCase):
         feeders = job_specs.producers(jobs, graph)
         by_id = {job["id"]: job for job in jobs["jobs"]}
         consumer = next(job_id for job_id, found in feeders.items()
-                        if found and job_specs.started_by(by_id[job_id]) == "inputs")
+                        if found and job_specs.started_by(by_id[job_id]) == "inputs"
+                        and by_id[job_id]["enabled"] and by_id[found[0]]["enabled"])
         by_id[feeders[consumer][0]]["dagster_stage"] = "dagster"
 
         def waits_on_its_producer():
