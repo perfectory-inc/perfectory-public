@@ -249,3 +249,22 @@ Consequences 의 "판정이 바이트 동등을 요구하므로 … 그대로 �
 ADR 의 다른 판정(전용 비교 작업, `engine_equality.py` 의 바이트 대조)은 그대로다. 자세한 것은
 [ADR-0564](./0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md)
 의 Revision 2026-11-22(둘째).
+
+개정 메모(2026-11-27, 사장 결정 — 결정 9 번과, 결정 5 번의 "57 → 1 → 0" 을 바꾼다): **표 유지보수의 실행자는 Spark 컨테이너 하나다.
+그 안에서 Iceberg 의 표준 프로시저 셋(`expire_snapshots`·`remove_orphan_files`·`rewrite_data_files`)이 돌고, AWS 에서 Dagster 가 필요할 때만
+그 컨테이너를 띄운다.**
+
+- 컨테이너는 상류의 Spark·Iceberg 그대로다. 우리 도메인 규칙은 그 안에 없다. 우리 코드가 정하는 것은 표 속성(보존 `history.expire.*`,
+  파일 크기 `write.target-file-size-bytes` 같은 것)과 태그(살아남아야 할 스냅샷)뿐이다.
+- 9 번의 두 후보는 남지 않는다. R2 Data Catalog 의 관리 기능은 그 카탈로그와 함께 떠난다: 카탈로그의 목표는 자체 호스팅 오픈소스
+  Lakekeeper 이고(dev 시험이 통과하면), 그 결정은 시험 뒤의 새 ADR(0624)이다. 오픈소스 Lakekeeper v0.15.1 에는 만료·고아 정리·합치기가
+  없다. 셋 다 유료판 Lakekeeper Plus 의 것이고(상류 문서 `table-maintenance`·`optimize`·`configuration` 의 task queues), 오픈소스판의 안내는
+  엔진의 프로시저를 돌리라는 것이다. Plus 는 사지 않는다.
+- 그래서 장부는 1(유지보수 컨테이너)에서 끝난다. 5 번의 마지막 "→ 0" 은 없다.
+- "손으로 짠 만료·고아 정리는 만들지 않는다"는 그대로다. 오늘 `lakehouse_maintenance.py` 의 계획기(`would_expire`, `retention_tags`,
+  `held_by_pins`, 합치기 규칙)와 수집 기록의 복사(ADR-0332)는 그 규칙이 태그·표 속성·커밋 자체로 옮겨진 뒤 지워진다. 그때 컨테이너는 표준
+  호출 셋만 한다. 그 전에는 실행자를 바꾸지 않는다.
+- 9 번의 조건(서빙 핀과 월말 태그가 만료에서 살아남는다)은 그 전환의 시험이다. ADR-0237 의 보존(30 일, 월말 12 개, 연말 전부)은 사장의
+  결정으로 남고, 태그로 지킨다.
+- 표를 쓰는 자산 뒤에 유지보수를 두는 순서는 Dagster 가 정한다.
+- 같은 날 ADR-0616 §2-2 의 "Spark 작업은 목표에 없다"에 이 컨테이너 하나를 예외로 적었고, ADR-0622 의 열린 질문 2 를 이것으로 닫았다.
