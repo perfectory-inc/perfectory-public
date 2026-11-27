@@ -6,6 +6,7 @@
   "title": "Lakekeeper dev rig",
   "tags": { "purpose": "lakekeeper-dev-rig" },
   "probes": true,
+  "acceptance": null,
   "secret_recovery_days": 0,
   "environment_reason": "probes true: this environment has the tests' probe task definitions, log scanner and maintenance runner (probes.tf, logscan.tf, maintenance.tf). Secrets go at once on destroy (secret_recovery_days 0), so the rig can be made again under the same names.",
   "log_retention_days": 14,
