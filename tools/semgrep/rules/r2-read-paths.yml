@@ -43,8 +43,12 @@ rules:
       # The Lakekeeper dev rig's probes (W109) make raw S3 calls on purpose: they prove what a vended
       # credential can and cannot reach (one call each, no retry wanted), and only the warehouse task
       # lists the dev bucket with its own token. They read no data a lane serves.
+      # An AWS collector lane's state (W101c, root ADR-0616 §8 C): one LIST, one GET and one conditional PUT per
+      # run under the lane's own collector-state/<lane>/ prefix, with the lane's vended credential. It is no lake
+      # read: the lane's data goes through the publisher.
       exclude:
         - /platforms/foundation-platform/infra/aws-lakekeeper-dev/probes/
+        - /platforms/foundation-platform/orchestration/dagster/aws/collect_lane.py
     pattern-either:
       - pattern: boto3.client("s3", ...)
       - pattern: boto3.resource("s3", ...)

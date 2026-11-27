@@ -216,10 +216,13 @@ class TheLaneAsDeclared(unittest.TestCase):
             self.assertEqual(len(cron.split()), 5, job_id)
             self.assertEqual(timezone, "UTC", job_id)
 
-    def test_onbid_reads_at_its_list_s_interval(self):
+    def test_every_beat_is_daily_onbid_s_with_the_loss_the_owner_accepted(self):
+        for job_id, lane in LANES.items():
+            minute, hour, *rest = collect_lane.beat(lane)[0].split()
+            self.assertTrue(minute.isdigit() and hour.isdigit() and rest == ["*", "*", "*"], job_id)
         onbid = json.loads((collect_lane.LAKEHOUSE_CONTRACTS / "data-go-kr-onbid.contract.json").read_text(encoding="utf-8"))
-        cron, _ = collect_lane.beat(LANES["onbid_public_auction_collect"])
-        self.assertEqual(cron, f"0 */{onbid['item_list']['every_hours']} * * *")
+        self.assertIn("12 of 2,227 rounds (0.54 %)", onbid["beat"]["reason"])
+        self.assertIn("owner decision 2026-11-27", onbid["beat"]["reason"])
 
     def test_rt_molit_spends_the_day_s_budget_in_its_one_daily_run(self):
         rt = json.loads((collect_lane.LAKEHOUSE_CONTRACTS / "rt-molit-real-transaction.contract.json").read_text(encoding="utf-8"))

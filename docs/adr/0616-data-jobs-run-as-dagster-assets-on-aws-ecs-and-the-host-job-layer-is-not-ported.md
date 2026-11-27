@@ -503,7 +503,7 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 재지 못하는 양에는 위를 건다: 계정의 Fargate vCPU 할당량, 줄의 `max_concurrent_runs`, 플랫폼의 run 상한 하나([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §3).
 
 2026-11-27(W101c): A3 의 첫 묶음 — 레인의 정의는 계약의 `collect.lanes` 하나이고 자산·센서·검사는 공장 하나가 만든다
-(`orchestration/dagster/aws/definitions.py`, `collect_lane.py`). 박자는 원천 계약이 적는다(`beat`, ADR-0623 §1). 발급 창구는 객체 절반만
+(`orchestration/dagster/aws/definitions.py`, `collect_lane.py`). 박자는 원천 계약이 적는다(`beat`, ADR-0623 §1): 모두 하루 한 번이다. 온비드도 그렇다(사장 결정 2026-11-27): 목록에 하루가 안 된 회차는 하루 박자가 영영 못 본다. 잰 것: 회차 2,227 개 중 12 개(0.54 %), 사장이 그 손실을 받아들였다. 발급 창구는 객체 절반만
 적용했다: 표를 읽는 레인이 없고, 표의 절반(`pin`, 카탈로그 토큰)은 지웠다. 표를 읽는 수집기(법원경매, 산단·분양공고 넷)와 Silver 까지 적재하는
 둘(data.go.kr 파일, 등록공장)은 카탈로그 결정(ADR-0624)을 기다린다. 산단 주소 원천 수집기는 다른 원천의 Bronze 를 호스트 원장으로 읽어
 그 원천(source_sweep)이 넘어올 때까지 호스트에 남는다. 셸 드라이버가 호스트의 컨테이너(GDAL, aws-cli)나 호스트 파일 넘김에 기대는

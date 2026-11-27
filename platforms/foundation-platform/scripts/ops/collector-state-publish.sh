@@ -32,14 +32,14 @@ print(collect["state_prefix"])' "${RELEASE_ROOT}/config/aws-platform.contract.js
   tarball="collector-state-${stamp}.tar.gz"
   tar -C "${state}" -czf "${scratch}/${tarball}" . 2>/dev/null || { rm -f "${scratch}/${tarball}"; return 0; }
   # The pinned reference tools/technology-versions.contract.json lists.
-  local aws_image="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
+  local COLLECTOR_STATE_AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
   # --memory 512m: the same image's measured peak (133 MiB anonymous over `s3 cp` of 1 GiB, ai-server 2026-10-18,
   # parcel-number-change-collect.sh). These comments stay above the assignments: a comment line after them ends
   # the command there, and docker then starts without the keys (2026-11-13).
   if AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID}" \
     AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY}" \
     docker run --rm --memory 512m --user "$(id -u):$(id -g)" -e HOME=/tmp -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
-      -e AWS_DEFAULT_REGION=auto -v "${scratch}:/w:ro" "${aws_image}" s3 cp --only-show-errors \
+      -e AWS_DEFAULT_REGION=auto -v "${scratch}:/w:ro" "${COLLECTOR_STATE_AWS_IMAGE}" s3 cp --only-show-errors \
       --endpoint-url "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}" \
       "/w/${tarball}" "s3://${FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET}/${prefix}${job}/host/${stamp}.tar.gz" >&2; then
     printf '%s\n' "${digest}" > "${marker}"
