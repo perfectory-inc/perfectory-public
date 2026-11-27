@@ -27,7 +27,7 @@ sys.path.insert(0, str(PLATFORM / "scripts/ops"))
 
 import media_reconcile  # noqa: E402
 
-PREFIX = "onbid/media/sha256/"
+PREFIX = "media/display/sha256/"
 TABLES = ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo",
           "silver.industrial_complex_notice_attachment", "silver.court_auction_appraisal_report",
           "silver.industrial_land_sale_notice_attachment"]

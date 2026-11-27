@@ -148,7 +148,7 @@ pub async fn run() -> anyhow::Result<()> {
     let state_dir = PathBuf::from(required_env_value(&format!("{PREFIX}_STATE_DIR"))?);
     std::fs::create_dir_all(&state_dir)?;
     let state_path = state_dir.join(STATE_FILE);
-    let mut state = load_state(&state_path)?.for_version(&spec.version);
+    let mut state = load_state(&state_path)?.for_version(&spec.ladder.to_string());
 
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::reader_from_env()
@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn the_contract_names_the_court_photo_index_and_a_budget_inside_the_unit() {
         let media = media().unwrap();
-        assert_eq!(media.object_prefix, "onbid/media");
+        assert_eq!(media.object_prefix, "media");
         assert_eq!(
             media.ladder_backlog.index_tables,
             vec!["silver.court_auction_item_photo".to_owned()]

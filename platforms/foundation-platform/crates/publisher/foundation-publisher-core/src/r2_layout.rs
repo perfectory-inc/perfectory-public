@@ -226,7 +226,7 @@ mod tests {
         );
         assert_eq!(
             industrial_complex_gold_profile_key(ID)?,
-            "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json"
+            "serving/industrial_complex/profile/018f0000-0000-7000-8000-000000000001.json"
         );
         Ok(())
     }
@@ -255,9 +255,9 @@ mod tests {
 
         assert!(is_industrial_complex_gold_profile_key(&key));
         for other in [
-            "gold/industrial-complex/profiles/latest.json",
-            "gold/industrial-complex/profiles/nested/018f0000-0000-7000-8000-000000000001.json",
-            "gold/industrial-complex/profiles",
+            "serving/industrial_complex/profile/latest.json",
+            "serving/industrial_complex/profile/nested/018f0000-0000-7000-8000-000000000001.json",
+            "serving/industrial_complex/profile",
             "gold/manifest.json",
             "bronze/vworld/2026/raw.jsonl",
             "silver/industrial-complexes/part-0.parquet",

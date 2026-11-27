@@ -801,8 +801,8 @@ mod tests {
         assert_eq!(detail.read_from, "silver.court_auction_item_detail");
         assert_eq!(
             photo_prefix(detail).expect("prefix").as_str(),
-            "onbid/media",
-            "the shared store the parcel edge serves (root ADR-0296 §5)"
+            "media",
+            "the shared store the parcel edge serves (root ADR-0296 §5, ADR-0626 §6-1)"
         );
         // A safety bound above every in-progress property: the run's deadline ends the asking
         // (root ADR-0540 §2).
@@ -996,7 +996,7 @@ mod tests {
         assert_eq!((later.stored, later.deduplicated), (0, 1));
         assert_eq!(again["csPicLst"][0]["sha256"], json!(sha.clone()));
         assert!(storage
-            .read_object_sha256(&format!("onbid/media/sha256/{sha}.jpg"))
+            .read_object_sha256(&format!("media/display/sha256/{sha}.jpg"))
             .await
             .unwrap()
             .is_some());

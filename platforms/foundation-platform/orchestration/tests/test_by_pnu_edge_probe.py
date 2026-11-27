@@ -32,7 +32,7 @@ MEDIA_LANE = POLICY["media"]["documents_lane"]
 PNU_GONE, PNU = "9999900000100000000", "9999900000200000000"
 PHOTO = b"\xff\xd8\xff synthetic photo"
 SHA = hashlib.sha256(PHOTO).hexdigest()
-BLOB = f"/onbid/media/sha256/{SHA}.jpg"
+BLOB = f"/media/display/sha256/{SHA}.jpg"
 
 
 def document(value):
@@ -234,10 +234,10 @@ class TheContract(unittest.TestCase):
         self.assertEqual(workers["parcel"], PARCEL["public_hostname"])
 
     def test_the_media_key_follows_the_served_media_rule(self):
-        keys = list(probe.media_keys(json.loads(gzip.decompress(WITH_PHOTO[2])), "onbid/media"))
+        keys = list(probe.media_keys(json.loads(gzip.decompress(WITH_PHOTO[2])), "media"))
         self.assertEqual(keys, [BLOB.lstrip("/")])
         self.assertRegex(keys[0], f"^(?:{CONTRACT['parcel_media']['path_pattern']})$")
-        self.assertEqual(probe.load(probe.ONBID)["media"]["object_prefix"], "onbid/media")
+        self.assertEqual(probe.load(probe.ONBID)["media"]["object_prefix"], "media")
 
 
 class TheUnits(unittest.TestCase):

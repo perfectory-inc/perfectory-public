@@ -154,10 +154,10 @@ describe("public auction media", () => {
 
   it("builds the media URL off the configured catalog base, content-addressed by sha256", () => {
     expect(onbidMediaSrc({ sha256: photoSha, media_format: "jpg" })).toBe(
-      `https://catalog.example.test/onbid/media/sha256/${photoSha}.jpg`,
+      `https://catalog.example.test/media/display/sha256/${photoSha}.jpg`,
     );
     expect(onbidMediaSrc({ sha256: appraisalSha, media_format: "pdf" })).toBe(
-      `https://catalog.example.test/onbid/media/sha256/${appraisalSha}.pdf`,
+      `https://catalog.example.test/media/display/sha256/${appraisalSha}.pdf`,
     );
   });
 });

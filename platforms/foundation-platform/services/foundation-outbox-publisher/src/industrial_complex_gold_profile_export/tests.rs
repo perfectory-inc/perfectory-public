@@ -100,7 +100,7 @@ async fn a_colliding_key_with_different_bytes_fails_instead_of_overwriting() -> 
     let result = write_artifact_create_only(&output, &different).await;
 
     let stored = std::fs::read(
-        root.join("gold/industrial-complex/profiles")
+        root.join("serving/industrial_complex/profile")
             .join(format!("{}.json", artifact.artifact_id)),
     )?;
     std::fs::remove_dir_all(&root)?;

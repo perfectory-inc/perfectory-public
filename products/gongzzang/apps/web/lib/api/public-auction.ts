@@ -37,7 +37,7 @@ export const PublicAuctionDocumentSchema = Generated.extend({
  * (root ADR-0427). 경매 photos are stored in the same store (root ADR-0384).
  */
 export function parcelMediaStore(): MediaStore {
-  return { base: env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL, prefix: "onbid/media" };
+  return { base: env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL, prefix: "media" };
 }
 
 /** The public URL of a photo, map, appraisal report or announcement attachment. */

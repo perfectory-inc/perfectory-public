@@ -3,10 +3,10 @@
 //!
 //! The ladder is `config/r2-connections.contract.json` `parcel_media.renditions` and is rendered by
 //! the `foundation-media-renditions` crate from the original's stored bytes. Each rendition lands at
-//! `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>` (write-once, immutable), then the
-//! manifest `<prefix>/renditions/<version>/<source sha256>.json` last: a manifest means the whole
+//! `<prefix>/rendition/ladder=<n>/<source sha256>/<width>.<ext>` (write-once, immutable), then the
+//! manifest `<prefix>/rendition/ladder=<n>/<source sha256>.json` last: a manifest means the whole
 //! ladder is there, so a source with one is never rendered again (partial: only new originals, or
-//! every source once after a version change).
+//! every source once after a ladder change).
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -72,8 +72,8 @@ pub(crate) enum Laddered {
     Unrenderable,
 }
 
-/// Makes sure the ladder of the stored source `<prefix>/sha256/<source_sha256>.<media_format>`
-/// exists at the contract's version.
+/// Makes sure the ladder of the stored source `<prefix>/display/sha256/<source_sha256>.<media_format>`
+/// exists at the contract's ladder.
 ///
 /// # Errors
 /// The store refused a read or a write (retried by a later run).
@@ -88,7 +88,7 @@ pub(crate) async fn ensure_ladder(
     let source_hash = Sha256Hex::parse(source_sha256).context("source sha-256 is not canonical")?;
     let source_format = MediaFormat::from_extension(media_format)
         .with_context(|| format!("{media_format} is not a media format"))?;
-    let manifest = rendition_manifest_key(&prefix, &spec.version, &source_hash)?;
+    let manifest = rendition_manifest_key(&prefix, spec.ladder, &source_hash)?;
     if storage
         .read_object_sha256(manifest.as_str())
         .await
@@ -117,7 +117,7 @@ pub(crate) async fn ensure_ladder(
     for rendition in rendered.renditions {
         let key = rendition_key(
             &prefix,
-            &spec.version,
+            spec.ladder,
             &source_hash,
             rendition.rung,
             rendition.format,
@@ -143,7 +143,7 @@ pub(crate) async fn ensure_ladder(
         written += size;
     }
     let body = serde_json::to_vec(&json!({
-        "version": spec.version,
+        "ladder": spec.ladder,
         "source": {
             "sha256": source_sha256,
             "media_format": media_format,
@@ -284,12 +284,11 @@ mod tests {
                 .as_str()
                 .unwrap_or_default()
         ))?;
-        let prefix = ObjectKeyPrefix::parse("onbid/media")?;
+        let prefix = ObjectKeyPrefix::parse("media")?;
         let sha = Sha256Hex::of(b"source");
         for width in &spec.widths {
             for format in &spec.formats {
-                let key =
-                    rendition_key(&prefix, &spec.version, &sha, *width, format.media_format())?;
+                let key = rendition_key(&prefix, spec.ladder, &sha, *width, format.media_format())?;
                 let key = key.as_str();
                 assert!(
                     pattern.is_match(key),
@@ -308,7 +307,7 @@ mod tests {
         let sha = Sha256Hex::of(&source).as_str().to_owned();
         storage
             .put_object(PutObjectRequest {
-                key: format!("onbid/media/sha256/{sha}.jpg"),
+                key: format!("media/display/sha256/{sha}.jpg"),
                 body: source,
                 content_type: "image/jpeg".to_owned(),
                 cache_control: cache_control()?.to_owned(),
@@ -317,13 +316,13 @@ mod tests {
             })
             .await?;
         let spec = spec()?;
-        let first = ensure_ladder("onbid/media", &sha, "jpg", spec, &storage).await?;
+        let first = ensure_ladder("media", &sha, "jpg", spec, &storage).await?;
         assert!(matches!(first, Laddered::Written(bytes) if bytes > 0));
         let manifest: serde_json::Value = serde_json::from_slice(
             &storage.get_object_bytes(
                 rendition_manifest_key(
-                    &ObjectKeyPrefix::parse("onbid/media")?,
-                    &spec.version,
+                    &ObjectKeyPrefix::parse("media")?,
+                    spec.ladder,
                     &Sha256Hex::parse(&sha)?,
                 )?
                 .as_str(),
@@ -338,7 +337,7 @@ mod tests {
             .flatten()
             .all(|entry| entry["pixel_width"].as_u64() <= Some(400)));
         assert_eq!(
-            ensure_ladder("onbid/media", &sha, "jpg", spec, &storage).await?,
+            ensure_ladder("media", &sha, "jpg", spec, &storage).await?,
             Laddered::Present
         );
         Ok(())
@@ -352,7 +351,7 @@ mod tests {
         let sha = "b".repeat(64);
         storage
             .put_object(PutObjectRequest {
-                key: format!("onbid/media/sha256/{sha}.jpg"),
+                key: format!("media/display/sha256/{sha}.jpg"),
                 body: vec![0xFF, 0xD8, 0xFF, 0x00, 0x01],
                 content_type: "image/jpeg".to_owned(),
                 cache_control: cache_control()?.to_owned(),
@@ -361,7 +360,7 @@ mod tests {
             })
             .await?;
         assert_eq!(
-            ensure_ladder("onbid/media", &sha, "jpg", spec()?, &storage).await?,
+            ensure_ladder("media", &sha, "jpg", spec()?, &storage).await?,
             Laddered::Unrenderable
         );
         Ok(())
@@ -377,7 +376,7 @@ mod tests {
             let sha = Sha256Hex::of(&bytes).as_str().to_owned();
             crate::media_store::store_bytes(
                 &bytes,
-                &ObjectKeyPrefix::parse("onbid/media")?,
+                &ObjectKeyPrefix::parse("media")?,
                 &storage,
                 1 << 20,
             )
@@ -391,10 +390,10 @@ mod tests {
             concurrency: 1,
             run_time_budget_seconds: 600,
         };
-        let (report, left) = ensure_ladders("onbid/media", &sources, &budget, &storage).await?;
+        let (report, left) = ensure_ladders("media", &sources, &budget, &storage).await?;
         assert_eq!((report.written, report.deferred, report.errored), (2, 1, 0));
         assert_eq!(left, vec![sources[3].clone()]);
-        let (again, left) = ensure_ladders("onbid/media", &sources, &budget, &storage).await?;
+        let (again, left) = ensure_ladders("media", &sources, &budget, &storage).await?;
         assert_eq!((again.present, again.written, again.deferred), (2, 0, 1));
         assert_eq!(left.len(), 1);
         Ok(())

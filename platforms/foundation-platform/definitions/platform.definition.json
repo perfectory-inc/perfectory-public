@@ -338,7 +338,7 @@
         "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
         "compatibility_date": "2026-04-26",
         "object_key": {
-          "root": "gold/industrial-complex/profiles",
+          "root": "serving/industrial_complex/profile",
           "artifact_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
           "suffix": ".json"
         },
@@ -455,15 +455,15 @@
         }
       },
       "parcel_media": {
-        "purpose": "content-addressed 미디어(경매·공매 공용, 내용해시 write-once)를 공개 서빙한다. 파일명이 곧 내용해시라 immutable·1년 캐시·egress 0 이고, 필지 엣지(parcel lane = catalog.perfectory.io)에서 해시 규칙 하나로 서빙한다(ADR-0296 §5 / ADR-0297 §5, 새 호스트·새 버킷 없음 — parcel_by_pnu_gateway 가 이미 바인딩한 lakehouse 버킷의 onbid/media 를 읽기만 한다). 원본 서빙 MVP: 표시 크기 사다리·엣지 변환은 디자인이 정해지면 가산적으로(ADR-0297 §4). SSOT: 미디어 키·형식 판정 = foundation-shared-kernel media.rs, 쓰기 접두어 = data-go-kr-onbid.contract.json media.object_prefix(onbid/media).",
+        "purpose": "content-addressed 미디어(경매·공매 공용, 내용해시 write-once)를 공개 서빙한다. 파일명이 곧 내용해시라 immutable·1년 캐시·egress 0 이고, 필지 엣지(parcel lane = catalog.perfectory.io)에서 해시 규칙 하나로 서빙한다(ADR-0296 §5 / ADR-0297 §5, 새 호스트·새 버킷 없음 — parcel_by_pnu_gateway 가 이미 바인딩한 lakehouse 버킷의 media/ 를 읽기만 한다 — 루트 ADR-0626 §6-1 의 미디어 저장소 하나: display/sha256(서빙하는 원본), document/sha256(법원 매각물건명세서, §6-3), rendition/ladder=<n>(사다리); received/ 는 서빙하지 않는다). 원본 서빙 MVP: 표시 크기 사다리·엣지 변환은 디자인이 정해지면 가산적으로(ADR-0297 §4). SSOT: 미디어 키·형식 판정 = foundation-shared-kernel media.rs, 쓰기 접두어 = data-go-kr-onbid.contract.json media.object_prefix(media).",
         "lane": "parcel",
         "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
-        "path_pattern": "onbid/media/(?:sha256/[0-9a-f]{64}\\.(?:jpg|png|gif|webp|avif|pdf)|renditions/r[0-9]+/[0-9a-f]{64}/[0-9]{2,4}\\.(?:avif|webp))",
+        "path_pattern": "media/(?:display/sha256/[0-9a-f]{64}\\.(?:jpg|png|gif|webp|avif|pdf)|document/sha256/[0-9a-f]{64}\\.pdf|rendition/ladder=[0-9]+/[0-9a-f]{64}/[0-9]{2,4}\\.(?:avif|webp))",
         "cache_control": "public, max-age=31536000, immutable",
         "decision": "docs/adr/0297-parcel-media-captures-originals-first-and-pre-generates-display-sizes.md",
-        "$renditions": "루트 ADR-0427(ADR-0297 §2·§3 의 이행). 화면 사진은 우리가 원본에서 만든 사다리다 — 제공자 썸네일은 화면 크기 단계가 아니라 Bronze 증거다. 사다리 = widths(긴 변 px, 원본보다 크게 늘리지 않는다) × formats(AVIF, 그다음 WebP; JPEG 대체는 두지 않는다 — caniuse 2026-11 WebP 지원 97.3%, iOS Safari 14+·Safari 16+)를 수집 때 한 번 만든다(공매 onbid_media.rs 와 경매 수집기가 같은 foundation-media-renditions 크레이트를 쓴다). 키 = <object_prefix>/renditions/<version>/<원본 sha256>/<width>.<확장자>; 다 쓴 뒤 마지막에 <object_prefix>/renditions/<version>/<원본 sha256>.json(만든 단계·픽셀 크기·바이트)을 쓴다 — 그 파일이 있으면 사다리가 다 있다(write-audit-publish 의 publish 표시). (원본 해시, version)이 같으면 내용도 같으므로 immutable 1년 캐시다. 아래 값을 하나라도 바꾸면 version 을 올린다: 새 version 의 사다리만 새로 만들고 옛 것은 지우지 않는다(append-only); 웹은 이 version 을 읽는다(edge-contract.test.ts 가 대조). EXIF 방향으로 바로 세운 뒤 줄이고, 파생본은 디코딩한 픽셀에서만 쓰므로 EXIF·GPS 가 남지 않는다. max_source_pixels 는 디코딩 전에 거부하는 상한(압축 폭탄; 실측 최대 원본 4000×3000 = 12 MP).",
+        "$renditions": "루트 ADR-0427(ADR-0297 §2·§3 의 이행). 화면 사진은 우리가 원본에서 만든 사다리다 — 제공자 썸네일은 화면 크기 단계가 아니라 Bronze 증거다. 사다리 = widths(긴 변 px, 원본보다 크게 늘리지 않는다) × formats(AVIF, 그다음 WebP; JPEG 대체는 두지 않는다 — caniuse 2026-11 WebP 지원 97.3%, iOS Safari 14+·Safari 16+)를 수집 때 한 번 만든다(공매 onbid_media.rs 와 경매 수집기가 같은 foundation-media-renditions 크레이트를 쓴다). 키 = <object_prefix>/rendition/ladder=<ladder>/<원본 sha256>/<width>.<확장자>; 다 쓴 뒤 마지막에 <object_prefix>/rendition/ladder=<ladder>/<원본 sha256>.json(만든 단계·픽셀 크기·바이트)을 쓴다 — 그 파일이 있으면 사다리가 다 있다(write-audit-publish 의 publish 표시). (원본 해시, ladder)이 같으면 내용도 같으므로 immutable 1년 캐시다. 아래 값을 하나라도 바꾸면 ladder 를 올린다: 새 ladder 의 사다리만 새로 만들고 옛 것은 지우지 않는다(append-only); 웹은 이 ladder 를 읽는다(edge-contract.test.ts 가 대조). EXIF 방향으로 바로 세운 뒤 줄이고, 파생본은 디코딩한 픽셀에서만 쓰므로 EXIF·GPS 가 남지 않는다. max_source_pixels 는 디코딩 전에 거부하는 상한(압축 폭탄; 실측 최대 원본 4000×3000 = 12 MP).",
         "renditions": {
-          "version": "r1",
+          "ladder": 1,
           "widths": [
             400,
             960,
@@ -484,13 +484,13 @@
         }
       },
       "industrial_complex_documents": {
-        "purpose": "산업단지 문서를 필지 엣지(parcel lane = catalog.perfectory.io)에서 서빙한다(루트 ADR-0456). 제품 API 의 Postgres 사본을 거치지 않는다 — 레이크하우스가 중심이다. 목록 = index_object 한 장(모든 단지의 목록 칸과 그 단지 프로필의 키), 상세 = 단지마다의 Gold 프로필(profile_gateway.object_key 가 키·형식의 정본, create-only·immutable). 내보내기는 부분이다: 내용이 같은 단지는 지난 프로필을 그대로 가리키고, 바뀐 단지만 새 프로필을 쓴다. index_object 는 유일하게 덮어쓰는 객체이고, 쓰기 전에 같은 바이트를 index_history_dir/<generation>.json 에 create-only 로 남긴다(append-only 이력, by-PNU manifest·manifest-history 와 같은 모양). 읽기만 한다 — Worker 는 이 키들만 get 한다.",
+        "purpose": "산업단지 문서를 필지 엣지(parcel lane = catalog.perfectory.io)에서 서빙한다(루트 ADR-0456). 제품 API 의 Postgres 사본을 거치지 않는다 — 레이크하우스가 중심이다. 목록 = index_object 한 장(모든 단지의 목록 칸과 그 단지 프로필의 키), 상세 = 단지마다의 Gold 프로필(profile_gateway.object_key 가 키·형식의 정본, create-only·immutable). 내보내기는 부분이다: 내용이 같은 단지는 지난 프로필을 그대로 가리키고, 바뀐 단지만 새 프로필을 쓴다. index_object 는 유일하게 덮어쓰는 객체이고, 쓰기 전에 같은 바이트를 index_history_dir/<generation>.json 에 create-only 로 남긴다(append-only 이력, by-PNU manifest·manifest-history 와 같은 모양). 읽기만 한다 — Worker 는 이 키들만 get 한다. 자리는 루트 ADR-0626 §6-1 의 serving/industrial_complex/ 다(2026-11-28 까지 gold/industrial-complex/).",
         "decision": "docs/adr/0456-industrial-complexes-are-served-from-the-catalog-edge-as-one-index-and-per-complex-profiles.md",
         "lane": "parcel",
         "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
-        "index_object": "gold/industrial-complex/index.json",
-        "index_history_dir": "gold/industrial-complex/index-history",
-        "profile_path_pattern": "gold/industrial-complex/profiles/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.json",
+        "index_object": "serving/industrial_complex/index/current.json",
+        "index_history_dir": "serving/industrial_complex/index",
+        "profile_path_pattern": "serving/industrial_complex/profile/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.json",
         "profile_path_pattern_reason": "Worker 가 키를 짓지 않고 경로 규칙 하나로 읽는다(ADR-0274, parcel_media.path_pattern 과 같은 꼴). profile_gateway.object_key(root·artifact_id_pattern·suffix)가 정본이고, 둘이 같은지는 게이트웨이 시험 complex-documents.test.ts 가 잡는다.",
         "index_cache_control": "no-cache, max-age=0",
         "index_cache_control_reason": "덮어쓰는 객체라 브라우저가 매번 ETag 로 다시 묻는다(바뀌지 않았으면 304). 프로필은 키가 내용마다 달라 profile_gateway.cache_control(immutable)이다."
@@ -1515,6 +1515,146 @@
         "[0-9]{6,8}"
       ],
       "table_words_reason": "Root ADR-0626 rule 7: a table name is a singular head noun naming one row, in full English words, with no storage, version, date, environment or test word; history is `row_versions`, never the name. A last word ending in s is singular only when listed here.",
+      "buckets": {
+        "foundation-platform-lakehouse-prod": {
+          "owner": "foundation-platform",
+          "purpose": "lakehouse",
+          "environment": "prod"
+        },
+        "foundation-platform-lakehouse-dev": {
+          "owner": "foundation-platform",
+          "purpose": "lakehouse",
+          "environment": "dev"
+        },
+        "foundation-platform-tile-derivatives-prod": {
+          "owner": "foundation-platform",
+          "purpose": "tile-derivatives",
+          "environment": "prod"
+        },
+        "foundation-platform-postgres-recovery-prod": {
+          "owner": "foundation-platform",
+          "purpose": "postgres-recovery",
+          "environment": "prod"
+        },
+        "foundation-platform-shape-ledger-prod": {
+          "owner": "foundation-platform",
+          "purpose": "shape-ledger",
+          "environment": "prod"
+        },
+        "foundation-platform-edge-settings-state-prod": {
+          "owner": "foundation-platform",
+          "purpose": "edge-settings-state",
+          "environment": "prod"
+        },
+        "gongzzang-lakehouse-prod": {
+          "owner": "gongzzang",
+          "purpose": "lakehouse",
+          "environment": "prod"
+        },
+        "dawneer-lakehouse-prod": {
+          "owner": "dawneer",
+          "purpose": "lakehouse",
+          "environment": "prod",
+          "status": "retiring"
+        }
+      },
+      "buckets_reason": "Root ADR-0626 rule 9: a data bucket is <owner>-<purpose>-<environment>, environment prod or dev, the one place a bucket name is spelled (the hyphens are DNS's: rule 3). perfectory-sccache is a tooling bucket and outside these rules; other repositories' buckets are not listed.",
+      "areas": {
+        "bronze": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "bronze/",
+          "template": "bronze/source={provider}__{dataset}/",
+          "class": "canonical",
+          "status": "live",
+          "reason": "rule 3's written exception (option K): the Bronze grammar stays; leaves carry no run stamp after N2"
+        },
+        "media": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "media/",
+          "class": "canonical",
+          "status": "live",
+          "forms": {
+            "display": "media/display/sha256/{sha256}.{extension}",
+            "received": "media/received/sha256/{sha256}.{extension}",
+            "document": "media/document/sha256/{sha256}.pdf",
+            "rendition": "media/rendition/ladder={ladder}/{sha256}/{width}.{format}"
+          },
+          "reason": "one content-addressed store for every source (root ADR-0626 §6-1); served by the parcel edge except received/"
+        },
+        "serving": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "serving/",
+          "class": "derived",
+          "status": "live",
+          "reason": "Gold's published form; serving/industrial_complex/ holds the complex profiles and index (ADR-0039 amended)"
+        },
+        "tables": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "tables/",
+          "class": "canonical",
+          "status": "live",
+          "reason": "Lakekeeper's tables/<namespace>/<table>/ (root ADR-0624 §4-2)"
+        },
+        "work": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "work/",
+          "template": "work/{lane}/run={run_id}/",
+          "class": "derived",
+          "status": "live",
+          "expiry_days": 7,
+          "reason": "scratch of one run, expired by a lifecycle rule (replaces silver-handoff/)"
+        },
+        "control": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "control/",
+          "class": "canonical",
+          "status": "live",
+          "reason": "evidence (control/evidence/, the r2_move manifests among it) and, at ADR-0623's generated scopes, collector state"
+        },
+        "r2_data_catalog": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "__r2_data_catalog/",
+          "class": "canonical",
+          "status": "retiring",
+          "reason": "Basin's tables until ADR-0624 A9; never addressed by path"
+        },
+        "collector_state": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "collector-state/",
+          "class": "canonical",
+          "status": "retiring",
+          "reason": "moves to control/collector_state/ when the ADR-0623 write scopes are generated"
+        },
+        "onbid_media": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "onbid/media/",
+          "class": "canonical",
+          "status": "retiring",
+          "reason": "copied to media/ (control/evidence/r2_move/2026-11-28-media), expired once no writer is left"
+        },
+        "court_sale_specification": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "courtauction-go-kr/",
+          "class": "canonical",
+          "status": "retiring",
+          "reason": "copied to media/document/ (2026-11-28-court_sale_specification)"
+        },
+        "gold_industrial_complex": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "gold/",
+          "class": "derived",
+          "status": "retiring",
+          "reason": "copied to serving/industrial_complex/ (2026-11-28-industrial_complex_serving)"
+        },
+        "silver_handoff": {
+          "bucket": "foundation-platform-lakehouse-prod",
+          "prefix": "silver-handoff/",
+          "class": "derived",
+          "status": "retiring",
+          "reason": "replaced by work/; deleted once its writers write work/"
+        }
+      },
+      "areas_reason": "Root ADR-0626 rules 4-5 and §6: the top level of the lakehouse bucket holds zones only; every area is one prefix with its class (canonical: kept; derived: rebuilt from the canonical) and status (live, or retiring: what a move leaves until it is empty). A consumer's prefix lies in a live area (G1, scripts/catalog/declared_definitions.py).",
       "renames": {
         "tables": {
           "gold.administrative_boundary_served": "gold.administrative_boundary",

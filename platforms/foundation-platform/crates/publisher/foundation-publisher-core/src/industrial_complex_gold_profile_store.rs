@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn upload_request_metadata_comes_from_profile_gateway_contract() -> anyhow::Result<()> {
         let request = profile_put_request(
-            "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json",
+            "serving/industrial_complex/profile/018f0000-0000-7000-8000-000000000001.json",
             b"{}\n",
             &"a".repeat(64),
         )?;

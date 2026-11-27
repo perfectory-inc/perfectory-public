@@ -155,7 +155,7 @@ describe("ComplexSummaryCard document facts", () => {
       name: "원문 합성시 고시 제2099-1호 · 2099-01-01 · 4–5쪽",
     });
     expect(link.getAttribute("href")).toBe(
-      `https://catalog.example.test/onbid/media/sha256/${SHA}.pdf#page=4`,
+      `https://catalog.example.test/media/display/sha256/${SHA}.pdf#page=4`,
     );
   });
 

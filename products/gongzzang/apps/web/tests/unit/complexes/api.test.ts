@@ -20,7 +20,7 @@ function row(n: number, overrides: Partial<ComplexIndex["complexes"][number]> = 
     sido_name: "합성시도",
     address_text: null,
     official_area_sqm: `${n}000.00`,
-    profile_object_key: `gold/industrial-complex/profiles/0196e7e0-3c20-5000-9000-${String(n).padStart(12, "0")}.json`,
+    profile_object_key: `serving/industrial_complex/profile/0196e7e0-3c20-5000-9000-${String(n).padStart(12, "0")}.json`,
     ...overrides,
   };
 }

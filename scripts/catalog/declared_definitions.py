@@ -352,7 +352,25 @@ def naming_registry(naming):
             raise DefinitionError(f"{NAMING}: renames.tables {old} -> {new}: {new} is outside the namespaces {sorted(namespaces)}")
     if set(naming["renames"]["tables"]) & set(naming["renames"]["not_recreated"]):
         raise DefinitionError(f"{NAMING}: a table is both renamed and not recreated")
+    for bucket, entry in naming["buckets"].items():
+        if entry["environment"] not in ("prod", "dev") or bucket != f"{entry['owner']}-{entry['purpose']}-{entry['environment']}":
+            raise DefinitionError(f"{NAMING}: bucket {bucket} is not <owner>-<purpose>-<prod|dev> (root ADR-0626 rule 9)")
+    live = set()
+    for area, entry in naming["areas"].items():
+        prefix = entry["prefix"]
+        if entry["bucket"] not in naming["buckets"] or not prefix.endswith("/") or prefix.count("/") > 2:
+            raise DefinitionError(f"{NAMING}: area {area}: a declared bucket and a top-level prefix (root ADR-0626 rule 5)")
+        if entry["status"] == "live":
+            if prefix.count("/") != 1:
+                raise DefinitionError(f"{NAMING}: live area {area} is not a zone of the top level: {prefix}")
+            live.add(prefix)
     return owner
+
+
+def live_area(naming, key):
+    """The live area `key` lies in, or None (root ADR-0626 rule 5)."""
+    return next((area for area, entry in naming["areas"].items()
+                 if entry["status"] == "live" and key.startswith(entry["prefix"])), None)
 
 
 def naming_problems(root, documents):
@@ -374,6 +392,26 @@ def naming_problems(root, documents):
         elif owner.get(endpoint["provider"]) != provider:
             problems.append(f"{ENDPOINTS}: {endpoint['endpoint_slug']}: provider label {endpoint['provider']} is not a "
                             f"domain of {provider} in {NAMING}")
+    # Every prefix a consumer writes or serves lies in a live area (root ADR-0626 §1: checked against the
+    # one home). Prevents what round 2 found: the registry expected media/ while the writers wrote
+    # onbid/media/, so allows_object_key_for_asset refused the real keys.
+    r2 = documents[R2]
+    consumers = {
+        f"{R2} parcel_media.path_pattern": r2["parcel_media"]["path_pattern"],
+        f"{R2} profile_gateway.object_key.root": r2["profile_gateway"]["object_key"]["root"] + "/",
+        f"{R2} industrial_complex_documents.index_object": r2["industrial_complex_documents"]["index_object"],
+        f"{R2} industrial_complex_documents.index_history_dir": r2["industrial_complex_documents"]["index_history_dir"] + "/",
+    }
+    for contract, path in (("infra/lakehouse/contracts/data-go-kr-onbid.contract.json", ("media", "object_prefix")),
+                           ("infra/lakehouse/contracts/courtauction-go-kr.contract.json", ("sale_specifications", "object_prefix"))):
+        consumers[f"{contract} {'.'.join(path)}"] = at(read_json(root / "platforms/foundation-platform" / contract), path) + "/"
+    aws = read_json(root / "platforms/foundation-platform/config/aws-platform.contract.json")
+    for lane, entry in aws["collect"]["lanes"].items():
+        for index, prefix in enumerate(entry.get("write_prefixes", [])):
+            consumers[f"aws-platform.contract.json collect.lanes.{lane}.write_prefixes[{index}]"] = prefix
+    for where, key in consumers.items():
+        if live_area(naming, key) is None:
+            problems.append(f"{where}: {key} lies in no live area of {NAMING} (root ADR-0626 rule 5)")
     pending = set(naming["renames"]["tables"]) | set(naming["renames"]["not_recreated"])
     for node in documents[GRAPH]["nodes"]:
         table = node.get("table_name")
@@ -673,7 +711,7 @@ def check(root):
     files = artifacts(root)
     problems = [f"{path}: generated from {DEFINITIONS} (root ADR-0418); remove it from git: git rm --cached {path}"
                 for path in tracked(root, GENERATED)]
-    problems += naming_problems(root, {path: json.loads(text) for path, text in files.items() if path in (NAMING, GRAPH)})
+    problems += naming_problems(root, {path: json.loads(text) for path, text in files.items() if path in (NAMING, GRAPH, R2)})
     for path, text in files.items():
         target = root / path
         if target.exists() and target.read_bytes() != text.encode("utf-8"):

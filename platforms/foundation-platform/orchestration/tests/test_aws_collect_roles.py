@@ -22,7 +22,7 @@ TOKEN = "aws_secretsmanager_secret.r2_mint_token"
 VENDOR = ["aws_lambda_function.r2_vend", "aws_secretsmanager_secret_policy.r2_mint_token",
           "data.aws_iam_policy_document.r2_vend"]
 BRONZE = re.compile(r"^bronze/source=[a-z0-9]+__[a-z0-9_]+/$")
-MEDIA = ("onbid/media/",)
+MEDIA = ("media/display/", "media/received/", "media/rendition/")
 
 
 def lanes():

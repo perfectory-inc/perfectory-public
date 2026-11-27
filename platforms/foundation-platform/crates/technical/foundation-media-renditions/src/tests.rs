@@ -3,7 +3,7 @@ use image::codecs::jpeg::JpegEncoder;
 
 fn spec(widths: &[u32]) -> Spec {
     Spec {
-        version: "test".to_owned(),
+        ladder: 9,
         widths: widths.to_vec(),
         formats: vec![
             FormatSpec::Avif {

@@ -4,7 +4,7 @@
 //! sources. Each stored image then gets its display ladder from `media_renditions::ensure_ladder`.
 //!
 //! A raster no screen reads (BMP, TIFF; root ADR-0503) is kept byte for byte under
-//! `<prefix>/sources/sha256/`, and its lossless PNG display master is what lands in the served store:
+//! `<prefix>/received/sha256/`, and its lossless PNG display master is what lands in the served store:
 //! the photo index, the ladder, the edge and every screen see only the master.
 
 use anyhow::Context as _;
@@ -15,7 +15,8 @@ use foundation_outbox::object_storage::{
 };
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::{
-    content_addressed_key, source_key, MediaFormat, ObjectKey, ObjectKeyPrefix, Sha256Hex,
+    content_addressed_key, document_key, source_key, MediaFormat, ObjectKey, ObjectKeyPrefix,
+    Sha256Hex,
 };
 use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt as _;
@@ -32,7 +33,7 @@ pub(crate) struct StoredMedia {
     /// The longest side its header declares, when stored this run and readable.
     pub(crate) longest_px: Option<u32>,
     /// The file as received, when it is not one the screens read and this is its display master
-    /// (root ADR-0503): kept under `<prefix>/sources/sha256/`, named in the Bronze line beside it.
+    /// (root ADR-0503): kept under `<prefix>/received/sha256/`, named in the Bronze line beside it.
     pub(crate) source: Option<SourceMedia>,
 }
 
@@ -58,7 +59,7 @@ pub(crate) enum Stored {
     Gone,
 }
 
-/// Stores media bytes already in hand once, under their content hash (`<prefix>/sha256/<hex>.<ext>`,
+/// Stores media bytes already in hand once, under their content hash (`<prefix>/display/sha256/<hex>.<ext>`,
 /// write-once): an over-cap file or an unknown format is not stored, an existing key is a dedup. A
 /// raster no screen reads is kept as received under [`source_key`] and its display master is stored
 /// in its place (root ADR-0503): the answer names the master, with the received file as `source`.
@@ -297,9 +298,9 @@ pub(crate) async fn spool_response(
     spool.finish().await
 }
 
-/// Stores a spooled file as received under `<prefix>/sha256/<hex>.<ext>`, whatever its format, sent
-/// from disk (in parts when it is large): an over-cap file is not stored, and a key already there is a
-/// dedup with nothing sent.
+/// Stores a spooled file as received under `<prefix>/display/sha256/<hex>.<ext>`, whatever its format,
+/// sent from disk (in parts when it is large): an over-cap file is not stored, and a key already there
+/// is a dedup with nothing sent.
 ///
 /// # Errors
 /// The store refused the HEAD or the write (retried by a later run).
@@ -313,6 +314,36 @@ pub(crate) async fn store_spooled(
     }
     let key = content_addressed_key(prefix, &spooled.sha256, spooled.format)
         .context("media object key is invalid")?;
+    store_spooled_at(spooled, &key, store).await
+}
+
+/// Stores a spooled court document under `<prefix>/document/sha256/<hex>.pdf` (root ADR-0626 §6-3), as
+/// [`store_spooled`] stores a served file: an over-cap file, or a file that is not a PDF, is not stored.
+///
+/// # Errors
+/// The store refused the HEAD or the write (retried by a later run).
+// Called by the court auction collector, which is built on unix only.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) async fn store_spooled_document(
+    spooled: &Spooled,
+    prefix: &ObjectKeyPrefix,
+    store: MediaStore<'_>,
+) -> anyhow::Result<Stored> {
+    if spooled.oversize {
+        return Ok(Stored::Oversize);
+    }
+    if !spooled.shown || spooled.format != MediaFormat::Pdf {
+        return Ok(Stored::UnknownFormat);
+    }
+    let key = document_key(prefix, &spooled.sha256).context("document object key is invalid")?;
+    store_spooled_at(spooled, &key, store).await
+}
+
+async fn store_spooled_at(
+    spooled: &Spooled,
+    key: &ObjectKey,
+    store: MediaStore<'_>,
+) -> anyhow::Result<Stored> {
     let media = StoredMedia {
         sha256: spooled.sha256.as_str().to_owned(),
         media_format: spooled.format.extension().to_owned(),
@@ -386,7 +417,7 @@ pub(crate) async fn store_spooled_shown(
     store_bytes(&bytes, prefix, store.head, u64::MAX).await
 }
 
-/// Stores a file as received under `<prefix>/sha256/<hex>.<ext>`.
+/// Stores a file as received under `<prefix>/display/sha256/<hex>.<ext>`.
 async fn store_served(
     bytes: &[u8],
     format: MediaFormat,

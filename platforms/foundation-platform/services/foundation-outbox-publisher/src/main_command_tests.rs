@@ -993,7 +993,7 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The producer of `gold/industrial-complex/profiles/{artifact_id}.json`. Its absence is what made
+/// The producer of `serving/industrial_complex/profile/{artifact_id}.json`. Its absence is what made
 /// `publish-industrial-complex-gold-pointer` able to point at an object nobody had written.
 #[test]
 fn export_industrial_complex_gold_profiles_command_is_explicit() -> anyhow::Result<()> {

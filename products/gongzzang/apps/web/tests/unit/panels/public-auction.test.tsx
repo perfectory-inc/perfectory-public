@@ -74,17 +74,17 @@ describe("public auction gallery", () => {
     expect(images.map((img) => img.getAttribute("alt"))).toEqual(["정면 사진", "공매 물건 사진"]);
     // Root ADR-0427: the tile shows our ladder's smallest JPEG, not the stored file.
     expect(screen.getByRole("img", { name: "정면 사진" }).getAttribute("src")).toBe(
-      `https://catalog.perfectory.io/onbid/media/renditions/r1/${sha("a")}/400.webp`,
+      `https://catalog.perfectory.io/media/rendition/ladder=1/${sha("a")}/400.webp`,
     );
 
     // Appraisals are links: titled one keeps its title, the untitled one uses the fallback label.
     const titled = screen.getByRole("link", { name: "감정평가서 1" });
     expect(titled.getAttribute("href")).toBe(
-      `https://catalog.perfectory.io/onbid/media/sha256/${sha("b")}.pdf`,
+      `https://catalog.perfectory.io/media/display/sha256/${sha("b")}.pdf`,
     );
     expect(titled.getAttribute("target")).toBe("_blank");
     expect(screen.getByRole("link", { name: "감정평가서" }).getAttribute("href")).toBe(
-      `https://catalog.perfectory.io/onbid/media/sha256/${sha("d")}.pdf`,
+      `https://catalog.perfectory.io/media/display/sha256/${sha("d")}.pdf`,
     );
   });
 
@@ -108,7 +108,7 @@ describe("public auction gallery", () => {
         ],
       },
     ]);
-    const ladder = `https://catalog.perfectory.io/onbid/media/renditions/r1/${sha("e")}`;
+    const ladder = `https://catalog.perfectory.io/media/rendition/ladder=1/${sha("e")}`;
     const set = (format: string) =>
       [400, 960, 1920].map((width) => `${ladder}/${width}.${format} ${width}w`).join(", ");
     const image = screen.getByRole("img", { name: "정면 사진" });
@@ -120,7 +120,7 @@ describe("public auction gallery", () => {
       sources.map((source) => [source.getAttribute("type"), source.getAttribute("srcset")]),
     ).toEqual([["image/avif", set("avif")]]);
     expect(screen.getByRole("link", { name: "정면 사진" }).getAttribute("href")).toBe(
-      `https://catalog.perfectory.io/onbid/media/sha256/${sha("e")}.jpg`,
+      `https://catalog.perfectory.io/media/display/sha256/${sha("e")}.jpg`,
     );
   });
 
@@ -144,7 +144,7 @@ describe("public auction gallery", () => {
     ]);
     fireEvent.error(screen.getByRole("img", { name: "정면 사진" }));
     expect(screen.getByRole("img", { name: "정면 사진" }).getAttribute("src")).toBe(
-      `https://catalog.perfectory.io/onbid/media/sha256/${sha("a")}.jpg`,
+      `https://catalog.perfectory.io/media/display/sha256/${sha("a")}.jpg`,
     );
   });
 
@@ -217,10 +217,10 @@ describe("public auction gallery", () => {
     expect(screen.getByText("2099-01-01")).toBeTruthy(); // the provider's yyyyMMdd, as a date
     expect(screen.getByText("유찰")).toBeTruthy();
     expect(screen.getByRole("img", { name: "위치도" }).getAttribute("src")).toBe(
-      `https://catalog.perfectory.io/onbid/media/sha256/${sha("f")}.png`,
+      `https://catalog.perfectory.io/media/display/sha256/${sha("f")}.png`,
     );
     expect(screen.getByRole("link", { name: "합성 감정평가법인" }).getAttribute("href")).toBe(
-      `https://catalog.perfectory.io/onbid/media/sha256/${sha("e")}.pdf`,
+      `https://catalog.perfectory.io/media/display/sha256/${sha("e")}.pdf`,
     );
     expect(screen.getByText("합성 기관")).toBeTruthy();
     expect(screen.getByRole("link", { name: "공고문.pdf" })).toBeTruthy();

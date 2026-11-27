@@ -1,7 +1,7 @@
 // The one way the web names a stored photo and its display ladder (root ADR-0427): every photo the
 // screens show — 공매, 경매 and 매물 — is stored once under its content hash in a media store
-// (`<prefix>/sha256/<hex>.<ext>`, root ADR-0298) with its ladder beside it
-// (`<prefix>/renditions/<version>/<hex>/<width>.<format>`). A store is where it is served from and its
+// (`<prefix>/display/sha256/<hex>.<ext>`, root ADR-0298, ADR-0626 §6-1) with its ladder beside it
+// (`<prefix>/rendition/ladder=<n>/<hex>/<width>.<format>`). A store is where it is served from and its
 // key prefix; the screens differ only in which store they read.
 
 /**
@@ -26,7 +26,7 @@ export type StoredFile = { readonly sha256: string; readonly media_format: strin
  * edge-contract.test.ts.
  */
 export const PHOTO_RENDITIONS = {
-  version: "r1",
+  ladder: 1,
   widths: [400, 960, 1920],
   formats: ["avif", "webp"],
 } as const;
@@ -40,7 +40,7 @@ function root(store: { base: string; prefix: string }): string {
 /** The URL of a stored file itself (a photo's original, a map, a PDF). */
 export function mediaFileSrc(store: MediaStore, file: StoredFile): string {
   if ("file" in store) return store.file(file);
-  return `${root(store)}/sha256/${file.sha256}.${file.media_format}`;
+  return `${root(store)}/display/sha256/${file.sha256}.${file.media_format}`;
 }
 
 function rungSrc(
@@ -50,7 +50,7 @@ function rungSrc(
   format: RenditionFormat,
 ): string {
   if ("rung" in store) return store.rung(source, width, format);
-  return `${root(store)}/renditions/${PHOTO_RENDITIONS.version}/${source.sha256}/${width}.${format}`;
+  return `${root(store)}/rendition/ladder=${PHOTO_RENDITIONS.ladder}/${source.sha256}/${width}.${format}`;
 }
 
 /** A photo source's ladder in one format as a `srcset` (`<url> <width>w, …`), smallest first. */

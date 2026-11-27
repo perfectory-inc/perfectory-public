@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "매각물건명세서 판(문서 ID)마다 물은 한 행(저장·캡차 건너뜀·없음·실패): 수집기가 다음 실행에 물을 판을 이 표로 계산하므로 판마다 한 번만 묻고, 법원 열람 기록도 판마다 한 번이다. PDF 는 사람 이름이 있어 수집기 전용 접두(courtauction-go-kr/sale-specifications/sha256, 필지 경계가 서빙하지 않음)에 둔다. 행에는 이름이 없다(루트 ADR-0575)."
+  purpose: "매각물건명세서 판(문서 ID)마다 물은 한 행(저장·캡차 건너뜀·없음·실패): 수집기가 다음 실행에 물을 판을 이 표로 계산하므로 판마다 한 번만 묻고, 법원 열람 기록도 판마다 한 번이다. PDF 는 사람(점유자) 이름이 있지만 사장이 그것을 알고 공개로 정해(2026-11-28, 루트 ADR-0626 §6-3) 미디어 저장소의 media/document/sha256 에 두고 필지 경계가 서빙한다. 행에는 이름이 없다(루트 ADR-0575)."
 team:
   name: "foundation-platform"
 servers:

@@ -88,18 +88,18 @@ describe("the web reads what the foundation publishes", () => {
   // Root ADR-0427: the web builds the photo ladder's URLs the collector writes and the edge serves.
   it("builds the photo rendition ladder the contract names", () => {
     const ladder = connections.parcel_media.renditions as {
-      version: string;
+      ladder: number;
       widths: number[];
       formats: { format: string }[];
     };
-    expect(PHOTO_RENDITIONS.version).toBe(ladder.version);
+    expect(PHOTO_RENDITIONS.ladder).toBe(ladder.ladder);
     expect([...PHOTO_RENDITIONS.widths]).toEqual(ladder.widths);
     expect([...PHOTO_RENDITIONS.formats]).toEqual(ladder.formats.map((entry) => entry.format));
     const served = new RegExp(`^(?:${connections.parcel_media.path_pattern})$`);
     for (const width of PHOTO_RENDITIONS.widths) {
       for (const format of PHOTO_RENDITIONS.formats) {
         expect(
-          `onbid/media/renditions/${ladder.version}/${"a".repeat(64)}/${width}.${format}`,
+          `media/rendition/ladder=${ladder.ladder}/${"a".repeat(64)}/${width}.${format}`,
         ).toMatch(served);
       }
     }
