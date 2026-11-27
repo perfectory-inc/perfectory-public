@@ -105,6 +105,11 @@
   },
   "alarms": {
     "topic": "perfectory-platform-alarms",
+    "not_running": {
+      "window_minutes": 10,
+      "reason": "A Dagster service's not-running alarm fires only after window_minutes one-minute periods in a row in which ECS published no CPU sample of the service (one a minute while a task runs, none while no task runs, which counts as breaching): M of N is window_minutes of window_minutes. The window is longer than the longest stop a deploy makes: on 2026-11-27 (the apply of #1770) the old daemon service took 86 s to stop and its new task ran 56 s later, 2 min 22 s without a task, and a daemon deploy always stops its old task before it starts the new one (dagster.services_reason). So a gap of up to nine minutes is no alarm and ten minutes is. A brand-new service has no sample before its first task and goes to ALARM once, until that task runs."
+    },
+    "ok_reason": "An alarm's own OK action fires on every move into OK, also out of INSUFFICIENT_DATA, which every new or changed alarm starts in: on 2026-11-27 the six near-limit alarms of #1771 each sent an OK on creation. So no alarm has OK actions; one EventBridge rule on CloudWatch's alarm state change events (detail.previousState.value ALARM, detail.state.value OK) sends the OK, as a Chatbot custom notification with the alarm's name and time only, because Chatbot does not render alarm events that come from EventBridge rules (Amazon Q Developer in chat applications admin guide, related services).",
     "near_limit": {
       "memory_percent": 90,
       "cpu_percent": 80,
