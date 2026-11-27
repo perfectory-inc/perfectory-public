@@ -83,6 +83,7 @@ mod pipes;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
+mod lakehouse_catalog_reconcile;
 mod lakehouse_catalog_writes_check;
 mod lakehouse_file_shapes;
 mod lakehouse_inventory;
@@ -392,6 +393,7 @@ enum Command {
     VerifyLakehouseEngineExtensions,
     VerifyLakehouseRegistry,
     CheckLakehouseCatalogWrites,
+    ReconcileLakehouseCatalog,
     VerifyR2Cleanup,
     ValidateTileDerivativeR2,
 }
@@ -908,6 +910,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::VerifyLakehouseRegistry => Box::pin(lakehouse_registry_control::verify()),
         Command::CheckLakehouseCatalogWrites => Box::pin(lakehouse_catalog_writes_check::run()),
+        Command::ReconcileLakehouseCatalog => Box::pin(lakehouse_catalog_reconcile::run()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
         Command::ValidateTileDerivativeR2 => {
             Box::pin(async { tile_derivative_object_storage::validate_environment() })
@@ -1266,6 +1269,7 @@ where
         Some("verify-lakehouse-engine-extensions") => Ok(Command::VerifyLakehouseEngineExtensions),
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("check-lakehouse-catalog-writes") => Ok(Command::CheckLakehouseCatalogWrites),
+        Some("reconcile-lakehouse-catalog") => Ok(Command::ReconcileLakehouseCatalog),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
         Some(other) => {

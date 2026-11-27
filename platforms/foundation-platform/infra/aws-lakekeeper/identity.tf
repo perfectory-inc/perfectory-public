@@ -5,13 +5,13 @@
 #
 # The client secret is Cognito's: OpenTofu's aws_cognito_user_pool_client returns it as a computed attribute, so,
 # unlike every other secret of the platform, it is in this stack's state (provider 6.72.0 has no write-only form).
-# The state bucket is private, versioned and encrypted, and only the applying SSO role reads it. Prod must decide
-# this (Cognito's AddUserPoolClientSecret lets a secret be set and rotated outside the state).
+# The state bucket is private, versioned and encrypted, and only the applying SSO role reads it. Accepted for prod
+# too (root ADR-0624 decision 4-5; ADR-0619 §4's 2026-11-27 note).
 
 resource "aws_cognito_user_pool" "machines" {
   name                = local.name
   user_pool_tier      = "LITE"
-  deletion_protection = "INACTIVE"
+  deletion_protection = local.env.identity.deletion_protection
   # No people: nobody signs up, and no user is ever made.
   admin_create_user_config {
     allow_admin_create_user_only = true
@@ -20,27 +20,30 @@ resource "aws_cognito_user_pool" "machines" {
 
 # The token endpoint's host (<prefix>.auth.<region>.amazoncognito.com/oauth2/token).
 resource "aws_cognito_user_pool_domain" "machines" {
-  domain       = local.dev.identity.domain_prefix
+  domain       = local.env.identity.domain_prefix
   user_pool_id = aws_cognito_user_pool.machines.id
 }
 
 resource "aws_cognito_resource_server" "catalog" {
-  identifier   = local.dev.identity.resource_server
-  name         = local.dev.identity.resource_server
+  identifier   = local.env.identity.resource_server
+  name         = local.env.identity.resource_server
   user_pool_id = aws_cognito_user_pool.machines.id
   scope {
-    scope_name        = local.dev.identity.scope
-    scope_description = "Call the Lakekeeper dev catalog"
+    scope_name        = local.env.identity.scope
+    scope_description = "Call the ${local.env.title} catalog"
   }
-  # A second scope that is not the catalog's: a token carrying only it must be refused (T6).
-  scope {
-    scope_name        = local.dev.identity.other_scope
-    scope_description = "Not the catalog (negative test)"
+  # dev: a second scope that is not the catalog's, so a token carrying only it must be refused (T6).
+  dynamic "scope" {
+    for_each = local.env.identity.other_scope == null ? [] : [local.env.identity.other_scope]
+    content {
+      scope_name        = scope.value
+      scope_description = "Not the catalog (negative test)"
+    }
   }
 }
 
 resource "aws_cognito_user_pool_client" "principal" {
-  for_each                             = local.dev.identity.principals
+  for_each                             = local.env.identity.principals
   name                                 = "${local.name}-${each.key}"
   user_pool_id                         = aws_cognito_user_pool.machines.id
   generate_secret                      = true
@@ -61,14 +64,14 @@ resource "aws_cognito_user_pool_client" "principal" {
 
 # Each principal's id and secret, in the shape a job reads them; only that principal's probe injects it.
 resource "aws_secretsmanager_secret" "principal" {
-  for_each                = local.dev.identity.principals
+  for_each                = local.env.identity.principals
   name                    = "${local.name}/principal-${each.key}"
-  description             = "OAuth2 client credentials of the Lakekeeper dev principal ${each.key}."
-  recovery_window_in_days = 0
+  description             = "OAuth2 client credentials of the ${local.env.title} principal ${each.key}."
+  recovery_window_in_days = local.env.secret_recovery_days
 }
 
 resource "aws_secretsmanager_secret_version" "principal" {
-  for_each  = local.dev.identity.principals
+  for_each  = local.env.identity.principals
   secret_id = aws_secretsmanager_secret.principal[each.key].id
   secret_string_wo = jsonencode({
     client_id     = aws_cognito_user_pool_client.principal[each.key].id

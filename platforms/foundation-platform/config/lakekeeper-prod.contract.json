@@ -1,0 +1,83 @@
+{
+  "$comment": "The production lakehouse catalog (root ADR-0624, accepted by the owner 2026-11-27; step A1, W109c), the prod input of infra/aws-lakekeeper (environment prod; dev's is config/lakekeeper-dev.contract.json): self-hosted open-source Lakekeeper that Silver and Gold commit to, with OpenFGA, a database instance of its own, Cognito machine identities and the reconciler. infra/aws-lakekeeper reads this file for its names, sizes and differences, and config/aws-platform.contract.json for the account, the region, the tags, the state bucket and the platform's network. Every name says lakekeeper-prod. A Lakekeeper or OpenFGA version comes here only after the dev rig's upgrade canary passed it.",
+  "schema_version": "foundation-platform.lakekeeper_dev.v1",
+  "state_key": "lakekeeper-prod/terraform.tfstate",
+  "name": "perfectory-lakekeeper-prod",
+  "title": "Lakekeeper prod",
+  "tags": { "purpose": "lakehouse-catalog" },
+  "probes": false,
+  "secret_recovery_days": 7,
+  "environment_reason": "No probes: the tests run in dev, and T13 at 50 concurrent and T17 run here at A1 as one-off tasks of their own. A deleted secret can be restored for 7 days (Secrets Manager's minimum recovery window).",
+  "log_retention_days": 365,
+  "log_retention_reason": "The catalog's log is its audit record (root ADR-0624 decision 10-3: Lakekeeper's log and snapshot summaries go to CloudWatch), kept one year.",
+  "catalog": {
+    "desired_count": 2,
+    "cpu": 256,
+    "memory": 512,
+    "port": 8181,
+    "read_pool_connections": 2,
+    "write_pool_connections": 2,
+    "reason": "Lakekeeper v0.15.1 (the version contract's quay.io/lakekeeper/catalog), two tasks across the platform's two public subnets, so a task can die or roll without a gap (T14, T16). Sized from dev's measurements: memory at most about 18 MB and CPU at most 21 % of 0.25 vCPU (root ADR-0624 §8). Pools as dev's (2 and 2, never a write pool of 1, which deadlocks warehouse creation): each task has a catalog and a secrets pool, so at most 2 x 2 x (2 + 2) = 16 connections, 32 while a rolling deploy runs four tasks."
+  },
+  "authz": {
+    "desired_count": 2,
+    "cpu": 256,
+    "memory": 512,
+    "grpc_port": 8081,
+    "max_open_connections": 16,
+    "max_idle_connections": 16,
+    "min_open_connections": 16,
+    "reason": "OpenFGA v1.14 (the version Lakekeeper v0.15.1 tests against), as many tasks as the catalog's (Lakekeeper's Helm chart), each with dev's measured pool: 16 connections opened at start and kept (root ADR-0624 decision 4-4: with fewer, or opened on demand, 50 concurrent loads got 503s), so 32 connections, 64 while a rolling deploy runs four tasks. CPU at most 45 % of 0.25 vCPU at 100 concurrent in dev."
+  },
+  "databases": {
+    "catalog": { "name": "lakekeeper", "username": "lakekeeper", "connection_limit": 40 },
+    "authz": { "name": "openfga", "username": "openfga", "connection_limit": 70 },
+    "instance": {
+      "identifier": "perfectory-lakekeeper-prod",
+      "engine_version": "17",
+      "instance_class": "db.t4g.small",
+      "allocated_storage_gb": 20,
+      "max_allocated_storage_gb": 100,
+      "master_username": "lakekeeper_admin",
+      "max_connections": 150,
+      "multi_az": false,
+      "backup_retention_days": 7
+    },
+    "reason": "Its own instance (root ADR-0624 decision 4 and §8), never the platform's shared micro: db.t4g.small (2 GiB; the shared micro fell to 84 MB freeable in dev's tests). multi_az false now, with automated backups kept 7 days and point-in-time restore to any second of them (owner 2026-11-27); true at launch, which RDS does in place with no data move. max_connections 150 is set (not the memory formula's default), so the alarm's share is a number and the two logins' limits fit under it with the master's: the catalog's 40 is its 32 during a rolling deploy plus a migrate task's 8; authz's 70 is its 64 during a rolling deploy plus its migrate. Cost (AWS Price List, ap-northeast-2, 2026-11-27): 0.051 USD/h and gp3 0.131 USD/GB-month Single-AZ, 37.23 + 2.62 = 39.85 USD/month; Multi-AZ 0.102 and 0.262, 79.70 USD/month. Backups up to the database's size cost nothing."
+  },
+  "identity": {
+    "domain_prefix": "perfectory-lakekeeper-prod",
+    "resource_server": "lakekeeper-prod",
+    "scope": "catalog",
+    "other_scope": null,
+    "operator": "reconciler",
+    "deletion_protection": "ACTIVE",
+    "principals": {
+      "reconciler": { "declared": true, "scopes": ["catalog"], "access_token_minutes": 60 }
+    },
+    "reason": "One Cognito app client per principal with the client-credentials flow (root ADR-0624 §2). At A1 the one principal is the operator the reconciler runs as (it bootstraps Lakekeeper, so it is the first to call it); a lane's client comes with its component's switch, when the lane runs here (coordinator 2026-11-27). Lakekeeper admits a token only with the catalog scope, token_use=access and the client_id of a declared principal. The pool is deletion-protected."
+  },
+  "warehouse": {
+    "bucket": "foundation-platform-lakehouse-prod",
+    "region": "apac",
+    "key_prefix": "tables",
+    "layout": { "type": "full-hierarchy", "namespace": "{name}", "tabular": "{name}" },
+    "delete_profile": { "type": "soft", "expiration-seconds": 604800 },
+    "namespaces": ["silver", "gold"],
+    "reason": "The one warehouse is the production lakehouse bucket, named after its bucket, with namespaces silver and gold and tables at tables/<namespace>/<table>/ under the tables-only key prefix (root ADR-0624 decision 2): no table can be placed in bronze/, media/ or any other area of the bucket. The key prefix cannot change after the warehouse is made. A dropped table is kept 7 days and can be restored (soft deletion). Made by the reconciler with a new Cloudflare account API token of this catalog only, perfectory-lakekeeper-prod, R2 Admin Read & Write, which the owner puts into the slot (docs/runbooks/lakekeeper.md); nothing is written to the bucket before then."
+  },
+  "reconciler": {
+    "drift": "fail",
+    "tables": [],
+    "lanes": {},
+    "reason": "Drift fails the run (root ADR-0624 A6): a namespace, table or grant that is not declared, a declared table whose shape is not its contract's, or a warehouse whose storage profile is not this block. No table is declared and no lane runs here at A1 (coordinator 2026-11-27): each component's switch PR adds its tables (created from their Rust table contracts, then copied in with INSERT ... SELECT) and its lanes' grants, and is where their final table names land."
+  },
+  "alarms": {
+    "window_minutes": 5,
+    "check_latency_p95_ms": 1500,
+    "database_connections_percent": 80,
+    "freeable_memory_floor_mb": 256,
+    "reason": "root ADR-0624 §7, on the platform's alarm topic (Slack). Any pool timeout or authorization error alarms at once. OpenFGA's check p95 alarms at 1.5 s for five minutes running, half of Lakekeeper's ~3 s authorization deadline, before the 503s start (T13). The database alarms at 80 % of its 150 connections or below 256 MB freeable memory, five minutes running."
+  },
+  "reason": "Named prod everywhere, in its own state and its own ECS cluster, in the platform's VPC (read by name). The internal endpoint is private DNS (Cloud Map), the way the Dagster code servers are reached: no load balancer (root ADR-0616 §1)."
+}

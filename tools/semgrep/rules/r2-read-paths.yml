@@ -47,7 +47,7 @@ rules:
       # run under the lane's own collector-state/<lane>/ prefix, with the lane's vended credential. It is no lake
       # read: the lane's data goes through the publisher.
       exclude:
-        - /platforms/foundation-platform/infra/aws-lakekeeper-dev/probes/
+        - /platforms/foundation-platform/infra/aws-lakekeeper/probes/
         - /platforms/foundation-platform/orchestration/dagster/aws/collect_lane.py
     pattern-either:
       - pattern: boto3.client("s3", ...)

@@ -125,7 +125,7 @@
         {"path": "infra/lakehouse/spark/jobs/land_use_zone_area_tile_handoff.py", "reads": 1, "kept_by": "head", "reason": "served_rows: the Silver head this run read a moment before (common.current_snapshot)"},
         {"path": "infra/lakehouse/spark/jobs/place_id_release_to_gold.py", "reads": 1, "kept_by": null, "reason": "code_moved_scopes: the legal-dong change table as of a parcel region's last place-id release and at its head; an expired earlier read makes that region stale, a declared full re-release of the region, never a wrong partial (root ADR-0481, ADR-0329 §3)"},
         {"path": "scripts/ops/parcel-boundary-equality.py", "reads": 1, "kept_by": null, "reason": "an operator's one-off cutover proof (root ADR-0194) at a snapshot the operator names; an expired one fails the query"},
-        {"path": "infra/aws-lakekeeper-dev/probes/probe.py", "reads": 1, "kept_by": null, "reason": "the dev rig's catalog probe (W109) reads its own throwaway table lk.silver.w109_smoke at the snapshot it has just listed, on the dev Lakekeeper catalog, never the production lakehouse: nothing has to keep it"}
+        {"path": "infra/aws-lakekeeper/probes/probe.py", "reads": 1, "kept_by": null, "reason": "the dev rig's catalog probe (W109) reads its own throwaway table lk.silver.w109_smoke at the snapshot it has just listed, on the dev Lakekeeper catalog, never the production lakehouse: nothing has to keep it"}
       ]
     }
   },

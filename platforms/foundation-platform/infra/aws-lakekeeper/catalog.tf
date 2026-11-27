@@ -1,26 +1,26 @@
 # Lakekeeper, the catalog (upstream v0.15.1 docs: configuration, production, authentication, authorization-openfga).
 # Two tasks behind catalog.<namespace>:<port>, the internal endpoint; `lakekeeper migrate` runs as a one-off task
 # before the service moves (it also writes Lakekeeper's model into the OpenFGA store, so authz runs first), and
-# `serve` refuses a database that is not migrated to its own version. Only the probes' security group may call it.
+# `serve` refuses a database that is not migrated to its own version. Only its declared callers may call it (below).
 #
 # What fails closed here (the deploy refuses otherwise, T35): authorization is OpenFGA, never the default
 # `allowall`; authentication is the Cognito pool, and a token is admitted only with the catalog scope,
-# token_use=access and the client_id of a declared principal. No Console login is configured (no human issuer;
-# coordinator 2026-11-27: Dawneer is the one console), and nothing outside the VPC reaches the port.
+# token_use=access and the client_id of a declared principal. No Console login is configured (no human issuer at
+# launch, root ADR-0624 decision 10-7: Dawneer is the one console), and nothing outside the VPC reaches the port.
 
 locals {
-  catalog = local.dev.catalog
+  catalog = local.env.catalog
   # The version contract's pin, as compose files spell it; the task runs it by the index digest.
   catalog_image = replace("quay.io/lakekeeper/catalog:v0.15.1@sha256:22dcb6044c106a962c242b70051bd226bd50c9134c763121d8713c37fe9a70ec", "/:[^:/@]+@/", "@")
-  catalog_url   = "http://catalog.${aws_service_discovery_private_dns_namespace.dev.name}:${local.catalog.port}"
+  catalog_url   = "http://catalog.${aws_service_discovery_private_dns_namespace.lakekeeper.name}:${local.catalog.port}"
   # The issuer's own URI (Cognito: https://cognito-idp.<region>.amazonaws.com/<pool id>), whose
   # .well-known/openid-configuration Lakekeeper reads.
   issuer          = "https://${aws_cognito_user_pool.machines.endpoint}"
-  catalog_scope   = "${aws_cognito_resource_server.catalog.identifier}/${local.dev.identity.scope}"
-  declared_client = [for name, principal in local.dev.identity.principals : aws_cognito_user_pool_client.principal[name].id if principal.declared]
+  catalog_scope   = "${aws_cognito_resource_server.catalog.identifier}/${local.env.identity.scope}"
+  declared_client = [for name, principal in local.env.identity.principals : aws_cognito_user_pool_client.principal[name].id if principal.declared]
   catalog_settings = {
-    LAKEKEEPER__PG_HOST_W                 = data.aws_db_instance.platform.address
-    LAKEKEEPER__PG_PORT                   = tostring(data.aws_db_instance.platform.port)
+    LAKEKEEPER__PG_HOST_W                 = local.database.address
+    LAKEKEEPER__PG_PORT                   = tostring(local.database.port)
     LAKEKEEPER__PG_USER                   = local.databases.catalog.username
     LAKEKEEPER__PG_DATABASE               = local.databases.catalog.name
     LAKEKEEPER__PG_SSL_MODE               = "require"
@@ -29,7 +29,7 @@ locals {
     LAKEKEEPER__LISTEN_PORT               = tostring(local.catalog.port)
     LAKEKEEPER__BASE_URI                  = local.catalog_url
     LAKEKEEPER__AUTHZ_BACKEND             = "openfga"
-    LAKEKEEPER__OPENFGA__ENDPOINT         = "http://authz.${aws_service_discovery_private_dns_namespace.dev.name}:${local.authz.grpc_port}"
+    LAKEKEEPER__OPENFGA__ENDPOINT         = "http://authz.${aws_service_discovery_private_dns_namespace.lakekeeper.name}:${local.authz.grpc_port}"
     LAKEKEEPER__OPENID_PROVIDER_URI       = local.issuer
     # Cognito's machine tokens name the app client in sub (and client_id); upstream asks for the claim to be set.
     LAKEKEEPER__OPENID_SUBJECT_CLAIM = "sub"
@@ -74,8 +74,8 @@ variable "catalog_rust_log" {
 # long random string; the default backend is Postgres).
 resource "aws_secretsmanager_secret" "catalog_encryption_key" {
   name                    = "${local.name}/catalog-encryption-key"
-  description             = "LAKEKEEPER__PG_ENCRYPTION_KEY of the Lakekeeper dev rig."
-  recovery_window_in_days = 0
+  description             = "LAKEKEEPER__PG_ENCRYPTION_KEY of the ${local.env.title}."
+  recovery_window_in_days = local.env.secret_recovery_days
 }
 
 ephemeral "aws_secretsmanager_random_password" "catalog_encryption_key" {
@@ -91,23 +91,37 @@ resource "aws_secretsmanager_secret_version" "catalog_encryption_key" {
 
 resource "aws_security_group" "catalog" {
   name        = "${local.name}-catalog"
-  description = "Lakekeeper dev rig catalog: its port from the probes only"
+  description = "${local.env.title} catalog: its port from its declared callers only"
   vpc_id      = data.aws_vpc.platform.id
+  # dev's group was made with older wording, and a new description replaces a group the services use.
+  lifecycle {
+    ignore_changes = [description]
+  }
 }
 
-resource "aws_vpc_security_group_ingress_rule" "catalog_from_probes" {
+# Who may call the catalog: the reconciler, and in dev the probes. Lanes come with their component (root ADR-0624 A1).
+resource "aws_vpc_security_group_ingress_rule" "catalog" {
+  for_each = merge(
+    { reconciler = aws_security_group.reconciler.id },
+    { for group in aws_security_group.probe : "probes" => group.id },
+  )
   security_group_id            = aws_security_group.catalog.id
   ip_protocol                  = "tcp"
   from_port                    = local.catalog.port
   to_port                      = local.catalog.port
-  referenced_security_group_id = aws_security_group.probe.id
+  referenced_security_group_id = each.value
+}
+
+moved {
+  from = aws_vpc_security_group_ingress_rule.catalog_from_probes
+  to   = aws_vpc_security_group_ingress_rule.catalog["probes"]
 }
 
 # Out: the issuer's keys and R2 over TLS, the database, OpenFGA.
 resource "aws_vpc_security_group_egress_rule" "catalog" {
   for_each = {
     https    = { port = 443, cidr = "0.0.0.0/0", group = null }
-    database = { port = 5432, cidr = null, group = data.aws_security_group.database.id }
+    database = { port = 5432, cidr = null, group = local.database.security_group }
     authz    = { port = local.authz.grpc_port, cidr = null, group = aws_security_group.authz.id }
   }
   security_group_id            = aws_security_group.catalog.id
@@ -127,7 +141,7 @@ data "aws_iam_policy_document" "catalog_execution" {
   statement {
     sid       = "WriteItsLogs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.dev.arn}:log-stream:catalog*"]
+    resources = ["${aws_cloudwatch_log_group.lakekeeper.arn}:log-stream:catalog*"]
   }
   statement {
     sid     = "InjectItsSecrets"
@@ -188,7 +202,7 @@ resource "terraform_data" "catalog_migrate" {
     command     = local.one_off_script
     environment = {
       REGION          = local.region
-      CLUSTER         = aws_ecs_cluster.dev.name
+      CLUSTER         = aws_ecs_cluster.lakekeeper.name
       SUBNETS         = join(",", local.subnets)
       SECURITY_GROUP  = aws_security_group.catalog.id
       TASK_DEFINITION = "${aws_ecs_task_definition.catalog_migrate.family}:${aws_ecs_task_definition.catalog_migrate.revision}"
@@ -240,7 +254,7 @@ resource "aws_ecs_task_definition" "catalog" {
 resource "aws_service_discovery_service" "catalog" {
   name = "catalog"
   dns_config {
-    namespace_id   = aws_service_discovery_private_dns_namespace.dev.id
+    namespace_id   = aws_service_discovery_private_dns_namespace.lakekeeper.id
     routing_policy = "MULTIVALUE"
     dns_records {
       type = "A"
@@ -251,7 +265,7 @@ resource "aws_service_discovery_service" "catalog" {
 
 resource "aws_ecs_service" "catalog" {
   name             = "${local.name}-catalog"
-  cluster          = aws_ecs_cluster.dev.id
+  cluster          = aws_ecs_cluster.lakekeeper.id
   task_definition  = aws_ecs_task_definition.catalog.arn
   desired_count    = local.catalog.desired_count
   launch_type      = "FARGATE"

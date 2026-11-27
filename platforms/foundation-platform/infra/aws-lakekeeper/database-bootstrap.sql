@@ -1,8 +1,9 @@
--- The Lakekeeper dev rig's two logins and databases on the platform's RDS instance (infra/aws-lakekeeper-dev/
--- database.tf): the catalog's (Lakekeeper) and authz's (OpenFGA). Each login owns its database and nothing else,
--- with a connection limit, so the rig cannot starve Dagster on the shared instance. Run by the bootstrap task as
--- the RDS master user, connected to `postgres`. Idempotent. Names, limits and passwords come from the task's
--- environment (the passwords from their secrets, injected by ECS), read with \getenv so none is on a command line.
+-- The catalog's two logins and databases (infra/aws-lakekeeper/database.tf: on the platform's RDS instance in dev, on
+-- the catalog's own instance in prod): the catalog's (Lakekeeper) and authz's (OpenFGA). Each login owns its
+-- database and nothing else, with a connection limit, so neither can starve the other or Dagster on a shared
+-- instance. Run by the bootstrap task as the instance's master user, connected to `postgres`. Idempotent. Names,
+-- limits and passwords come from the task's environment (the passwords from their secrets, injected by ECS), read
+-- with \getenv so none is on a command line.
 -- The same moves as infra/aws/database-bootstrap.sql, which makes Dagster's.
 \set ON_ERROR_STOP on
 \getenv catalog_user CATALOG_USER
