@@ -342,14 +342,15 @@ fn the_history_read_is_its_contracts_current_rows_in_the_groups_sido() -> anyhow
     let history = &lakehouse_domain::SILVER_LAND_TRANSFER_HISTORY;
     let removal = crate::silver_changes::removal_column(history).context("a removal column")?;
     // A key read in two releases, one whose newest row is a removal marker, one with two rows in
-    // its newest release, one loaded twice (the later load current), and one outside sido 99.
+    // its newest release, and one loaded twice (the later load current). `to_timestamp`: the
+    // publisher's DuckDB has no ICU, so a TIMESTAMPTZ takes no interval.
     crate::duckdb_parquet_stage::contract_table(
         stage.connection(),
         history,
         "history_versions",
         &format!(
             "SELECT pnu, transfer_history_seq, reason_code, source_snapshot_id, \
-               TIMESTAMPTZ '2099-01-01 00:00:00+00' + to_days(loaded) AS ingested_at_utc, \
+               to_timestamp(4070908800 + loaded * 86400) AS ingested_at_utc, \
                marker AS {removal}, 'r' AS source_record_id \
              FROM (VALUES \
                ('9999910100100010000', 1, '10', 'v1', 0, NULL), \
@@ -359,12 +360,23 @@ fn the_history_read_is_its_contracts_current_rows_in_the_groups_sido() -> anyhow
                ('9999910100100030000', 1, '30', 'v2', 0, NULL), \
                ('9999910100100030000', 1, '31', 'v2', 0, NULL), \
                ('9999910100100040000', 2, '40', 'v2', 0, NULL), \
-               ('9999910100100040000', 2, '41', 'v2', 1, NULL), \
-               ('9888810100100010000', 1, '50', 'v2', 0, NULL)) \
+               ('9999910100100040000', 2, '41', 'v2', 1, NULL)) \
              v(pnu, transfer_history_seq, reason_code, source_snapshot_id, loaded, marker)",
             crate::silver_changes::REMOVED
         ),
     )?;
+    // Another sido's group reads none of them.
+    assert_eq!(
+        history_lines(
+            &stage,
+            &super::history_rows(
+                stage.connection(),
+                "history_versions",
+                &in_sido("pnu", &["98".to_owned()])?
+            )?
+        )?,
+        Vec::<String>::new()
+    );
     let sido = in_sido("pnu", &["99".to_owned()])?;
     let expected = [
         "9999910100100010000|1|20",

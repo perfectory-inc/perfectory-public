@@ -1365,7 +1365,7 @@ pub fn follow_search(
     follow_search_of(
         stage,
         contract,
-        &crate::duckdb_parquet_stage::table_at(contract.table_name, head),
+        &silver_changes::at_head(contract, head),
         prefixes,
         (record, ingested_at),
         || place_search(stage, role, contract, place).map(drop),

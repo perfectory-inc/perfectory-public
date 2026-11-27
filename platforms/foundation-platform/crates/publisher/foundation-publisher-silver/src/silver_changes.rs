@@ -52,6 +52,15 @@ const CHANGED_SQL: &str = include_str!("silver_changes/changed.sql");
 const EDITIONS_SQL: &str = include_str!("silver_changes/editions.sql");
 const REMOVALS_SQL: &str = include_str!("silver_changes/removals.sql");
 
+/// The table at `head` as a load names it.
+///
+/// The one snapshot read of every compare here: a load's pinned head, read right before the append
+/// pinned on it (the lakehouse maintenance contract's `reader_pins` entry of this file).
+#[must_use]
+pub fn at_head(contract: &LakehouseTableContract, head: i64) -> String {
+    crate::duckdb_parquet_stage::table_at(contract.table_name, head)
+}
+
 /// The table's key: its contract's `current_row_latest` key.
 ///
 /// # Errors
@@ -125,7 +134,7 @@ pub fn current_rows_within(
     staged: &str,
     filter: &str,
 ) -> anyhow::Result<String> {
-    let pinned = head.map(|head| crate::duckdb_parquet_stage::table_at(contract.table_name, head));
+    let pinned = head.map(|head| at_head(contract, head));
     current_rows_of(stage, contract, pinned.as_deref(), columns, staged, filter)
 }
 
@@ -219,7 +228,7 @@ pub fn changed_editions(
     staged: &str,
     out: &str,
 ) -> anyhow::Result<u64> {
-    let pinned = head.map(|head| crate::duckdb_parquet_stage::table_at(contract.table_name, head));
+    let pinned = head.map(|head| at_head(contract, head));
     changed_editions_of(stage, contract, pinned.as_deref(), staged, out)
 }
 
@@ -398,7 +407,7 @@ pub fn removal_changes(
     complete: bool,
     load: (&str, &str, i64),
 ) -> anyhow::Result<(u64, u64)> {
-    let pinned = head.map(|head| crate::duckdb_parquet_stage::table_at(contract.table_name, head));
+    let pinned = head.map(|head| at_head(contract, head));
     removal_changes_of(
         stage,
         contract,
@@ -442,7 +451,7 @@ pub fn removal_changes_within(
     within: &str,
     load: (&str, &str, i64),
 ) -> anyhow::Result<(u64, u64)> {
-    let pinned = head.map(|head| crate::duckdb_parquet_stage::table_at(contract.table_name, head));
+    let pinned = head.map(|head| at_head(contract, head));
     removal_changes_in(
         stage,
         contract,
