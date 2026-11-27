@@ -46,10 +46,9 @@
       "pipeline_graph_edges": [
         "source-rt-molit-bulk-to-silver-real-transaction"
       ],
-      "enabled": false,
-      "enabled_since": null,
-      "dagster_stage": "airflow",
-      "disabled_reason": "On AWS since the hand-over of 2026-11-27 (root ADR-0616 \u00a77 handoff, W101c): the AWS lane of this job (config/aws-platform.contract.json collect.lanes) runs while this job is off here, so this one switch moves it both ways; its first AWS run starts from the last state this host wrote (collector-state/<job>/host/). Turning this job on again turns the AWS lane off in the same release.",
+      "enabled": true,
+      "enabled_since": "2026-10-30T15:00:00Z",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": 30,
         "basis": "MOLIT publishes real transactions every day (expected_cadence daily, 72 h); measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed 34 of 262 runs, longest gap 22.6 h."
