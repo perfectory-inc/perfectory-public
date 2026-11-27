@@ -4,7 +4,7 @@
   "beat": {
     "cron": "30 15 * * *",
     "timezone": "UTC",
-    "reason": "Once a day on AWS (root ADR-0623 §1, owner 2026-11-26), at 00:30 KST: the provider's cap of 100 exports is per KST day and our manners take 90 of it (manners.daily_download_limit), so one run just after the day turns spends that day's budget; manners.max_downloads_per_run is the day's 90 so that one run can. The provider keeps every month (a due month is asked again, manners), so a day between two runs loses nothing. On the host the job ran hourly at :25 with 30 a run."
+    "reason": "Once a day on AWS (root ADR-0623 §1, owner 2026-11-26), at 00:30 KST: the provider's cap of 100 exports is per KST day and our manners take 90 of it (manners.daily_download_limit), so one run just after the day turns spends that day's budget; manners.max_downloads_per_run is the day's 90 so that one run can. The provider keeps every month (a due month is asked again, manners), so a day between two runs loses nothing. That lane does not run: rt.molit.go.kr drops TCP connections from AWS addresses (2026-11-27: the first AWS run at 15:31Z timed out connecting; a probe from the same subnet timed out twice on 27.101.224.26:443 while apis.data.go.kr on 27.101.236.63 connected and ai-server connected in 0.07 s). So the job runs on the host again, hourly at :25 with manners.max_downloads_per_run 30 a run (its unit's 30-minute time limit) under the day's 90 (root ADR-0616 section 7, W101c); the beat applies only if the provider ever admits AWS."
   },
   "base_url": "https://rt.molit.go.kr",
   "user_agent": "perfectory-foundation-rt-molit/1 (+root ADR-0348)",
@@ -12,7 +12,7 @@
     "$comment": "Root ADR-0348 §2 (사장 결정 2026-10-31: any hour, normal speed, practical safeguards). One session; up to `concurrency` exports in flight, each request after request_spacing_seconds; a busy answer (HTTP 429 or a 5xx) is asked again after a doubling backoff, `retry.attempts` times at most. The provider's own answer caps downloads at 100 a day (its count-check message, quoted in rt_molit_real_transaction_export_ingest.rs); 90 leaves room for people, and it is that daily cap, not the speed, that sets how fast the history fills.",
     "request_spacing_seconds": 1,
     "concurrency": 3,
-    "max_downloads_per_run": 90,
+    "max_downloads_per_run": 30,
     "daily_download_limit": 90,
     "run_time_budget_seconds": 1500,
     "retry": {"attempts": 3, "initial_backoff_seconds": 30, "max_backoff_seconds": 300},

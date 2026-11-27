@@ -224,9 +224,11 @@ class TheLaneAsDeclared(unittest.TestCase):
         self.assertIn("12 of 2,227 rounds (0.54 %)", onbid["beat"]["reason"])
         self.assertIn("owner decision 2026-11-27", onbid["beat"]["reason"])
 
-    def test_rt_molit_spends_the_day_s_budget_in_its_one_daily_run(self):
+    def test_rt_molit_runs_hourly_on_the_host_because_its_provider_drops_aws(self):
         rt = json.loads((collect_lane.LAKEHOUSE_CONTRACTS / "rt-molit-real-transaction.contract.json").read_text(encoding="utf-8"))
-        self.assertEqual(rt["manners"]["max_downloads_per_run"], rt["manners"]["daily_download_limit"])
+        self.assertEqual(rt["manners"]["max_downloads_per_run"], 30, "a run fits the host unit's 30 minutes")
+        self.assertIn("drops TCP connections from AWS addresses", rt["beat"]["reason"])
+        self.assertIn("rt_molit_real_transaction_collect", collect_lane.on_host(collect_lane.jobs()))
 
     def test_the_run_tags_are_the_lane_s_role_and_size_and_no_time_number(self):
         for job_id, lane in LANES.items():
