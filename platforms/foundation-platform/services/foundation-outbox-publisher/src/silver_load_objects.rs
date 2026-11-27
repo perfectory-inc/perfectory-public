@@ -25,7 +25,6 @@ use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Duration, Utc};
 use foundation_outbox::object_storage::{R2InventoryRequest, R2ObjectStorageConfig};
 use foundation_outbox::R2ObjectStorage;
-use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 
@@ -197,7 +196,10 @@ pub async fn run() -> anyhow::Result<()> {
             });
         }
     }
-    let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
+    // The catalog the environment names: the current one, or Lakekeeper with the lane's client.
+    let catalog = foundation_publisher_core::lakehouse_catalog::CatalogSettings::from_env()?
+        .rest_catalog()
+        .await?;
     let recorded = catalog
         .load_ingested_batch_objects(&table)
         .await?

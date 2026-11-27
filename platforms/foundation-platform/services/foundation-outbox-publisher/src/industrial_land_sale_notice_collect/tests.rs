@@ -10,8 +10,8 @@ use serde_json::{json, Map, Value as JsonValue};
 use tokio::time::Instant;
 
 use super::{
-    batch_file_id, factoryon, fingerprint, ilis, kicox, lane_contract, last_reads, lh,
-    list_file_id, owes, plan, walk_done, within_stall, Blocked, FileRequest, Listed, Source,
+    batch_file_id, factoryon, fingerprint, ilis, kicox, lane_contract, last_read_rows, last_reads,
+    lh, list_file_id, owes, plan, walk_done, within_stall, Blocked, FileRequest, Listed, Source,
 };
 
 const KICOX_LIST: &str = include_str!("fixtures/kicox_list.html");
@@ -435,5 +435,36 @@ fn a_batch_lands_under_a_content_qualified_key() -> anyhow::Result<()> {
         foundation_publisher_silver::industrial_land_sale_notice_stage::snapshot_id(key)?,
         "20990102T030405Z"
     );
+    Ok(())
+}
+
+/// On the Lakekeeper catalog the last reads come from DuckDB (root ADR-0624 P2): one source's rows,
+/// with the columns' JSON types [`last_reads`] reads (text, whole numbers).
+#[test]
+fn duckdb_rows_read_as_the_scan_s_rows() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let stage = foundation_publisher_silver::duckdb_parquet_stage::DuckDbParquetStage::open(
+        directory.path(),
+    )?;
+    stage.connection().execute_batch(
+        "CREATE TABLE reads AS SELECT * FROM (VALUES \
+         ('ilis', 'N-1', 'fp-1', '20261101T000000Z', 1, 'read', 2, 2, TIMESTAMPTZ '2026-11-01 00:00:00+00'), \
+         ('kicox', 'K-1', 'fp-9', '20261101T000000Z', 1, 'failed', NULL, NULL, TIMESTAMPTZ '2026-11-01 00:00:00+00')) \
+         t(notice_source, notice_id, list_fingerprint, source_snapshot_id, source_line_number, read_outcome, \
+         file_count, files_stored, requested_at_utc)",
+    )?;
+    let rows = last_read_rows(&stage, "reads", Source::Ilis)?;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].get("notice_id"), Some(&json!("N-1")));
+    assert_eq!(rows[0].get("source_line_number"), Some(&json!(1)));
+    assert_eq!(rows[0].get("file_count"), Some(&json!(2)));
+    let cap_since = chrono::Utc
+        .with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+        .single()
+        .context("instant")?;
+    let last = last_reads(rows.iter(), Source::Ilis, cap_since);
+    let read = last.get("N-1").context("N-1 was read")?;
+    assert!(read.settled);
+    assert_eq!(read.print, "fp-1");
     Ok(())
 }

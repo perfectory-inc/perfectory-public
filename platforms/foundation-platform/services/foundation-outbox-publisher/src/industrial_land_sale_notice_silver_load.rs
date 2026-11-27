@@ -29,7 +29,7 @@ use foundation_publisher_silver::{
     },
 };
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
-use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
+use lakehouse_infrastructure::IcebergRestCatalog;
 use serde_json::{json, Value};
 
 use crate::public_data_control_support::required_env_value;
@@ -101,7 +101,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     }
     let reads_shape = committer.table_shape(READ_TABLE).await?;
     let attachments_shape = committer.table_shape(ATTACHMENT_TABLE).await?;
-    let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
+    // The catalog the environment names: the current one, or Lakekeeper with the lane's client.
+    let catalog = foundation_publisher_core::lakehouse_catalog::CatalogSettings::from_env()?
+        .rest_catalog()
+        .await?;
     let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(
         Path::new(&plan_dir),
         &LakehouseRead::from_env()?,
