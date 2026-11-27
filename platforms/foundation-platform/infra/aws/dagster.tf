@@ -451,22 +451,23 @@ resource "aws_sns_topic" "alarms" {
 }
 
 # ECS publishes a running service's CPU every minute; with no task there is no datapoint, which counts
-# as breaching. So an alarm fires when its process has not run for ten minutes, whatever stopped it.
+# as breaching. So an alarm fires when its process has had no task for the contract's window, whatever stopped it:
+# every one of that many one-minute periods (alarms.not_running), longer than a deploy's stop.
 resource "aws_cloudwatch_metric_alarm" "dagster_not_running" {
   for_each            = local.dagster.services
   alarm_name          = "perfectory-platform-dagster-${each.key}-not-running"
-  alarm_description   = "The Dagster ${each.key} (service ${each.value.name}) has had no running task for 10 minutes."
+  alarm_description   = "The Dagster ${each.key} (service ${each.value.name}) has had no running task for ${local.contract.alarms.not_running.window_minutes} minutes."
   namespace           = "AWS/ECS"
   metric_name         = "CPUUtilization"
   dimensions          = { ClusterName = aws_ecs_cluster.platform.name, ServiceName = aws_ecs_service.dagster[each.key].name }
   statistic           = "SampleCount"
-  period              = 300
-  evaluation_periods  = 2
+  period              = 60
+  evaluation_periods  = local.contract.alarms.not_running.window_minutes
+  datapoints_to_alarm = local.contract.alarms.not_running.window_minutes
   threshold           = 1
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching"
   alarm_actions       = [aws_sns_topic.alarms.arn]
-  ok_actions          = [aws_sns_topic.alarms.arn]
 }
 
 # Every always-on service near its task size (root ADR-0574 §5; contract alarms.near_limit): memory above its
@@ -501,7 +502,6 @@ resource "aws_cloudwatch_metric_alarm" "near_limit" {
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "missing"
   alarm_actions       = [aws_sns_topic.alarms.arn]
-  ok_actions          = [aws_sns_topic.alarms.arn]
 }
 
 # The disk grows by itself (max_allocated_storage): RDS adds storage when less than 10 % is free. This alarm
@@ -520,7 +520,79 @@ resource "aws_cloudwatch_metric_alarm" "database_storage_low" {
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "missing"
   alarm_actions       = [aws_sns_topic.alarms.arn]
-  ok_actions          = [aws_sns_topic.alarms.arn]
+}
+
+# OK only after ALARM (contract alarms.ok_reason): no alarm has OK actions, because they fire on every move into OK,
+# also out of INSUFFICIENT_DATA, where every new or changed alarm starts. CloudWatch sends every state change of
+# these alarms to EventBridge; this rule keeps ALARM -> OK and publishes a Chatbot custom notification (name and
+# time only: the topic carries metadata only) through its own role, so the topic's policy stays AWS's default.
+locals {
+  alarm_arns = concat(
+    [for alarm in aws_cloudwatch_metric_alarm.dagster_not_running : alarm.arn],
+    [for alarm in aws_cloudwatch_metric_alarm.near_limit : alarm.arn],
+    [aws_cloudwatch_metric_alarm.database_storage_low.arn],
+  )
+}
+
+resource "aws_cloudwatch_event_rule" "alarm_ok_after_alarm" {
+  name        = "${local.contract.alarms.topic}-ok-after-alarm"
+  description = "An alarm of this stack went from ALARM to OK."
+  event_pattern = jsonencode({
+    source        = ["aws.cloudwatch"]
+    "detail-type" = ["CloudWatch Alarm State Change"]
+    resources     = local.alarm_arns
+    detail = {
+      previousState = { value = ["ALARM"] }
+      state         = { value = ["OK"] }
+    }
+  })
+}
+
+data "aws_iam_policy_document" "events_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.contract.account.id]
+    }
+  }
+}
+
+resource "aws_iam_role" "alarm_ok" {
+  name               = "${local.contract.alarms.topic}-ok"
+  assume_role_policy = data.aws_iam_policy_document.events_assume.json
+}
+
+data "aws_iam_policy_document" "alarm_ok" {
+  statement {
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alarms.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "alarm_ok" {
+  name   = "publish"
+  role   = aws_iam_role.alarm_ok.id
+  policy = data.aws_iam_policy_document.alarm_ok.json
+}
+
+resource "aws_cloudwatch_event_target" "alarm_ok_after_alarm" {
+  rule     = aws_cloudwatch_event_rule.alarm_ok_after_alarm.name
+  arn      = aws_sns_topic.alarms.arn
+  role_arn = aws_iam_role.alarm_ok.arn
+  input_transformer {
+    input_paths = { alarm = "$.detail.alarmName", time = "$.detail.state.timestamp" }
+    # A literal template: jsonencode escapes the angle brackets of a placeholder (as backslash u003c), and EventBridge would
+    # not substitute it.
+    input_template = <<-EOT
+      {"version": "1.0", "source": "custom", "content": {"textType": "client-markdown", "title": "OK again: <alarm>", "description": "The alarm <alarm> went from ALARM to OK at <time>."}}
+    EOT
+  }
 }
 
 output "ecs_cluster" {
