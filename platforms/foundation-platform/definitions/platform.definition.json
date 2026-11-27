@@ -1598,11 +1598,11 @@
         "work": {
           "bucket": "foundation-platform-lakehouse-prod",
           "prefix": "work/",
-          "template": "work/{lane}/run={run_id}/",
+          "template": "work/{source}/{object}/run={run_id}/",
           "class": "derived",
           "status": "live",
           "expiry_days": 7,
-          "reason": "scratch of one run, expired by a lifecycle rule (replaces silver-handoff/)"
+          "reason": "scratch of one export: a Silver lane's parts of one Bronze object, under the run that wrote them (root ADR-0626 §6-1), expired by a lifecycle rule; replaces silver-handoff/"
         },
         "control": {
           "bucket": "foundation-platform-lakehouse-prod",
