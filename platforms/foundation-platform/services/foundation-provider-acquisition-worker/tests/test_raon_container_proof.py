@@ -134,3 +134,21 @@ def test_runbook_documents_container_proof_before_fargate_selection() -> None:
     # Root ADR-0170 chose the data host for the VWorld RAON large files, with a supervised first run.
     assert "ADR-0170이 데이터 호스트를 골랐다" in runbook
     assert "첫 감독 실행" in runbook
+
+
+# What the base image's own layers install (buildpack-deps:bookworm, under python:3.11-bookworm): the curl
+# layer's ca-certificates and curl, the scm layer's procps. The base's digest pins them.
+BASE_PACKAGES = ("ca-certificates", "curl", "procps")
+
+
+def test_no_raon_image_pins_a_package_its_base_image_installs() -> None:
+    # 2026-11-25 a base digest update (#1620) shipped a newer ca-certificates than the RAON images'
+    # pin; apt refused to downgrade it, the batch image stopped building and source_sweep's RAON lane
+    # landed nothing on 2026-11-26 and 11-27. A second pin of a base package breaks every base update.
+    for dockerfile in (DOCKERFILE, BATCH_DOCKERFILE):
+        text = dockerfile.read_text(encoding="utf-8")
+        assert "FROM python:3.11-bookworm@sha256:" in text, dockerfile.name
+        # The apt lists are continuation lines of eight spaces: "<package>=<version> \\".
+        listed = {line.strip().split("=", 1)[0] for line in text.splitlines() if line.startswith("        ") and "=" in line}
+        for package in BASE_PACKAGES:
+            assert package not in listed, f"{dockerfile.name} pins {package}, which its base image installs"

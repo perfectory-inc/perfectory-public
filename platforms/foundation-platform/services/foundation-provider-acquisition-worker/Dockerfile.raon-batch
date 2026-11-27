@@ -30,13 +30,16 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s/ bookworm-updates main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list \
     && printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s/ bookworm-security main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list
 
+# Every package here is pinned to the dated Debian snapshot above, and none is one the base image's own
+# layers install (buildpack-deps:bookworm's curl and scm layers: ca-certificates, curl, procps): the
+# base's digest pins those, and a second pin of the same package breaks the build whenever the base
+# moves. 2026-11-25 a base digest update (#1620) shipped a newer ca-certificates than this list's pin,
+# apt refused to downgrade it ("Packages were downgraded and -y was used without --allow-downgrades"),
+# the RAON batch image stopped building, and source_sweep's RAON lane landed nothing on 11-26 and 11-27.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates=20230311+deb12u1 \
-        curl=7.88.1-10+deb12u15 \
         cron=3.0pl1-162 \
         dbus-x11=1.14.10-1~deb12u1 \
-        procps=2:4.0.2-3 \
         xvfb=2:21.1.7-3+deb12u12 \
         libasound2=1.2.8-1+b1 \
         libatk-bridge2.0-0=2.46.0-5 \
