@@ -18,35 +18,57 @@ use lakehouse_infrastructure::{
     TableMetadataSource,
 };
 
-/// Storage keys a Lakekeeper-mode run holds none of: with none set, the vended credential is the
-/// only one (the same list `check-lakehouse-catalog-writes` runs without, T8).
-pub const STATIC_KEYS: &[&str] = &[
+/// The AWS SDKs' own key variables: any S3 client not told its credential picks them up, so a
+/// Lakekeeper-mode run holds none of them.
+pub const SDK_KEYS: &[&str] = &[
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
-    "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-    "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
-    "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
-    "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+];
+
+/// The lakehouse bucket's key pairs (`R2ObjectStorageConfig`), each with what makes it temporary:
+/// on AWS a lane's pair is the issuing function's short credential for its Bronze prefixes (root
+/// ADR-0623), with a session token or a command that renews it. A pair without either is a static
+/// key, and a Lakekeeper-mode run refuses it.
+pub const OBJECT_KEY_PAIRS: &[(&str, &str, &str)] = &[
+    (
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SESSION_TOKEN",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_CREDENTIAL_PROCESS",
+    ),
+    (
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SESSION_TOKEN",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_READER_CREDENTIAL_PROCESS",
+    ),
 ];
 
 /// The header that asks a REST catalog for the table's own storage credential on load.
 const ACCESS_DELEGATION_HEADER: &str = "header.X-Iceberg-Access-Delegation";
 
-/// Refuses a run that holds any of [`STATIC_KEYS`] (root ADR-0624 §3-3: a job with a static R2 key
-/// does not start).
+/// Refuses a run that holds a static key (root ADR-0624 §3-3: a job with a static R2 key does not
+/// start): any of [`SDK_KEYS`], or a pair of [`OBJECT_KEY_PAIRS`] with neither its session token nor
+/// its renewing command. A Lakekeeper-mode run gives no key to the catalog or to `DuckDB`: table
+/// files are reached with the credential the catalog vends; its own R2 client reaches Bronze with
+/// the issuing function's short credential.
 ///
 /// # Errors
 /// Names the variables that are set.
 pub fn refuse_static_keys(is_set: impl Fn(&str) -> bool) -> anyhow::Result<()> {
-    let held: Vec<&str> = STATIC_KEYS
+    let mut held: Vec<&str> = SDK_KEYS
         .iter()
         .copied()
         .filter(|name| is_set(name))
         .collect();
+    held.extend(
+        OBJECT_KEY_PAIRS
+            .iter()
+            .filter(|(key, session, process)| is_set(key) && !is_set(session) && !is_set(process))
+            .map(|(key, _, _)| *key),
+    );
     ensure!(
         held.is_empty(),
-        "{held:?} set: a run on the Lakekeeper catalog reaches table files with the vended credential only"
+        "{held:?} set as static keys: a run on the Lakekeeper catalog holds only vended and short credentials"
     );
     Ok(())
 }

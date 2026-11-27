@@ -14,7 +14,7 @@ use lakehouse_infrastructure::{
     TableMetadataSource,
 };
 
-use super::{load_table_answer, table_ident, CatalogSettings, STATIC_KEYS};
+use super::{load_table_answer, table_ident, CatalogSettings, OBJECT_KEY_PAIRS, SDK_KEYS};
 
 fn lakekeeper() -> LakehouseCatalogConfig {
     LakehouseCatalogConfig {
@@ -101,12 +101,28 @@ fn the_current_catalog_keeps_its_token_and_storage_settings() -> anyhow::Result<
 
 #[test]
 fn lakekeeper_mode_refuses_a_static_key_a_token_or_another_provider() {
-    for name in STATIC_KEYS {
+    for name in SDK_KEYS {
         let refused = CatalogSettings::checked(lakekeeper(), Some(client()), |set| set == *name);
         assert!(
             refused.is_err(),
             "{name} set beside the client must be refused"
         );
+    }
+    for (key, session, process) in OBJECT_KEY_PAIRS {
+        let static_pair = CatalogSettings::checked(lakekeeper(), Some(client()), |set| set == *key);
+        assert!(
+            static_pair.is_err(),
+            "{key} without a session token is a static key"
+        );
+        for temporary in [session, process] {
+            let short = CatalogSettings::checked(lakekeeper(), Some(client()), |set| {
+                set == *key || set == *temporary
+            });
+            assert!(
+                short.is_ok(),
+                "{key} with {temporary} is the issuing function's short credential"
+            );
+        }
     }
     let with_token = LakehouseCatalogConfig {
         catalog_token: Some("fixture-token".to_owned()),
