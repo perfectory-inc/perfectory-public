@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pages what a provider wants from its account's owner, and what the staging smoke skipped (root ADR-0363).
+"""Pages what a provider wants from its account's owner (root ADR-0363).
 
 2026-10-30 13:07Z VWorld answered the collection account's login `useChk` (new terms to accept). The
 2026-10-30 deploy stopped at the staging smoke and every VWorld collection failed with
@@ -18,8 +18,6 @@ the owner is paged once per provider, not once per job.
         Prints "<provider>: <owner action>" for each provider that refuses (joined by " / "), the
         reason a job ends on. Exit 1 when Alertmanager did not take an alert: the caller then fails
         loudly instead of waiting quietly.
-    provider_alert.py smoke --release <sha> [--skipped <input>=<outcome line>]...
-        The staging smoke's inputs the provider's side kept it from checking; none resolves it.
 """
 
 import argparse
@@ -97,28 +95,10 @@ def accounts(args):
             actions.append(f"{provider}: {action}")
             jobs = ", ".join(contract["providers"].get(provider, {}).get("jobs", [])) or "그 제공자의 수집"
             alerts.append(alert(labels, f"🔑 {provider} 가 수집 계정을 거부해요 (result={reason}, {args.source} 에서 봄) — "
-                                f"{action}. 그때까지 {jobs} 가 이 제공자에서 받지 못하고, 스테이징 스모크는 그 입력을 건너뛰어요",
+                                f"{action}. 그때까지 {jobs} 가 이 제공자에서 받지 못해요",
                                 True, settings["hold_hours"]))
     print(" / ".join(actions))
     return 0 if not alerts or post(alerts) else 1
-
-
-def smoke(args):
-    labels = {"alertname": "FoundationStagingSmokeInputSkipped", "service": "provider-account"}
-    if not args.skipped:
-        return 0 if post([alert(labels, "스테이징 스모크가 모든 입력을 다시 검사했어요", False, 0)]) else 1
-    skipped = []
-    for item in args.skipped:
-        name, _, line = item.partition("=")
-        try:
-            outcome = json.loads(line[len(PREFIX):]) if line.startswith(PREFIX) else {}
-        except ValueError:
-            outcome = {}
-        detail = outcome.get("reason") or outcome.get("message") or "no outcome line"
-        skipped.append(f"{name} ({outcome.get('outcome', 'provider side')}: {str(detail)[:120]})")
-    summary = (f"🟡 {args.release[:12]} 스테이징 스모크가 제공자 쪽 문제로 입력을 건너뛰고 배포를 진행했어요: "
-               f"{'; '.join(skipped)} — 이 검사는 제공자가 돌아온 뒤 그 수집 작업의 다음 실행이 운영에서 대신해요 (root ADR-0363)")
-    return 0 if post([alert(labels, summary, True, 24)]) else 1
 
 
 def main(argv=None):
@@ -128,10 +108,6 @@ def main(argv=None):
     account.add_argument("--source", required=True)
     account.add_argument("run_logs", nargs="+")
     account.set_defaults(handler=accounts)
-    smoked = commands.add_parser("smoke")
-    smoked.add_argument("--release", required=True)
-    smoked.add_argument("--skipped", action="append", default=[])
-    smoked.set_defaults(handler=smoke)
     args = parser.parse_args(argv)
     return args.handler(args)
 

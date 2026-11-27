@@ -647,7 +647,7 @@
    "SC2312": 9
   },
   "platforms/foundation-platform/scripts/ops/staging-smoke.sh": {
-   "SC2312": 7
+   "SC2312": 4
   },
   "platforms/foundation-platform/scripts/ops/start-scheduled-job.sh": {
    "SC2015": 1,

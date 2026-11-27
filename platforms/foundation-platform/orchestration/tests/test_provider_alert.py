@@ -66,7 +66,7 @@ class ProviderAlert(unittest.TestCase):
 
     def test_the_last_word_per_provider_wins_and_a_login_that_works_resolves(self):
         ok = {"outcome": "ok", "provider": "vworld.kr"}
-        result = self.alert("accounts", "--source", "staging-smoke", self.run_log(TERMS), self.run_log(ok))
+        result = self.alert("accounts", "--source", "source_sweep", self.run_log(TERMS), self.run_log(ok))
         self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
         [alert] = self.alertmanager.alerts
         self.assertLessEqual(ends(alert), now())
@@ -88,16 +88,6 @@ class ProviderAlert(unittest.TestCase):
         result = self.alert("accounts", "--source", "x", self.run_log(TERMS))
         self.assertEqual(result.returncode, 1)
         self.assertIn("Alertmanager did not take the alert", result.stderr)
-
-    def test_the_smoke_pages_what_it_skipped_and_a_clean_smoke_resolves_it(self):
-        line = PREFIX + json.dumps(TERMS, ensure_ascii=False)
-        self.assertEqual(self.alert("smoke", "--release", "e" * 40, "--skipped", f"vworld-ingest={line}").returncode, 0)
-        self.assertEqual(self.alert("smoke", "--release", "f" * 40).returncode, 0)
-        skipped, resolved = self.alertmanager.alerts
-        self.assertEqual(skipped["labels"], resolved["labels"])
-        self.assertIn("vworld-ingest (provider_account_action_required: useChk)", skipped["annotations"]["summary"])
-        self.assertGreater(ends(skipped), now())
-        self.assertLessEqual(ends(resolved), now())
 
 
 class EveryLoginIsAContractProvider(unittest.TestCase):

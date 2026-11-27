@@ -31,7 +31,7 @@ slack-page alertname=FoundationDeployFailedTwice service=deploy severity=page
 slack-page alertname=FoundationDeployDrainLong service=deploy severity=page
 # Alerts the host scripts post themselves carry no severity and keep their own routes.
 slack-unit-failure alertname=FoundationUnitFailed service=unit-failure unit=foundation-source-sweep.service
-slack-provider-account alertname=FoundationStagingSmokeInputSkipped service=provider-account
+slack-provider-account alertname=FoundationProviderAccountActionRequired service=provider-account provider=vworld.kr
 slack-dual-run alertname=FoundationDualRunDisagreed service=dual-run job=asset_reconcile
 # An alert that only inhibits others (root ADR-0625) notifies no one.
 inhibition-only alertname=FoundationHostRunsNoDerivedCompute service=host-scope severity=none
