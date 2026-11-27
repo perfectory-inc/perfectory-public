@@ -47,7 +47,7 @@ resource "aws_ecs_task_definition" "acceptance" {
     name       = "operator"
     image      = var.code_location_image
     essential  = true
-    entryPoint = ["python", "-I", "-c", local.probe_loader]
+    entryPoint = ["python", "-I", "-c", local.probe_program["acceptance.py"]]
     command    = ["health"]
     environment = [for key, value in merge(local.probe_environment, {
       PROBE_STEPS          = base64gzip(file("${path.module}/probes/acceptance.py"))

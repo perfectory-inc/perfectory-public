@@ -28,15 +28,21 @@ locals {
   # part PROBE_COMMON (probes/common.py), made the module `common`, and the task's steps PROBE_STEPS (dev:
   # probes/probe.py, prod: probes/acceptance.py), which import from it and run. One ECS container definition holds
   # at most 64 KiB: dev's steps inline already took 63 KB of it, and with prod's steps added 77 KB was refused
-  # (RegisterTaskDefinition, 2026-11-28).
-  probe_loader = join("\n", [
-    "import base64, gzip, os, sys, types",
-    "def source(name): return gzip.decompress(base64.b64decode(os.environ.pop(name))).decode()",
+  # (RegisterTaskDefinition, 2026-11-28). The loader is the entryPoint, which a run's overrides cannot replace, and it
+  # pins each file's SHA-256: an environment overridden at run time (ecs:RunTask containerOverrides) is refused, so
+  # the code a task runs is always its definition's.
+  probe_program = { for steps in ["probe.py", "acceptance.py"] : steps => join("\n", [
+    "import base64, gzip, hashlib, os, sys, types",
+    "def source(name, pinned):",
+    "    text = gzip.decompress(base64.b64decode(os.environ.pop(name)))",
+    "    if hashlib.sha256(text).hexdigest() != pinned:",
+    "        sys.exit(f'{name} is not the program this task definition pins')",
+    "    return text.decode()",
     "common = types.ModuleType('common')",
-    "exec(compile(source('PROBE_COMMON'), 'common.py', 'exec'), common.__dict__)",
+    "exec(compile(source('PROBE_COMMON', '${sha256(file("${path.module}/probes/common.py"))}'), 'common.py', 'exec'), common.__dict__)",
     "sys.modules['common'] = common",
-    "exec(compile(source('PROBE_STEPS'), 'steps.py', 'exec'), {'__name__': '__main__'})",
-  ])
+    "exec(compile(source('PROBE_STEPS', '${sha256(file("${path.module}/probes/${steps}"))}'), '${steps}', 'exec'), {'__name__': '__main__'})",
+  ]) }
   probe_environment = {
     PROBE_COMMON = base64gzip(file("${path.module}/probes/common.py"))
     CATALOG_URL  = local.catalog_url
@@ -133,7 +139,7 @@ resource "aws_ecs_task_definition" "probe" {
     name       = each.key
     image      = local.probe_image
     essential  = true
-    entryPoint = ["python", "-I", "-c", local.probe_loader]
+    entryPoint = ["python", "-I", "-c", local.probe_program["probe.py"]]
     command    = ["health"]
     environment = [for key, value in merge(local.probe_environment, {
       PROBE_STEPS = base64gzip(file("${path.module}/probes/probe.py"))
