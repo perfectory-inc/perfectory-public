@@ -9,9 +9,9 @@ use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::ObjectStorageService;
 
 use super::{
-    fetch, fetch_past, fetch_standard, openapi_check, owed_past, pass_id, pass_objects, plan,
-    provider_file_id, read_columns, read_metadata, read_past_editions, selected, source_contract,
-    Announced, ContractFile, SourceContract, PREFIX,
+    collect_past, fetch, fetch_past, fetch_standard, openapi_check, owed_past, pass_id,
+    pass_objects, plan, provider_file_id, read_columns, read_metadata, read_past_editions,
+    selected, source_contract, Announced, Config, ContractFile, SourceContract, PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -632,5 +632,160 @@ async fn a_past_edition_is_asked_by_its_own_key_lands_as_what_arrived_and_a_land
     .await?;
     assert_eq!((same.attach_file_id.as_str(), none), (OTHER_ID, None));
     assert_eq!(requests, 3, "two metadata asks and one download");
+    Ok(())
+}
+
+/// 2026-11-26 13:07Z the portal cut the body of the pension workplace's sixteenth earlier edition and
+/// that one download failed the whole run. A busy or cut answer is asked again; a client error is not.
+#[tokio::test]
+async fn a_busy_download_is_asked_again_and_a_client_error_is_not() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let insurance = file(&contract, "employment_insurance_workplace")?;
+    let server = MockServer::start().await;
+    for (key, id) in [(PAST_A, FILE_ID), (PAST_B, OTHER_ID)] {
+        Mock::given(method("GET"))
+            .and(path(contract.metadata.path.clone()))
+            .and(query_param("publicDataDetailPk", key))
+            .respond_with(ResponseTemplate::new(200).set_body_json(metadata(id)))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path(contract.download.path.clone()))
+        .and(query_param("atchFileId", FILE_ID))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(contract.download.path.clone()))
+        .and(query_param("atchFileId", FILE_ID))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes("사업장명\n".as_bytes().to_vec()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(contract.download.path.clone()))
+        .and(query_param("atchFileId", OTHER_ID))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    let editions = read_past_editions(&past_list(&[
+        (PAST_A, "2099-01-01"),
+        (PAST_B, "2099-02-01"),
+    ]))?;
+    let none = std::collections::BTreeSet::new();
+    let mut requests = 0;
+    let (_, bytes) = fetch_past(
+        &contract,
+        insurance,
+        &editions[0],
+        &server.uri(),
+        spacing()?,
+        &mut requests,
+        &none,
+    )
+    .await?;
+    assert!(bytes.is_some(), "the second attempt landed the file");
+    assert_eq!(requests, 3, "one metadata ask and two download attempts");
+    let refused = fetch_past(
+        &contract,
+        insurance,
+        &editions[1],
+        &server.uri(),
+        spacing()?,
+        &mut requests,
+        &none,
+    )
+    .await;
+    assert!(refused.is_err(), "a 404 is no file");
+    assert_eq!(
+        requests, 5,
+        "one metadata ask and one download attempt: a client error is not asked again"
+    );
+    Ok(())
+}
+
+/// An earlier edition that fails does not stop the ones after it: they land, and the run names the
+/// failed one, which the next run asks again (it is not recorded as asked).
+#[tokio::test]
+async fn a_failed_earlier_edition_does_not_stop_the_editions_after_it() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let insurance = file(&contract, "employment_insurance_workplace")?;
+    let past = insurance
+        .past_editions
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("employment insurance lists past editions"))?;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(contract.past_editions.path.clone()))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(past_list(&[(PAST_B, "2099-02-01"), (PAST_A, "2099-01-01")])),
+        )
+        .mount(&server)
+        .await;
+    for (key, id) in [(PAST_A, FILE_ID), (PAST_B, OTHER_ID)] {
+        Mock::given(method("GET"))
+            .and(path(contract.metadata.path.clone()))
+            .and(query_param("publicDataDetailPk", key))
+            .respond_with(ResponseTemplate::new(200).set_body_json(metadata(id)))
+            .mount(&server)
+            .await;
+    }
+    // The older edition's file is gone; the newer one arrives.
+    Mock::given(method("GET"))
+        .and(path(contract.download.path.clone()))
+        .and(query_param("atchFileId", FILE_ID))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(contract.download.path.clone()))
+        .and(query_param("atchFileId", OTHER_ID))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes("사업장명\n".as_bytes().to_vec()))
+        .mount(&server)
+        .await;
+    let scratch = tempfile::tempdir()?;
+    let config = Config {
+        base_uri: server.uri(),
+        openapi_base_uri: server.uri(),
+        service_key: None,
+        request_spacing: spacing()?,
+        live_write: false,
+        output_dir: scratch.path().join("output"),
+        state_dir: scratch.path().join("state"),
+        datasets: "employment_insurance_workplace".to_owned(),
+    };
+    std::fs::create_dir_all(&config.output_dir)?;
+    std::fs::create_dir_all(&config.state_dir)?;
+    let mut requests = 0;
+    let mut landed = Vec::new();
+    let now =
+        chrono::DateTime::parse_from_rfc3339("2099-03-01T00:00:00Z")?.with_timezone(&chrono::Utc);
+    let outcome = collect_past(
+        &contract,
+        insurance,
+        past,
+        &config,
+        None,
+        &mut requests,
+        now,
+        &mut landed,
+    )
+    .await;
+    let error = outcome
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("a failed edition fails the run"))?;
+    assert!(
+        format!("{error:#}").contains("1 of its earlier editions failed"),
+        "{error:#}"
+    );
+    assert!(format!("{error:#}").contains(PAST_A), "{error:#}");
+    assert_eq!(
+        landed.len(),
+        1,
+        "the edition after the failed one still landed"
+    );
+    assert_eq!(landed[0]["attach_file_id"], OTHER_ID);
     Ok(())
 }

@@ -50,6 +50,10 @@ use collection_domain::{
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
+use outbound_http_infrastructure::{
+    classify_response, execute_retryable, redact_transport_error, AttemptError, OutboundHttpError,
+    ResilienceAudit, ResilienceCtx, RetryDecision, DATA_GO_KR_FILE,
+};
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -627,7 +631,24 @@ async fn announce(
     read_metadata(&response.text().await?)
 }
 
-/// Downloads the file a metadata answer named.
+/// The provider name the download's retries are recorded under.
+const FILE_PROVIDER: &str = "data.go.kr file";
+
+/// The download's retry policy; the unit tests wait milliseconds, not the portal's half minute.
+#[cfg(not(test))]
+const FILE_POLICY: outbound_http_infrastructure::ResiliencePolicy = DATA_GO_KR_FILE;
+#[cfg(test)]
+const FILE_POLICY: outbound_http_infrastructure::ResiliencePolicy =
+    outbound_http_infrastructure::ResiliencePolicy {
+        initial_backoff: Duration::from_millis(1),
+        max_backoff: Duration::from_millis(2),
+        ..DATA_GO_KR_FILE
+    };
+
+/// Downloads the file a metadata answer named. One attempt is the request, its status and its whole
+/// body (`execute_retryable`, policy `DATA_GO_KR_FILE`): a body the portal cuts mid-transfer, a 5xx
+/// or a 429 is asked again after a backoff; any other status is not. 2026-11-26 13:07Z one cut body
+/// of the pension workplace's sixteenth earlier edition failed the whole run.
 async fn download(
     contract: &SourceContract,
     http: &reqwest::Client,
@@ -637,21 +658,62 @@ async fn download(
     requests: &mut usize,
 ) -> anyhow::Result<Vec<u8>> {
     spacing.wait_before_request(*requests).await;
-    *requests += 1;
     let mut query = contract.download.query.clone();
     query.insert("atchFileId".to_owned(), announced.attach_file_id.clone());
-    let response = http
-        .get(format!("{base_uri}{}", contract.download.path))
-        .query(&query)
-        .send()
+    let url = format!("{base_uri}{}", contract.download.path);
+    let attempts = std::sync::atomic::AtomicUsize::new(0);
+    let audit = ResilienceAudit::new(FILE_PROVIDER);
+    let ctx = ResilienceCtx {
+        breaker: None,
+        policy: &FILE_POLICY,
+        audit: &audit,
+    };
+    let bytes = execute_retryable(&ctx, || async {
+        attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        download_once(http, &url, &query).await
+    })
+    .await;
+    *requests += attempts.load(std::sync::atomic::Ordering::Relaxed);
+    Ok(bytes?)
+}
+
+/// One attempt of [`download`].
+async fn download_once(
+    http: &reqwest::Client,
+    url: &str,
+    query: &BTreeMap<String, String>,
+) -> Result<Vec<u8>, AttemptError> {
+    let response =
+        http.get(url)
+            .query(query)
+            .send()
+            .await
+            .map_err(|error| AttemptError::Retryable {
+                message: format!(
+                    "the file download failed: {}",
+                    redact_transport_error(&error)
+                ),
+                retry_after: None,
+            })?;
+    let status = response.status();
+    if !status.is_success() {
+        let message = format!("the file download answered HTTP {status}");
+        return Err(match classify_response(status, response.headers()) {
+            RetryDecision::Retryable { retry_after } => AttemptError::Retryable {
+                message,
+                retry_after,
+            },
+            RetryDecision::NotRetryable => AttemptError::Fatal(OutboundHttpError::new(message)),
+        });
+    }
+    response
+        .bytes()
         .await
-        .context("the file download failed")?;
-    ensure!(
-        response.status().is_success(),
-        "the file download answered HTTP {}",
-        response.status()
-    );
-    Ok(Vec::from(response.bytes().await?))
+        .map(Vec::from)
+        .map_err(|error| AttemptError::Retryable {
+            message: format!("the file body was cut: {}", redact_transport_error(&error)),
+            retry_after: None,
+        })
 }
 
 /// Asks one file's metadata, and the file when it is new. `None` when the last landed file is
@@ -1104,7 +1166,9 @@ async fn collect_one(
 }
 
 /// Lands the earlier editions of a file not yet asked, at most `max_per_run`, oldest first; each
-/// one asked is recorded as it goes, so a run that stops keeps what it asked (root ADR-0604).
+/// one asked is recorded as it goes, so a run that stops keeps what it asked (root ADR-0604). An
+/// edition that fails (after its download's own retries) is not recorded and does not stop the
+/// editions after it: the run ends failed and names how many, and the next run asks only those again.
 #[allow(clippy::too_many_arguments)] // `collect_one`'s six, plus the cap and the manifest it adds to
 async fn collect_past(
     contract: &SourceContract,
@@ -1128,6 +1192,7 @@ async fn collect_past(
     .await?;
     let mut asked = past_asked(&config.state_dir, file)?;
     let current = last_accepted(&config.state_dir, file)?;
+    let mut failed = Vec::new();
     for edition in owed_past(&listed, &asked, past.max_per_run) {
         // Last month's current file comes back in the list under a key of its own: known by its file
         // id, it is not fetched again; under a new id it is, and its bytes name the same object.
@@ -1136,7 +1201,7 @@ async fn collect_past(
             .cloned()
             .chain(current.clone())
             .collect::<BTreeSet<_>>();
-        let (announced, bytes) = fetch_past(
+        let fetched = fetch_past(
             contract,
             file,
             edition,
@@ -1145,13 +1210,27 @@ async fn collect_past(
             requests,
             &known,
         )
-        .await?;
-        if let Some(bytes) = bytes {
-            let mut entry = land(contract, file, config, live, &announced, bytes, now).await?;
-            entry["past_edition"] =
-                json!({"detail_pk": edition.detail_pk, "registered": edition.registered});
-            landed.push(entry);
-        }
+        .await;
+        let announced = match fetched {
+            Ok((announced, None)) => announced,
+            Ok((announced, Some(bytes))) => {
+                match land(contract, file, config, live, &announced, bytes, now).await {
+                    Ok(mut entry) => {
+                        entry["past_edition"] = json!({"detail_pk": edition.detail_pk, "registered": edition.registered});
+                        landed.push(entry);
+                        announced
+                    }
+                    Err(error) => {
+                        failed.push(past_failure(file, edition, &error));
+                        continue;
+                    }
+                }
+            }
+            Err(error) => {
+                failed.push(past_failure(file, edition, &error));
+                continue;
+            }
+        };
         if live.is_some() {
             asked.insert(edition.detail_pk.clone(), announced.attach_file_id);
             let state = past_path(&config.state_dir, file);
@@ -1159,7 +1238,21 @@ async fn collect_past(
             write_json_file(&state, &json!({"editions": asked}))?;
         }
     }
+    if !failed.is_empty() {
+        bail!(
+            "{} of its earlier editions failed and are asked again next run: {}",
+            failed.len(),
+            failed.join("; ")
+        );
+    }
     Ok(())
+}
+
+/// One earlier edition that failed, logged as it fails and named in the run's error.
+fn past_failure(file: &ContractFile, edition: &PastEdition, error: &anyhow::Error) -> String {
+    tracing::error!(dataset = %file.dataset_slug, detail_pk = %edition.detail_pk, error = %format!("{error:#}"),
+        "data.go.kr file collection: an earlier edition failed; the next run asks it again");
+    format!("{}: {error:#}", edition.detail_pk)
 }
 
 /// The objects of one `standard_pages` pass, written through the one Bronze line writer (root

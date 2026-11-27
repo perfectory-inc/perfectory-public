@@ -887,6 +887,20 @@ fn vworld_file_const_policy_is_valid_and_streaming_safe() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn data_go_kr_file_const_policy_is_valid_and_waits_out_a_dropped_transfer(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use super::DATA_GO_KR_FILE;
+    DATA_GO_KR_FILE.validate()?;
+
+    // A whole file is one attempt: no whole-transfer timeout; a cut body is asked again, twice,
+    // after a backoff long enough for a file server that has just dropped a large transfer.
+    assert_eq!(DATA_GO_KR_FILE.total_timeout, None);
+    assert_eq!(DATA_GO_KR_FILE.max_attempts, 3);
+    assert!(DATA_GO_KR_FILE.initial_backoff >= Duration::from_secs(30));
+    Ok(())
+}
+
+#[test]
 fn hub_const_policy_is_valid_and_streaming_safe() -> Result<(), Box<dyn std::error::Error>> {
     use super::HUB;
     HUB.validate()?;

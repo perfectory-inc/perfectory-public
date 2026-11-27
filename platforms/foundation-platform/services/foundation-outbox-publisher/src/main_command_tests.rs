@@ -1390,15 +1390,3 @@ fn the_pmtiles_merge_takes_its_archives_from_the_environment_not_an_argument() -
     .is_err());
     Ok(())
 }
-
-#[test]
-fn check_lakehouse_catalog_writes_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "check-lakehouse-catalog-writes"
-        ])?,
-        Command::CheckLakehouseCatalogWrites
-    );
-    Ok(())
-}

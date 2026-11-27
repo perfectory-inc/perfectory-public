@@ -10,5 +10,6 @@ pub use request_resilience::{
     classify_response, classify_status, execute_retryable, execute_single,
     execute_streaming_handshake, redact_transport_error, redact_url_query_secrets,
     shared_http_client, AttemptError, ResilienceAudit, ResilienceCtx, ResilienceEvent,
-    ResiliencePolicy, RetryDecision, DATA_GO_KR, HUB, ICEBERG, VWORLD_FILE, VWORLD_JSON,
+    ResiliencePolicy, RetryDecision, DATA_GO_KR, DATA_GO_KR_FILE, HUB, ICEBERG, VWORLD_FILE,
+    VWORLD_JSON,
 };
