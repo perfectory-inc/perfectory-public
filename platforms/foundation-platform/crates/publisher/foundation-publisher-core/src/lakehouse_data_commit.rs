@@ -41,7 +41,7 @@ use iceberg::{
     Catalog, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
 };
 use lakehouse_domain::LakehouseTableContract;
-use lakehouse_infrastructure::{IcebergSnapshotManifestList, LakehouseCatalogConfig};
+use lakehouse_infrastructure::IcebergSnapshotManifestList;
 use parquet::{
     basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType},
     column::reader::ColumnReader,
@@ -296,33 +296,34 @@ impl LakehouseDataCommitter {
         Self { catalog }
     }
 
-    /// Commits through the configured lakehouse REST catalog with the writer token and the writer
-    /// key pair — the same variables `IcebergRestCatalog` and `LakehouseObjectReader` read.
+    /// Commits through the configured lakehouse REST catalog (`lakehouse_catalog::CatalogSettings`).
+    /// In Lakekeeper mode with the lane's client and the credential the catalog vends per table, and
+    /// no storage key (root ADR-0624 P7); on the current catalog with the writer token and the
+    /// writer key pair — the same variables `IcebergRestCatalog` and `LakehouseObjectReader` read.
     ///
     /// # Errors
     /// Returns an error when a variable is missing or the catalog refuses the configuration.
     pub async fn from_env() -> anyhow::Result<Self> {
-        let catalog = LakehouseCatalogConfig::from_env()
+        let settings = crate::lakehouse_catalog::CatalogSettings::from_env()
             .context("failed to configure the lakehouse catalog for data commits")?;
-        let storage = R2ObjectStorageConfig::from_env()
-            .context("failed to configure lakehouse R2 writes for data commits")?;
-        let mut properties = HashMap::from([
-            ("uri".to_owned(), catalog.catalog_uri),
-            ("warehouse".to_owned(), catalog.warehouse),
-            ("s3.endpoint".to_owned(), storage.endpoint),
-            ("s3.access-key-id".to_owned(), storage.access_key_id),
-            ("s3.secret-access-key".to_owned(), storage.secret_access_key),
-            ("s3.region".to_owned(), storage.region),
-            ("s3.path-style-access".to_owned(), "true".to_owned()),
-            // The keys above are the whole credential: no instance metadata, no profile files.
-            ("s3.disable-ec2-metadata".to_owned(), "true".to_owned()),
-            ("s3.disable-config-load".to_owned(), "true".to_owned()),
-        ]);
-        if let Some(token) = catalog.catalog_token {
-            properties.insert("token".to_owned(), token);
-        }
+        let storage = if settings.client.is_some() {
+            Vec::new()
+        } else {
+            let storage = R2ObjectStorageConfig::from_env()
+                .context("failed to configure lakehouse R2 writes for data commits")?;
+            vec![
+                ("s3.endpoint".to_owned(), storage.endpoint),
+                ("s3.access-key-id".to_owned(), storage.access_key_id),
+                ("s3.secret-access-key".to_owned(), storage.secret_access_key),
+                ("s3.region".to_owned(), storage.region),
+                ("s3.path-style-access".to_owned(), "true".to_owned()),
+                // The keys above are the whole credential: no instance metadata, no profile files.
+                ("s3.disable-ec2-metadata".to_owned(), "true".to_owned()),
+                ("s3.disable-config-load".to_owned(), "true".to_owned()),
+            ]
+        };
         Ok(Self::new(
-            crate::lakehouse_rest_catalog::open(properties).await?,
+            crate::lakehouse_rest_catalog::open(settings.properties(&storage)).await?,
         ))
     }
 

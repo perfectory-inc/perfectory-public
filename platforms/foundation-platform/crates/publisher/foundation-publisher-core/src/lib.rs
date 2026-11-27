@@ -36,6 +36,7 @@ pub mod free_space;
 pub mod host_document_schemas;
 pub mod industrial_complex_gold_profile_store;
 pub mod json_values;
+pub mod lakehouse_catalog;
 pub mod lakehouse_data_commit;
 pub mod lakehouse_requirements;
 pub mod lakehouse_rest_catalog;
