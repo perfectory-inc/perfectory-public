@@ -31,6 +31,7 @@ import io
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -50,6 +51,11 @@ KIND_TAG = "perfectory-platform/kind"
 LANE_TAG = "perfectory-platform/lane"
 HANDOFF = "handoff"
 OVERLAP = "overlap"
+# The publisher's SDK runs `<this file> credential-process <job> <run> writer` for fresh keys (AWS credential_process)
+# and again before they expire: one platform time limit for every lane, however long its run (root ADR-0623 §1,
+# owner 2026-11-26; W101c 2026-11-27: onbid's first AWS run took 2 h 12 min and outlived its 1 h key).
+CREDENTIAL_PROCESS = "credential-process"
+CREDENTIAL_PROCESS_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_CREDENTIAL_PROCESS"
 
 
 def contract():
@@ -153,6 +159,18 @@ def vended(client, function, job_id, run_id):
     return answer
 
 
+def credential_process(job_id, run_id):
+    """The command that prints lane `job_id`'s fresh writer keys, as the SDK's credential_process reads them."""
+    return shlex.join([sys.executable, str(pathlib.Path(__file__).resolve()), CREDENTIAL_PROCESS, job_id, run_id])
+
+
+def credential_process_answer(credentials):
+    """The vendor's writer keys in credential_process's JSON (Version 1, with the time they expire)."""
+    writer = credentials["writer"]
+    return {"Version": 1, "AccessKeyId": writer["access_key_id"], "SecretAccessKey": writer["secret_access_key"],
+            "SessionToken": writer["session_token"], "Expiration": writer["expiration"]}
+
+
 def source_keys(client, platform, lane):
     """{env name: value} of the lane's source keys; NotReady names a slot that has no value yet."""
     project = platform["tags"]["project"]
@@ -251,8 +269,8 @@ def save(store, bucket, prefix, run_id, directory, now=None):
     return key
 
 
-def environment(lane, credentials, url, keys, work):
-    """The publisher's environment for one run."""
+def environment(lane, credentials, url, keys, work, refresh):
+    """The publisher's environment for one run; `refresh` is its credential_process command."""
     writer = credentials["writer"]
     prefix = lane["env_prefix"]
     env = {
@@ -267,6 +285,7 @@ def environment(lane, credentials, url, keys, work):
         "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID": writer["access_key_id"],
         "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY": writer["secret_access_key"],
         "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SESSION_TOKEN": writer["session_token"],
+        CREDENTIAL_PROCESS_ENV: refresh,
         "DATABASE_URL": url,
         f"{prefix}_OUTPUT_DIR": str(work / "output"),
         f"{prefix}_STATE_DIR": str(work / "state"),
@@ -325,14 +344,29 @@ def collect(job_id, run_id, secrets_client, lambda_client, log, program=None, st
         before = digest(work / "state")
         started = datetime.datetime.now(datetime.timezone.utc)
         try:
-            status, lines = run(lane, environment(lane, credentials, url, keys, work), log, program)
+            env = environment(lane, credentials, url, keys, work, credential_process(job_id, run_id))
+            status, lines = run(lane, env, log, program)
         finally:
             written = None
             if digest(work / "state") != before or side == "host":
-                written = save(store, bucket, prefix, run_id, work / "state")
+                # Fresh keys: the run may have outlived the ones it started with.
+                fresh = store_factory(vended(lambda_client, vendor_function(platform), job_id, run_id))
+                written = save(fresh, bucket, prefix, run_id, work / "state")
                 log(f"{job_id}: state saved as {written}")
         seconds = round((datetime.datetime.now(datetime.timezone.utc) - started).total_seconds(), 1)
     word = outcome(lines)
     if status != 0 or word not in (MATERIALIZES, *QUIET):
         raise RunFailed(f"{lane['command']} exited {status} ({word}) after {seconds} s: {lines[-1] if lines else ''}")
     return {"outcome": word, "state_read": read_key, "state_written": written, "seconds": seconds}
+
+
+if __name__ == "__main__":
+    # credential-process <job id> <run id>: the lane's role asks the vendor through its own alias.
+    if len(sys.argv) != 4 or sys.argv[1] != CREDENTIAL_PROCESS:
+        sys.exit(f"usage: {sys.argv[0]} {CREDENTIAL_PROCESS} <job id> <run id>")
+    import boto3
+
+    _platform = contract()
+    _answer = vended(boto3.client("lambda", region_name=_platform["region"]), vendor_function(_platform), sys.argv[2],
+                     sys.argv[3])
+    print(json.dumps(credential_process_answer(_answer)))

@@ -54,6 +54,7 @@ async fn an_accepted_put_adds_its_body() -> TestResult {
         access_key_id: "local-access".to_owned(),
         secret_access_key: "local-secret".to_owned(),
         session_token: None,
+        credential_process: None,
         namespace: super::super::R2KeyNamespace::Production,
     });
     let before = r2_bytes_written();

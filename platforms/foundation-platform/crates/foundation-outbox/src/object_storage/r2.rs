@@ -209,6 +209,11 @@ pub struct R2ObjectStorageConfig {
     /// which a run mints for its own prefixes and time limit (root ADR-0476, ADR-0616 A2); `None` for
     /// an API token's key pair.
     pub session_token: Option<String>,
+    /// A command that prints fresh temporary credentials (AWS `credential_process`, JSON with an
+    /// `Expiration`). When set, the client asks it instead of using the key pair above, and the SDK asks it
+    /// again before the credentials it gave expire, so a run longer than their time limit keeps writing
+    /// (root ADR-0623 §1, W101c: 2026-11-27 onbid's first AWS run outlived its 1 h key).
+    pub credential_process: Option<String>,
     /// The part of the bucket this client may name (root ADR-0177).
     pub namespace: R2KeyNamespace,
 }
@@ -254,6 +259,7 @@ impl R2ObjectStorageConfig {
                 "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY",
             )?,
             session_token: None,
+            credential_process: None,
             namespace: R2KeyNamespace::from_env()?,
         })
     }
@@ -281,11 +287,17 @@ impl R2ObjectStorage {
             None,
             "foundation-platform-r2",
         );
-        let storage_config = aws_sdk_s3::Config::builder()
+        let storage_config = aws_sdk_s3::Config::builder();
+        let storage_config = match config.credential_process {
+            Some(command) => storage_config.credentials_provider(
+                aws_config::credential_process::CredentialProcessProvider::new(command),
+            ),
+            None => storage_config.credentials_provider(credentials),
+        };
+        let storage_config = storage_config
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new(config.region))
             .endpoint_url(config.endpoint)
-            .credentials_provider(credentials)
             .force_path_style(true)
             // Adaptive, not standard: R2 answers sustained concurrent writes with 429
             // ("Reduce your concurrent request rate") — measured live 2026-09-09, 32
@@ -1303,3 +1315,7 @@ mod write_retry_tests;
 #[cfg(test)]
 #[path = "r2/timeout_tests.rs"]
 mod timeout_tests;
+
+#[cfg(test)]
+#[path = "r2/credential_tests.rs"]
+mod credential_tests;

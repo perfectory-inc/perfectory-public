@@ -135,6 +135,7 @@ fn r2_config_from_env_file_with_credentials(
         access_key_id: required_value_from_dotenv_or_env(&values, access_key_env)?,
         secret_access_key: required_value_from_dotenv_or_env(&values, secret_key_env)?,
         session_token: None,
+        credential_process: None,
         namespace: R2KeyNamespace::from_env()?,
     })
 }
