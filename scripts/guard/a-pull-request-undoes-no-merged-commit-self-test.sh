@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Proves a-pull-request-undoes-no-merged-commit refuses the #1780 shape (a branch begun before a merged commit,
 # squashed with `reset --soft` onto the newer main, so its one commit deletes what that commit added), and
-# accepts the same branch rebased, the same branch never rebased, a revert that names the commit by sha or by
-# pull request, and a run with no pull request base.
+# accepts the same branch rebased, the same branch never rebased, the merged lines moved to another file, a
+# revert that names the commit by sha or by pull request, and a run with no pull request base.
 set -euo pipefail
 . "$(dirname "$0")/lib/fixture-repo.sh"
 guard="$(cd "$(dirname "$0")" && pwd)/a-pull-request-undoes-no-merged-commit.sh"
@@ -45,6 +45,10 @@ $message}" ;;
       fixture_git "$repo" -c commit.gpgsign=false cherry-pick "$branch" >/dev/null ;;
     stale)
       fixture_git "$repo" checkout -q --detach "$branch" ;;
+    moved) # the merged commit's lines kept, in another file (#1786 moved #1775's rig into one stack)
+      fixture_git "$repo" checkout -q --detach "$merged"
+      fixture_git "$repo" mv rig.txt stack.txt
+      fixture_git "$repo" -c commit.gpgsign=false commit -q -m "refactor: one stack" ;;
   esac
   local base=$merged
   [ "$label" != "no pull request base" ] || base=""
@@ -63,6 +67,7 @@ $message}" ;;
 expect fail "squashed onto the newer main (#1780)" squashed
 expect pass "rebased onto the newer main" rebased
 expect pass "never rebased" stale
+expect pass "the merged lines moved to another file" moved
 expect pass "a revert that names the commit" squashed "Reverts ${merged:0:12}"
 expect pass "a revert that names the pull request" squashed "Reverts #1777"
 expect pass "git's own revert message" squashed "This reverts commit $merged."

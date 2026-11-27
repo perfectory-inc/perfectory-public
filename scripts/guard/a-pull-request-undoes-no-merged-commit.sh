@@ -8,7 +8,8 @@
 #
 # The rule: against the pull request's base (CHANGE_SCOPE_BASE), no commit reachable from the fork point and
 # committed within LOOKBACK_DAYS before it may have UNDONE_SHARE or more of the lines it added deleted by the
-# pull request (counted when it added at least MIN_LINES to the files the pull request changes). A deliberate
+# pull request and not added back in any file (counted when it added at least MIN_LINES to the files the pull
+# request changes; a line added back was moved, as #1786 moved #1775's rig into one stack). A deliberate
 # revert says so: a commit message in the pull request, or the merge queue's squash message (the pull
 # request's title and body), names the commit as `Reverts <sha>` (7+ hex characters), `Reverts #<pull
 # request>` or git's own `This reverts commit <sha>`. Without a base there is nothing to compare and it passes.
@@ -70,6 +71,7 @@ changed = lines(git("diff", "--no-renames", "-U0", fork, head))
 if not changed:
     print("OK a-pull-request-undoes-no-merged-commit: the pull request changes no line")
     sys.exit(0)
+added_anywhere = set().union(*(add for add, _ in changed.values()))
 named = set(NAMED.findall(git("log", "--format=%B", f"{fork}..{head}")))
 forked = datetime.datetime.fromtimestamp(int(git("show", "-s", "--format=%ct", fork).strip()), datetime.timezone.utc)
 since = (forked - datetime.timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -86,7 +88,8 @@ for entry in recent:
     added = sum(len(add) for add, _ in theirs.values())
     if added < MIN_LINES:
         continue
-    gone = sum(len(add & changed.get(path, (set(), set()))[1]) for path, (add, _) in theirs.items())
+    # A line the pull request adds back anywhere was moved or kept, not undone (2026-11-27 #1786 moved #1775's rig).
+    gone = sum(len((add & changed.get(path, (set(), set()))[1]) - added_anywhere) for path, (add, _) in theirs.items())
     if gone / added >= UNDONE_SHARE:
         undone.append(f"{sha[:12]} ({gone} of the {added} lines it added): {subject}")
 if undone:
