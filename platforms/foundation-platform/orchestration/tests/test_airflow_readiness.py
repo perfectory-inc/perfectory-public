@@ -20,6 +20,14 @@ class ParserReadiness(unittest.TestCase):
             shutil.copyfile(PLATFORM / "scripts/deploy/airflow-runtime.sh", script)
             jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text())
             (root / "orchestration/jobs.v1.json").write_text(json.dumps(jobs))
+            # The wrapper reads the list as this host runs it (job_specs.on_host, root ADR-0625), from the
+            # release's own orchestration/dags and pipeline graph, as a release carries them.
+            shutil.copytree(PLATFORM / "orchestration/dags", root / "orchestration/dags")
+            (root / "docs/catalog").mkdir(parents=True)
+            shutil.copyfile(PLATFORM / "docs/catalog/pipeline-graph.v1.json", root / "docs/catalog/pipeline-graph.v1.json")
+            (root / "infra/datahub").mkdir(parents=True)
+            shutil.copyfile(PLATFORM / "infra/datahub/dataset_names.py", root / "infra/datahub/dataset_names.py")
+            shutil.copytree(PLATFORM / "contracts/data", root / "contracts/data")
             # The DAG ids job_specs.py builds; the wrapper must wait for exactly these.
             # A job Dagster decides has none (root ADR-0565), and the list holds such jobs (the Gold group, ADR-0583).
             expected = [jobs["dag_id_prefix"] + job["id"] for job in jobs["jobs"]

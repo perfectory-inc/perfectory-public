@@ -39,6 +39,8 @@
       },
       "pool": "default_pool",
       "pipeline_graph_edges": [
+        "serving-outbox-to-gongzzang-catalog-consumer-receiver",
+        "serving-outbox-to-dawneer-catalog-consumer-receiver",
         "outbox-catalog-event-fanout-to-event-fabric-registry",
         "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver",
         "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver"
@@ -115,6 +117,24 @@
     },
     {
       "from": "outbox-catalog-event-fanout",
+      "to": "dawneer-catalog-consumer-receiver",
+      "relation": "consumes",
+      "status": "implemented",
+      "via": [
+        "publish-outbox-once"
+      ]
+    },
+    {
+      "from": "serving-outbox",
+      "to": "gongzzang-catalog-consumer-receiver",
+      "relation": "consumes",
+      "status": "implemented",
+      "via": [
+        "publish-outbox-once"
+      ]
+    },
+    {
+      "from": "serving-outbox",
       "to": "dawneer-catalog-consumer-receiver",
       "relation": "consumes",
       "status": "implemented",

@@ -711,6 +711,8 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_tile_unit_behind_seconds gauge
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge
+# HELP foundation_host_runs_derived_compute Whether this host's host_scope runs derived compute (1) or only collection and what it needs (0) (jobs.v1.json host_scope, root ADR-0625).
+# TYPE foundation_host_runs_derived_compute gauge
 """
 
 
@@ -1065,8 +1067,12 @@ CATALOG_SECONDS = 120
 
 
 def main() -> int:
-    jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+    written = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
     graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+    # The list as this host runs it (job_specs.on_host, root ADR-0625): a job its host_scope leaves out is
+    # off here, so it is neither reconciled, started again, held to an outcome nor said stale; the jobs
+    # that run here, the collectors among them, are judged as before. load_specs reads the list as written.
+    jobs = job_specs.on_host(written, graph)
     found = assets(jobs, graph, gold_rebuild.load_contract())
     services = {service for job in jobs["jobs"] for service in (job["systemd_service"], job.get("check_service")) if service}
     state_dir = Path(os.environ.get("FOUNDATION_ASSET_RECONCILE_STATE_DIR")
@@ -1140,6 +1146,9 @@ def main() -> int:
         # The rules then hold no registration and no tile unit: FoundationTileUnitUnmeasured says so.
         print(f"asset_reconcile: could not read the served lanes and tile layers: {type(error).__name__}: {error}",
               file=sys.stderr)
+    # One series the alert rules read to leave the derived compute's own pages out while the host runs none
+    # of it (infra/observability/alertmanager/alertmanager.yml inhibit_rules, root ADR-0625).
+    metrics.append(f"foundation_host_runs_derived_compute {int('derived' in job_specs.HOST_SCOPES[job_specs.host_scope(written)])}")
     write_replacing(state_dir / STATE_FILE, json.dumps(state, sort_keys=True) + "\n")
     write_replacing(metrics_file, HELP + "\n".join(metrics) + "\n")
     # The pools every job's Compose project draws from; a probe that fails stops nothing, and the
@@ -1166,9 +1175,9 @@ def main() -> int:
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not list the failed units: {error}", file=sys.stderr)
     try:
-        specs = job_specs.load_specs(jobs, graph)
-        dag_ids = {spec.job_id: spec.dag_id for spec in specs if spec.dagster_stage == "shadow"}
-        decided = [spec.job_id for spec in specs if spec.dagster_stage == "dagster"]
+        specs = job_specs.load_specs(written, graph)
+        dag_ids = {spec.job_id: spec.dag_id for spec in specs if spec.dagster_stage == "shadow" and spec.runs_on_host}
+        decided = [spec.job_id for spec in specs if spec.dagster_stage == "dagster" and spec.runs_on_host]
         ui = jobs.get("observers", {}).get("dagster", {}).get("ui", "")
         write_replacing(metrics_file.with_name(DAGSTER_METRICS_NAME),
                         dagster_state(jobs, dag_ids, dagster_post(ui), decided,

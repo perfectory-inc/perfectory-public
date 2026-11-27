@@ -355,6 +355,47 @@ class TheOperatorsSwitches(HostFixture):
         self.assertIn("systemctl start --no-block foundation-paused.service", asked)
 
 
+class TheHostScope(HostFixture):
+    """Root ADR-0625: under host_scope collection the forced command starts a collector and refuses a derived
+    job, an operator's run-now of one too. The list sits in a tree with its pipeline graph, as in a release."""
+
+    REQUEST = TheOperatorsSwitches.REQUEST
+    ask = TheOperatorsSwitches.ask
+
+    def setUp(self):
+        super().setUp()
+        tree = self.root / "tree"
+        (tree / "orchestration").mkdir(parents=True)
+        (tree / "docs/catalog").mkdir(parents=True)
+        listing = json.loads((self.root / "jobs.json").read_text())
+        listing["host_scope"] = "collection"
+        edges = {"floor": ("collect", ["source-x-to-silver-x"]), "fold": ("silver", ["source-x-to-silver-y"]),
+                 "bake": ("gold", ["silver-y-to-gold-z"]), "lane": ("silver", []), "paused": ("silver", [])}
+        for job in listing["jobs"]:
+            job["dagster_group"], job["pipeline_graph_edges"] = edges[job["id"]]
+        (tree / "orchestration/jobs.v1.json").write_text(json.dumps(listing))
+        nodes = {"source-x": "source_group", "silver-x": "silver_table", "silver-y": "silver_table",
+                 "gold-z": "gold_table"}
+        graph = {"nodes": [{"id": node, "type": kind} for node, kind in nodes.items()],
+                 "edges": [{"id": f"{a}-to-{b}", "from": a, "to": b} for a, b in
+                           (("source-x", "silver-x"), ("source-x", "silver-y"), ("silver-y", "gold-z"))]}
+        (tree / "docs/catalog/pipeline-graph.v1.json").write_text(json.dumps(graph))
+        self.env["FOUNDATION_SCHEDULED_JOBS_FILE"] = str(tree / "orchestration/jobs.v1.json")
+
+    def test_a_collector_starts_and_a_derived_job_is_refused(self):
+        result, asked = self.start("floor")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-floor.service", asked)
+        result, asked = self.start("fold")
+        self.assertEqual((result.returncode, asked), (64, ""))
+        self.assertIn("not an enabled job", result.stderr)
+
+    def test_a_run_now_of_a_derived_job_is_refused(self):
+        self.ask("paused")
+        result, asked = self.start(f"paused requested {self.REQUEST}")
+        self.assertEqual((result.returncode, asked), (64, ""), result.stdout)
+
+
 class TakingTurns(HostFixture):
     """A `takes_turns` job starts at most once between starts of the jobs it blocks (ADR-0138)."""
 

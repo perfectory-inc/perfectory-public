@@ -155,7 +155,32 @@ def drifted_tables(release: Path, entry: dict, host: Path) -> list[str]:
     return drifted
 
 
+def off_host(release: Path, step: str) -> str:
+    """Why a deploy's `start-once.<job>` step starts nothing on this host, or "": the release's host_scope
+    leaves the job out (job_specs.runs_on_host, root ADR-0625). Asked here, the release's own code, so a
+    deploy run by the script of the release it replaces starts no job the new release leaves out."""
+    if not step.startswith("start-once."):
+        return ""
+    job_id = step.removeprefix("start-once.")
+    dags = release / "orchestration" / "dags"
+    if not (dags / "job_specs.py").is_file():
+        return ""
+    sys.path.insert(0, str(dags))
+    try:
+        import job_specs
+    finally:
+        sys.path.remove(str(dags))
+    listing = json.loads((release / "orchestration" / "jobs.v1.json").read_text(encoding="utf-8"))
+    graph = json.loads((release / "docs" / "catalog" / "pipeline-graph.v1.json").read_text(encoding="utf-8"))
+    if job_id in job_specs.runs_on_host(listing, graph):
+        return ""
+    return f"{step}: skipped, host_scope {job_specs.host_scope(listing)} does not run {job_id} on this host (root ADR-0625)"
+
+
 def should_run(release: Path, step: str, host: Path = Path("/")) -> tuple[bool, str]:
+    scoped_out = off_host(release, step)
+    if scoped_out:
+        return False, scoped_out
     entry = step_of(release, step)
     if "inputs" not in entry:
         return True, f"{step} runs on every deploy: {entry['always']}"

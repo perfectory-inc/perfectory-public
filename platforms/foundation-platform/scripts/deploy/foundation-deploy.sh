@@ -72,9 +72,17 @@ owed_by_inputs() {
 # The lists, from the job registry of the release now running.
 jobs_of() {
   python3 -I -B - "$1" "${release_root}/current/orchestration/jobs.v1.json" <<'PY'
-import json, sys
+import json, os, sys
 which, path = sys.argv[1], sys.argv[2]
-for job in json.load(open(path, encoding="utf-8"))["jobs"]:
+# The list as this host runs it (job_specs.on_host, root ADR-0625): a job its host_scope leaves out is off
+# here, so the deploy neither unpauses, starts nor owes it a run. A release from before it reads as written.
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(path), "dags"))
+    from job_specs import on_host_file
+    listing = on_host_file(path)
+except ImportError:
+    listing = json.load(open(path, encoding="utf-8"))
+for job in listing["jobs"]:
     if which == "enabled" and job["enabled"]:
         print(job["id"])
     elif which == "disabled" and not job["enabled"]:
@@ -107,7 +115,7 @@ if which == "enabled-consumers-first":
         from job_specs import unpause_order
         print("\n".join(unpause_order()))
     else:
-        print("\n".join(job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]))
+        print("\n".join(job["id"] for job in listing["jobs"] if job["enabled"]))
 if which == "deferred":
     # The enabled jobs the scheduler's runner did not start because a release build was running
     # (root ADR-0260); job_units.py of the running release says where it recorded them.
@@ -116,7 +124,7 @@ if which == "deferred":
     if os.path.isfile(os.path.join(deploy, "job_units.py")):
         sys.path.insert(0, deploy)
         from job_units import deferred
-        enabled = {job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]}
+        enabled = {job["id"] for job in listing["jobs"] if job["enabled"]}
         print("\n".join(job for job in deferred() if job in enabled))
 PY
 }

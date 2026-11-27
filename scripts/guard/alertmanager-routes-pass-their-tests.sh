@@ -89,7 +89,8 @@ if [ "$count" -eq 0 ]; then
 fi
 
 # Every alert rule is a case too, so a new rule cannot miss its route by a severity typo or by having
-# none: a page reaches slack-page, a ticket outside security slack-ticket, security slack-security.
+# none: a page reaches slack-page, a ticket outside security slack-ticket, security slack-security, and
+# an inhibition source (severity none) inhibition-only.
 # Read by the narrow shapes the rules files use (no YAML parser on the runner), as
 # prometheus-rules-pass-their-tests reads them.
 rules_dir="$root/platforms/foundation-platform/infra/observability/prometheus"
@@ -109,10 +110,12 @@ for path in sorted(pathlib.Path(sys.argv[1]).glob("*.rules.yml")):
             labels.setdefault(match.group(1), match.group(2).strip("'\""))
     for alert, labels in rules:
         severity, service = labels.get("severity", ""), labels.get("service", "")
-        if severity not in ("page", "ticket"):
+        if severity not in ("page", "ticket", "none"):
             print(f"BAD {path.name} {alert} severity={severity or '<none>'}")
             continue
-        want = "slack-security" if service == "security" else f"slack-{severity}"
+        # `none`: an alert that only inhibits others and reaches no one (root ADR-0625).
+        want = ("inhibition-only" if severity == "none" else
+                "slack-security" if service == "security" else f"slack-{severity}")
         print(f"{want} alertname={alert} severity={severity}" + (f" service={service}" if service else ""))
 PY
 )"

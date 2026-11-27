@@ -112,6 +112,8 @@ fn dependencies(list: &JobList) -> Vec<JobDependencies> {
             },
             reads: Vec::new(),
             writes: Vec::new(),
+            runs_on_host: true,
+            host_class: None,
         })
         .collect()
 }
@@ -549,6 +551,45 @@ fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
             "contract_columns_present"
         ]
     );
+}
+
+#[test]
+fn an_enabled_job_the_host_scope_leaves_out_is_off_with_the_scope_as_its_reason() {
+    // Root ADR-0625: the host runs only collection; a derived job is shown off, with no next start
+    // and no problem of its own, and the jobs that run here are untouched.
+    let now = at("2026-01-02T08:00:00Z");
+    let list = list();
+    let mut depends = dependencies(&list);
+    depends[0].runs_on_host = false;
+    depends[0].host_class = Some("derived".to_owned());
+    let statuses = job_statuses(&list, &depends, &BTreeMap::new(), now);
+    assert!(!statuses[0].enabled);
+    assert!(statuses[0].next_run_at.is_none());
+    assert_eq!(
+        statuses[0].disabled_reason.as_deref(),
+        Some("host_scope: this host runs no derived job (root ADR-0625)")
+    );
+    assert!(statuses[1].enabled && statuses[1].next_run_at.is_some());
+    // A job that is off keeps its own reason whatever the scope says.
+    depends[2].runs_on_host = false;
+    let statuses = job_statuses(&list, &depends, &BTreeMap::new(), now);
+    assert_eq!(
+        statuses[2].disabled_reason.as_deref(),
+        Some("waiting for a supervised run")
+    );
+}
+
+#[test]
+fn the_real_dependency_file_carries_whether_the_host_runs_each_job() {
+    let list = read_job_list(&jobs_path()).unwrap_or_else(|error| unreachable!("{error:?}"));
+    let depends = read_dependencies(&dependencies_path(), &list)
+        .unwrap_or_else(|error| unreachable!("{error:?}"));
+    assert!(depends.iter().all(|job| job.host_class.is_some()));
+    // Collection runs on every host scope.
+    assert!(depends
+        .iter()
+        .filter(|job| job.host_class.as_deref() == Some("collection"))
+        .any(|job| job.runs_on_host));
 }
 
 #[test]

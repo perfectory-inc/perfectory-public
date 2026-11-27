@@ -74,11 +74,17 @@ say() {
 
 [[ "${checking}" == true && "${triggered}" == true ]] && refuse "a check is not triggered"
 [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || refuse "expected one job id, got '${job:0:40}'"
-listing="$(python3 - "${jobs_file}" "${job}" "${checking}" "$([[ -n "${requested}" ]] && echo true || echo false)" <<'PY'
+# The job list as this host runs it (orchestration/dags/job_specs.py on_host, root ADR-0625): a job the
+# host_scope leaves out is off here, and its run-now is refused too: the host runs none of its class.
+job_specs_dir="$(dirname "${BASH_SOURCE[0]}")/../../orchestration/dags"
+listing="$(python3 -B - "${jobs_file}" "${job}" "${checking}" "$([[ -n "${requested}" ]] && echo true || echo false)" "${job_specs_dir}" <<'PY'
 import json, sys
-for entry in json.load(open(sys.argv[1]))["jobs"]:
-    # An operator's run-now may start a job that is off: its supervised run (root ADR-0282).
-    if entry["id"] == sys.argv[2] and (entry["enabled"] or sys.argv[4] == "true"):
+sys.path.insert(0, sys.argv[5])
+from job_specs import on_host_file
+for entry in on_host_file(sys.argv[1])["jobs"]:
+    # An operator's run-now may start a job that is off: its supervised run (root ADR-0282). Not one whose
+    # class the host_scope leaves out (`host_scope_off`).
+    if entry["id"] == sys.argv[2] and (entry["enabled"] or (sys.argv[4] == "true" and not entry.get("host_scope_off"))):
         service = (entry.get("check_service") or "") if sys.argv[3] == "true" else entry["systemd_service"]
         print(service or "-", entry["wait_limit_minutes"], entry["systemd_service"])
 PY

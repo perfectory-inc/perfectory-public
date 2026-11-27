@@ -1,0 +1,28 @@
+# promtool unit tests for the foundation-host-scope rules (root ADR-0625): while the host's host_scope
+# runs no derived compute, the inhibition source fires, and it is gone the moment the scope is all
+# again. The series is what the asset reconciler writes from jobs.v1.json host_scope.
+# Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # 2026-11-27: the owner moves everything but AI off ai-server; the host keeps collection only.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_host_runs_derived_compute'
+        values: '0x10 1x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FoundationHostRunsNoDerivedCompute
+        exp_alerts:
+          - exp_labels:
+              severity: none
+              service: host-scope
+            exp_annotations:
+              summary: 이 호스트는 수집과 그에 필요한 것만 돌려요(host_scope collection) — 파생 계산의 신선도 경보는 꺼 둬요
+              runbook: docs/runbooks/asset-reconcile.md
+      # Back to `all`: derived compute runs here again and its pages speak again.
+      - eval_time: 15m
+        alertname: FoundationHostRunsNoDerivedCompute
+        exp_alerts: []

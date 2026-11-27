@@ -36,7 +36,10 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
                     "industrial_land_sale_notice_silver"},
                    # The court auction collector asks the read records which cases and documents are due; the
                    # Silver load reads what it landed. Both are default_pool since the load left Spark (root ADR-0559).
-                   {"court_auction_collect", "court_auction_silver"}]
+                   {"court_auction_collect", "court_auction_silver"},
+                   # Both land data.go.kr files in the one file data source node and each loads only its
+                   # own files (the registered factory's is its own job's, root ADR-0280 §4, ADR-0625).
+                   {"data_go_kr_file_data", "registered_factory"}]
         pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
                  if by_id[writer]["pool"] == by_id[reader]["pool"]
                  and not any({writer, reader} <= circle for circle in circles)]

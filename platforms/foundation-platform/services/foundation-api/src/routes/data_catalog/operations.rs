@@ -166,6 +166,18 @@ pub(super) struct JobDependencies {
     producers: Vec<String>,
     pub(super) reads: Vec<ScheduledJobDataset>,
     pub(super) writes: Vec<ScheduledJobDataset>,
+    /// Whether this host runs the job under its `host_scope` (root ADR-0625): an enabled job its scope
+    /// leaves out is shown off, with the scope as its reason, and no problem of it is reported. A file
+    /// rendered before the scope existed says nothing, which is yes.
+    #[serde(default = "runs_on_every_host")]
+    runs_on_host: bool,
+    /// Its class under the host scope (`collection`, `collection_support`, `service`, `derived`).
+    #[serde(default)]
+    host_class: Option<String>,
+}
+
+const fn runs_on_every_host() -> bool {
+    true
 }
 
 /// Every scheduled job, its next start and its latest run.
@@ -364,17 +376,24 @@ pub(super) fn job_statuses(
                 }
                 ScheduledJobScheduler::Airflow => dag_id.clone(),
             });
+            // Switched on and in the host's scope (root ADR-0625): only then does it run here.
+            let runs_here = job.enabled && depends.runs_on_host;
+            let disabled_reason = if job.enabled && !depends.runs_on_host {
+                Some(format!(
+                    "host_scope: this host runs no {} job (root ADR-0625)",
+                    depends.host_class.as_deref().unwrap_or("such")
+                ))
+            } else {
+                job.disabled_reason.clone()
+            };
             ScheduledJobStatus {
                 job_id: job.id.clone(),
                 dag_id,
                 description: job.description.clone(),
                 schedule: job.schedule.clone(),
-                enabled: job.enabled,
-                disabled_reason: job.disabled_reason.clone(),
-                next_run_at: job
-                    .enabled
-                    .then(|| next_start(&job.schedule, now))
-                    .flatten(),
+                enabled: runs_here,
+                disabled_reason,
+                next_run_at: runs_here.then(|| next_start(&job.schedule, now)).flatten(),
                 catalog_job_urn,
                 last_run: recent_runs.first().cloned(),
                 typical_duration_seconds: typical.map(|(seconds, _)| seconds),

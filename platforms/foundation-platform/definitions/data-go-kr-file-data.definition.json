@@ -351,7 +351,8 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
-        "collect-data-go-kr-file-data"
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh"
       ]
     },
     {

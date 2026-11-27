@@ -182,12 +182,16 @@ sync_enabled() {
       airflow_cli dags pause "foundation_${id}" </dev/null >/dev/null
     fi
     printf 'job %-24s enabled=%s\n' "${id}" "${enabled}"
+  # The list as this host runs it (job_specs.on_host, root ADR-0625): the DAG of a job its host_scope
+  # leaves out stays paused.
   done < <(python3 -I -B -c '
-import json, sys
-for job in json.load(open(sys.argv[1]))["jobs"]:
+import sys
+sys.path.insert(0, sys.argv[2])
+from job_specs import on_host_file
+for job in on_host_file(sys.argv[1])["jobs"]:
     if job.get("dagster_stage", "airflow") != "dagster":
         print(job["id"], str(job["enabled"]).lower())
-' "${jobs_file}")
+' "${jobs_file}" "${root_dir}/orchestration/dags")
 }
 
 wait_for_declared_dags() {

@@ -8,6 +8,10 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # An alert that only inhibits others (root ADR-0625: the host runs no derived compute) reaches no one.
+    - matchers:
+        - severity = "none"
+      receiver: inhibition-only
     # Pages (root ADR-0591; owner, 2026-11-20: urgent alerts arrive in Slack, no pager): the few things
     # a person must act on: a production unit or job down or failing for hours, a screen serving data
     # past its limit, the disk nearly full, monitoring blind, a deploy stuck. One message per rule,
@@ -159,8 +163,22 @@ inhibit_rules:
       - alertname = "FoundationPlatformApiScrapeDown"
     target_matchers:
       - alertname = "FoundationSecurityAdvisoriesUnreadable"
+  # While the host's host_scope runs no derived compute (root ADR-0625), what watches derived output says
+  # only that it is not made here: the served data's freshness and the media reconciler. The collectors'
+  # own pages, the units and the host are not touched. A job the scope leaves out has no outcome series
+  # at all (the reconciler judges only the jobs that run here).
+  - source_matchers:
+      - alertname = "FoundationHostRunsNoDerivedCompute"
+    target_matchers:
+      - service = "serving-freshness"
+  - source_matchers:
+      - alertname = "FoundationHostRunsNoDerivedCompute"
+    target_matchers:
+      - computed_by = "derived"
 
 receivers:
+  # No destination: the alerts routed here exist to inhibit others (root ADR-0625).
+  - name: inhibition-only
   # One Slack destination; a receiver per route only so that `amtool config routes test` can tell the
   # routes apart (guard alertmanager-routes-pass-their-tests, root ADR-0591).
   - name: prelaunch-audit
