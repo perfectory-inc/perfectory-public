@@ -66,6 +66,7 @@
     "prom/prometheus:v3.5.0": "sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
     "public.ecr.aws/aws-cli/aws-cli:2.34.39": "sha256:9718d8901c16f636fe9d135c52fd5e88d7788f25afee1f95049b15a8e458b474",
     "public.ecr.aws/docker/library/python:3.14.10-slim-trixie": "sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b",
+    "public.ecr.aws/docker/library/spark:3.5.9-scala2.12-java17-python3-ubuntu": "sha256:8901b8427694267ed719f27aa1498815dbd3573efb3cde447246fbff29d07272",
     "quay.io/lakekeeper/catalog:v0.15.1": "sha256:22dcb6044c106a962c242b70051bd226bd50c9134c763121d8713c37fe9a70ec",
     "python:3.11-bookworm": "sha256:fe71a3421cd55bbcd2e97d0505851e3cf713d567e794a0f29893745826ff323d",
     "python:3.14.10-slim-trixie": "sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b",

@@ -10,8 +10,8 @@
     "memory": 512,
     "port": 8181,
     "read_pool_connections": 2,
-    "write_pool_connections": 1,
-    "reason": "Lakekeeper v0.15.1 (the version contract's quay.io/lakekeeper/catalog), two tasks so that one can be killed mid-call (T14) and a rolling upgrade can be watched (T16). Fargate's smallest ARM size: Lakekeeper is one Rust process with no local state (upstream production checklist); measure it in the tests and size prod from that. Pools are small because the platform's RDS instance is a db.t4g.micro shared with Dagster, with about 160 MB freeable memory (CloudWatch FreeableMemory minimum, 2026-11-27): 2 tasks x (2 + 1) connections; the tests watch that memory."
+    "write_pool_connections": 2,
+    "reason": "Lakekeeper v0.15.1 (the version contract's quay.io/lakekeeper/catalog), two tasks so that one can be killed mid-call (T14) and a rolling upgrade can be watched (T16). Fargate's smallest ARM size: Lakekeeper is one Rust process with no local state (upstream production checklist); measure it in the tests and size prod from that. Pools are small because the platform's RDS instance is a db.t4g.micro shared with Dagster, with about 160 MB freeable memory (CloudWatch FreeableMemory minimum, 2026-11-27): each task has a catalog and a secrets pool, each with these read and write sizes, so at most 2 tasks x 2 x (2 + 2) connections; the tests watch that memory. A write pool of 1 deadlocks: creating a warehouse holds one write connection while the secret store waits for another ('pool timed out while waiting for an open connection', 2026-11-27)."
   },
   "authz": {
     "desired_count": 1,
@@ -23,7 +23,7 @@
     "reason": "OpenFGA v1.14 (the version Lakekeeper v0.15.1 tests against; 1.11 or later is required), its own service so that it can be stopped alone (T7: every call is refused while it is down). One task in dev; Lakekeeper's Helm chart runs as many as catalog replicas. Lakekeeper reaches it by gRPC with a pre-shared key."
   },
   "databases": {
-    "catalog": { "name": "lakekeeper_dev", "username": "lakekeeper_dev", "connection_limit": 10 },
+    "catalog": { "name": "lakekeeper_dev", "username": "lakekeeper_dev", "connection_limit": 20 },
     "authz": { "name": "openfga_dev", "username": "openfga_dev", "connection_limit": 6 },
     "reason": "Each its own database and login on the platform's RDS instance (coordinator 2026-11-27), never the Dagster or ledger ones. The login owns its database, so its migrations create what they need (Lakekeeper's five extensions are trusted on PostgreSQL 17). Each password is generated at apply time and written write-only, never in the state. The connection limits keep the rig from starving Dagster on the shared instance."
   },

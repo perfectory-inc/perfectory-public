@@ -31,10 +31,12 @@ resource "aws_security_group" "probe" {
   vpc_id      = data.aws_vpc.platform.id
 }
 
-# Out: the token endpoint and image pulls over TLS, and the catalog's port.
+# Out: the token endpoint, image pulls, PyPI and R2 over TLS; DuckDB's extension repository, which DuckDB fetches
+# over plain HTTP (dev probes only: prod ships the extensions in the image, root ADR-0559 §6); the catalog's port.
 resource "aws_vpc_security_group_egress_rule" "probe" {
   for_each = {
     https   = { port = 443, cidr = "0.0.0.0/0", group = null }
+    http    = { port = 80, cidr = "0.0.0.0/0", group = null }
     catalog = { port = local.catalog.port, cidr = null, group = aws_security_group.catalog.id }
   }
   security_group_id            = aws_security_group.probe.id
@@ -95,6 +97,10 @@ resource "aws_ecs_task_definition" "probe" {
     cpu_architecture        = "ARM64"
     operating_system_family = "LINUX"
   }
+  # Scratch space for the warehouse steps' pinned clients (the root file system stays read-only).
+  volume {
+    name = "work"
+  }
   container_definitions = jsonencode([{
     name       = each.key
     image      = local.probe_image
@@ -112,6 +118,7 @@ resource "aws_ecs_task_definition" "probe" {
       { name = "R2_CREDENTIAL", valueFrom = aws_secretsmanager_secret.r2_warehouse_credential.arn },
     ] : [])
     readonlyRootFilesystem = true
+    mountPoints            = [{ sourceVolume = "work", containerPath = "/work", readOnly = false }]
     logConfiguration       = local.logs["probe"]
   }])
   depends_on = [aws_secretsmanager_secret_version.principal]

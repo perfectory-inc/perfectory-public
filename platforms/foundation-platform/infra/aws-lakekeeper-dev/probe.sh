@@ -7,6 +7,8 @@
 # The task runs in the rig's cluster from the platform's public subnets in the probe security group; everything is
 # found by the names the contract gives it. AWS_PROFILE is the operator's SSO profile (the rig's account only).
 set -euo pipefail
+# The AWS CLI prints log lines in UTF-8 (a probe's output may hold any character; Windows' code page cannot).
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 
 here="$(cd "$(dirname "$0")" && pwd -P)"
 contract="$here/../../config/lakekeeper-dev.contract.json"
