@@ -26,6 +26,7 @@ impl PermissionAction {
     /// Identity workload policy grants (`<resource>:<action>`, root ADR-0216).
     #[must_use]
     pub const fn identity_capability(&self) -> (&'static str, &'static str) {
+        // names-are-declared-once: Identity capability resources (`<resource>:<action>`), not tables.
         match self {
             Self::ChatCompletions => ("intelligence.chat", "complete"),
             Self::ValidateNormalizationProposal => ("intelligence.normalization", "validate"),
@@ -50,6 +51,7 @@ impl PermissionAction {
 }
 
 /// Identity capability that lets a workload read `/metrics` in identity mode.
+// names-are-declared-once: an Identity capability resource, not a table.
 pub const METRICS_IDENTITY_CAPABILITY: (&str, &str) = ("intelligence.metrics", "read");
 
 /// Outcome of one Identity policy decision for a bearer credential.

@@ -1,0 +1,27 @@
+# A catalog table is never renamed (root ADR-0626 §7, G7). A new name is a new table the reconciler
+# creates at its own path, filled by INSERT … SELECT or a rebuild; the old one is dropped after the
+# compare. Lakekeeper places a table at `tables/<namespace>/<table>/` when it is created and its
+# storage key prefix cannot change (root ADR-0624 §4-2), so a renamed table keeps the old name's path.
+#
+# Prevents: Basin's rename answers 204 and moves no file (W108 2b, 2026-11-26): a table renamed
+# silver -> gold kept its `__r2_data_catalog/silver/...` path, and every later reader of the path
+# layout is wrong about it.
+#
+# Allowed: the publisher's catalog wrapper, which forwards the `Catalog` trait's method (the trait
+# requires it), and the Lakekeeper dev rig's probe, which checks that a lane's rename is refused (403).
+rules:
+  - id: a-table-is-never-renamed
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      This renames a catalog table. A table is never renamed (root ADR-0626 §7): create the new name
+      through the reconciler, fill it with INSERT … SELECT or a rebuild, compare, and drop the old one.
+    paths:
+      include:
+        - /platforms/**/*.rs
+        - /platforms/**/*.py
+        - /tools/semgrep/rules/a-table-is-never-renamed.rs
+      exclude:
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/lakehouse_data_commit.rs
+        - /platforms/foundation-platform/infra/aws-lakekeeper/probes/
+    pattern-regex: \.rename_table\s*\(

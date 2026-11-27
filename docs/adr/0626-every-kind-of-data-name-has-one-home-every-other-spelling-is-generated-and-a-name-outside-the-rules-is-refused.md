@@ -1,6 +1,6 @@
 # ADR 0626: 데이터 이름과 배치 v1 — 이름의 종류마다 집은 하나이고, 다른 철자는 모두 그 집에서 생성하며, 규칙 밖의 이름은 CI·쓰기 경계·조정기가 거부한다
 
-- Status: Accepted (사장 결정 2026-11-28: 제공기관 id 는 오늘 값을 등록부 키로 고정(옵션 K), 표 이름은 한 행을 이르는 단수 명사, 네임스페이스는 `silver`·`gold` 둘, 브레인스토밍 표 E 의 뜻 바꾸기는 '거부' 둘을 빼고 채택, 법원 매각물건명세서 PDF 는 공개 — 그 PDF 는 §6-3 대로 보류. 기술 항목은 코디네이터가 정했다)
+- Status: Accepted (사장 결정 2026-11-28: 제공기관 id 는 오늘 값을 등록부 키로 고정(옵션 K), 표 이름은 한 행을 이르는 단수 명사, 네임스페이스는 `silver`·`gold` 둘, 브레인스토밍 표 E 의 뜻 바꾸기는 '거부' 둘을 빼고 채택, 법원 매각물건명세서 PDF 는 점유자 이름을 담은 채로 공개(§6-3, 사장이 그것을 알고 2026-11-28 다시 정함). 기술 항목은 코디네이터가 정했다)
 - Date: 2026-11-28
 - Supersedes: ADR-0032 (제공기관 id 는 도메인 라벨에서 파생하지 않는다. 등록부의 키다)
 - 고치는 곳(그 자리에는 이 ADR 을 가리키는 날짜 붙은 한 줄을 남겼다):
@@ -239,7 +239,7 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
 | `onbid/media/sha256/<h>.<ext>` | `media/display/sha256/<h>.<ext>` | 이 ADR 의 이동(§6-2) |
 | `onbid/media/sources/sha256/<h>.<ext>` | `media/received/sha256/<h>.<ext>` | 같음 |
 | `onbid/media/renditions/r<n>/<h>/<w>.<fmt>`, `…/r<n>/<h>.json` | `media/rendition/ladder=<n>/<h>/<w>.<fmt>`, `…/ladder=<n>/<h>.json` | 같음. 사다리는 복사한다(같은 바이트, 다시 굽지 않는다) |
-| `courtauction-go-kr/sale-specifications/sha256/<h>.pdf` | 보류(§6-3) | 사장 결정 뒤 |
+| `courtauction-go-kr/sale-specifications/sha256/<h>.pdf` | `media/document/sha256/<h>.pdf`(공개, §6-3) | 이 ADR 의 이동 |
 | `gold/industrial-complex/profiles/<uuid>.json` | `serving/industrial_complex/profile/<uuid>.json` | 이 ADR 의 이동 |
 | `gold/industrial-complex/index.json`, `…/index-history/<g>.json` | `serving/industrial_complex/index/current.json`, `…/index/<g>.json` | 같음 |
 | `silver-handoff/<원천 id>/…` | `work/<레인>/run=<id>/…`(관리 규칙으로 만료) | 같음: 쓰는 쪽·읽는 쪽을 바꾼 뒤 옛것을 지운다. 레인마다 다음 판을 Bronze 에서 한 번 다시 내보낸다 |
@@ -262,11 +262,12 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
    배포 뒤 옛 접두에 새로 생긴 객체만 한 번 더 복사한다(내용 주소라 다시 복사해도 같은 바이트다).
 5. **지우기는 관리 규칙(lifecycle)으로**, 접두를 정확히 적는다. 목록이 0 이 되면 규칙을 지운다. Bronze 의 30 일 잠금은 `bronze/` 에만 있다.
 
-#### 6-3. 매각물건명세서 PDF 는 보류한다
+#### 6-3. 매각물건명세서 PDF 는 공개한다
 
-사장은 공개로 정했지만 그 전제는 "어차피 공개된 문서"였다. F14 가 점유자 이름을 가리지 않음을 보였으므로, 그 결과가 사장에게 돌아갔다
-(코디네이터 2026-11-28). 결정까지 PDF 는 그 자리(`courtauction-go-kr/sale-specifications/`)에 있고, 영역은 `held` 로 선언하며, Worker 는
-지금처럼 서빙하지 않는다. 공개로 정하면 `media/document/sha256/<h>.pdf` 로, 비공개로 정하면 Bronze 쪽의 서빙하지 않는 영역으로 간다.
+매각물건명세서 PDF 는 점유자 이름을 가리지 않는다(F14). 그 사실을 사장에게 알렸고, 사장은 그것을 알고 공개로 다시 정했다(2026-11-28,
+"법원이 누구나 내려받게 둔다"). 그래서 PDF 는 `media/document/sha256/<h>.pdf` 로 옮기고 필지 엣지가 다른 미디어처럼 내용 해시로 서빙한다.
+사실 뽑기(읽은 값을 표로)는 산업단지 공고처럼 나중에 한다. Bronze 줄은 지금처럼 키·결과·해시·문서 이름·작성 시각만 싣고 사람의 이름은
+싣지 않는다(ADR-0575).
 
 #### 6-4. 데이터로 저장된 키 문자열(옮기기 전의 목록)
 
@@ -302,7 +303,7 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
 
 | # | 걸음 | 언제 | 증거 | 되돌리기 |
 | --- | --- | --- | --- | --- |
-| N1 | 등록부 릴리스, 데이터 이동 없음: §1 의 블록과 생성기, `source_slug()` 가 등록부를 읽음, 손으로 지은 `"<id>__"` 자리가 `source_slug()` 를 부름, G1~G7 | 첫 A1 전 | CI; 생성된 쓰기 접두가 오늘 것과 바이트까지 같다 | revert |
+| N1 | 등록부 릴리스, 데이터 이동 없음. 두 묶음이다. N1a(이름): `naming` 의 제공기관·규칙·네임스페이스·`renames`, `source_slug()` 가 등록부를 읽음, G1·G2·G3·G4·G7(`rename_table`). N1b(영역): `naming.buckets`·`naming.areas` 와 그것을 읽는 Worker 패턴·쓰기 접두, G6, 손으로 지은 `"<id>__"` 자리가 `source_slug()` 를 부름 — 표 밖 이동(N-move)과 같은 PR 이다. G5 의 잎 도장과 G7 의 키 파싱은 그 레인을 고치는 N2 에서 fail 이 된다 | 첫 A1 전 | CI; 생성된 쓰기 접두가 오늘 것과 바이트까지 같다 | revert |
 | N-move | §6-1 의 "이 ADR 의 이동"과 지움 | N1 과 함께 또는 뒤 | §6-2 의 증거 목록과 확인 | 옛 접두는 확인 뒤에만 지운다 |
 | N2 | Bronze 시기(§4, 실행 도장 3,969, 잔해 id), 별도 작업 | 첫 A1 전, ADR-0616 RDS 이전 전 | 모든 레인 재실행이 객체 0·장부 행 0·`source_catalog` 행 0 을 쓴다; 해시로 장부 ↔ 객체 일대일 | 증거 목록에서 역 `UPDATE` |
 | N3…n | 구성 요소마다 A1 전환 PR: 최종 이름이 계약과 모든 독자에, 조정기가 `tables/<ns>/<최종>/` 을 만든다, 판 표가 실체 이름을 갖고 `Replaced` 짝은 만들지 않는다, `__changes` 는 빈 채로, 열 짝을 고친다, `serving_postgis` 를 다시 싣는다, `silver.parcel_boundary` 의 Postgres CHECK·트리거를 옮긴다(F11), 제 `renames` 항목을 지운다 | A1 | 행 수·키 유일성·열 해시가 Basin 과 같다; 옛 꼴 값 0 | 설정을 Basin 으로 |
@@ -325,8 +326,8 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
 ## Consequences
 
 - 한 가지 이름은 한 곳에서만 고친다. 제공기관 도메인이 바뀌어도 키는 그대로다.
-- 이 ADR 의 이동이 R2 최상위에서 `onbid/`, `gold/`, `silver-handoff/` 를 없앤다. `courtauction-go-kr/` 는 §6-3 의 결정까지, `collector-state/` 는
-  ADR-0623 범위 생성까지 남는다.
+- 이 ADR 의 이동이 R2 최상위에서 `onbid/`, `gold/`, `silver-handoff/`, `courtauction-go-kr/` 를 없앤다. `collector-state/` 는 ADR-0623 범위
+  생성까지 남는다.
 - 비용(계산): 미디어 복사 약 3.15M CopyObject(Class A 4.50 USD/백만) ≈ 14.2 USD, 확인 HEAD 약 3.2M(Class B 0.36 USD/백만) ≈ 1.2 USD, 지우기는
   관리 규칙이라 요청 비용이 없다. 저장은 복사가 끝나고 옛 접두가 지워질 때까지 겹친다(305 GB × 0.015 USD/GB-월 ≈ 4.6 USD/월, 일할).
   by-PNU 필지별 문서(약 52M 객체)와 silver-handoff(약 238 GB)를 지우면 저장이 월 약 6.2 USD 준다(W106 크기).

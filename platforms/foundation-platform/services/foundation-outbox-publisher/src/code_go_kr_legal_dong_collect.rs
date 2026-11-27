@@ -1,7 +1,7 @@
 //! code.go.kr 법정동 전체 표, Bronze collection (root ADR-0143; the notice board is dropped by
 //! ADR-0144).
 //!
-//! `code.go.kr` (행정표준코드관리시스템) is an approved provider (`APPROVED_PROVIDER_DOMAINS`, root
+//! `code.go.kr` (행정표준코드관리시스템) is a registered provider (the naming registry, root ADR-0626; before it
 //! ADR-0032), so the response lands as a Bronze object with a canonical `source_slug`, a `sha256`,
 //! a `catalog.bronze_object` ledger row and the write-once `CreateOnly` policy of the
 //! [`BronzeCommitter`]. Nothing here reads the response beyond its HTTP status: the parser lives in

@@ -5,7 +5,7 @@
 //! resolution (root ADR-0033). Nothing produced that resolution: the only run that ever existed
 //! used synthetic addresses. This command collects the source the resolution is derived from.
 //!
-//! `industryland.or.kr` is an approved provider (`APPROVED_PROVIDER_DOMAINS`, root ADR-0032), so
+//! `industryland.or.kr` is a registered provider (the naming registry, root ADR-0626; before it ADR-0032), so
 //! this is not a scratch download into a temporary directory: the raw responses land as Bronze
 //! objects with a canonical `source_slug`, a `sha256`, a `catalog.bronze_object` ledger row, and
 //! the write-once `CreateOnly` policy the [`BronzeCommitter`](collection_application::BronzeCommitter)

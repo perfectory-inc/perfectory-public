@@ -1388,6 +1388,225 @@
       "schema_version": 1,
       "decision": "docs/adr/0336-every-published-schema-lives-in-one-registry-and-ci-holds-every-consumer-to-it.md",
       "subjects": null
+    },
+    "platforms/foundation-platform/config/naming.contract.json": {
+      "schema_version": 1,
+      "decision": "docs/adr/0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md",
+      "$comment": "Root ADR-0626 §1: the one home of each kind of data name; every other spelling is generated from here or checked against it. Generated from platform.definition.json, never committed (root ADR-0418). Readers: collection-domain source_slug.rs (providers), lakehouse-domain naming.rs (table rules and renames; the guard G2 and the catalog reconciler's G3), scripts/catalog/declared_definitions.py (G1), scripts/guard/names-are-declared-once.py (G4).",
+      "identifier": {
+        "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+        "provider_id_max_length": 16,
+        "reason": "Root ADR-0626 rules 1-3: lowercase snake_case, `_` between words, `__` only between two identifiers. A provider id is at most 16 characters: the owner kept today's values (option K, 2026-11-28), and the longest are courtauctiongokr and industrylandorkr."
+      },
+      "providers": {
+        "vworldkr": {
+          "domains": [
+            "vworld.kr"
+          ],
+          "display_name": "VWorld",
+          "title_ko": "브이월드 공간정보 오픈플랫폼"
+        },
+        "datagokr": {
+          "domains": [
+            "data.go.kr"
+          ],
+          "display_name": "Public Data Portal",
+          "title_ko": "공공데이터포털"
+        },
+        "rtmolitgokr": {
+          "domains": [
+            "rt.molit.go.kr"
+          ],
+          "display_name": "MOLIT Real Transaction",
+          "title_ko": "국토교통부 실거래가 공개시스템"
+        },
+        "hubgokr": {
+          "domains": [
+            "hub.go.kr"
+          ],
+          "display_name": "Building HUB",
+          "title_ko": "건축HUB"
+        },
+        "jusogokr": {
+          "domains": [
+            "juso.go.kr"
+          ],
+          "display_name": "Road Name Address",
+          "title_ko": "도로명주소"
+        },
+        "moisgokr": {
+          "domains": [
+            "mois.go.kr"
+          ],
+          "display_name": "Ministry of the Interior and Safety",
+          "title_ko": "행정안전부",
+          "reason": "root ADR-0032 decision 3; no dataset on main (2026-11-28), kept among the owner's eleven values"
+        },
+        "factoryongokr": {
+          "domains": [
+            "factoryon.go.kr"
+          ],
+          "display_name": "Factory On",
+          "title_ko": "팩토리온"
+        },
+        "industrylandorkr": {
+          "domains": [
+            "industryland.or.kr"
+          ],
+          "display_name": "ILIS",
+          "title_ko": "산업입지정보시스템",
+          "reason": "root ADR-0032 decision 3: registered before its collectors"
+        },
+        "codegokr": {
+          "domains": [
+            "code.go.kr"
+          ],
+          "display_name": "Administrative Standard Code",
+          "title_ko": "행정표준코드관리시스템",
+          "reason": "root ADR-0143: the owner chose it as the legal-dong code change source"
+        },
+        "courtauctiongokr": {
+          "domains": [
+            "courtauction.go.kr"
+          ],
+          "display_name": "Court Auction",
+          "title_ko": "법원경매정보",
+          "reason": "root ADR-0280, ADR-0281: the owner decided to collect it, openly and politely"
+        },
+        "kicoxorkr": {
+          "domains": [
+            "kicox.or.kr"
+          ],
+          "display_name": "KICOX",
+          "title_ko": "한국산업단지공단",
+          "reason": "root ADR-0603: its sale board carries the notices of the complexes it develops itself (owner 2026-11-22)"
+        }
+      },
+      "providers_reason": "Root ADR-0626 rule 1 and §3: a provider id is a fixed key, never derived from a host name at run time; the domains, display name and Korean title are its attributes. A provider is the access endpoint we call (its key, quota and politeness); the source system's name goes in the dataset. A key once written never changes.",
+      "namespaces": [
+        "silver",
+        "gold"
+      ],
+      "namespaces_reason": "Root ADR-0626 rule 6: a namespace is the layer; reference and intelligence tables fold into silver at their component's switch.",
+      "role_suffixes": [
+        "changes"
+      ],
+      "role_suffixes_reason": "Root ADR-0626 rule 7: the only suffix of a table name is a generated companion `<table>__<role>`, which its parent's contract declares.",
+      "singular_words_ending_in_s": [
+        "gas",
+        "loss",
+        "statistics"
+      ],
+      "forbidden_table_words": [
+        "new",
+        "next",
+        "old",
+        "probe",
+        "served",
+        "smoke",
+        "snapshot",
+        "staging",
+        "test",
+        "tmp",
+        "versions"
+      ],
+      "forbidden_table_word_patterns": [
+        "v[0-9]+",
+        "[0-9]{6,8}"
+      ],
+      "table_words_reason": "Root ADR-0626 rule 7: a table name is a singular head noun naming one row, in full English words, with no storage, version, date, environment or test word; history is `row_versions`, never the name. A last word ending in s is singular only when listed here.",
+      "renames": {
+        "tables": {
+          "gold.administrative_boundary_served": "gold.administrative_boundary",
+          "gold.complex_catalog_versions": "gold.industrial_complex_profile",
+          "gold.complex_document_facts": "gold.industrial_complex_document_fact",
+          "gold.complex_spatial_locator": "gold.industrial_complex_spatial_locator",
+          "gold.industrial_complex_boundary_served": "gold.industrial_complex_boundary",
+          "gold.land_use_zone_area_by_tile": "gold.regulation_zone_tile_index",
+          "gold.lineage_review_queue_versions": "gold.lineage_review_queue",
+          "gold.map_edit_stale": "gold.stale_map_edit",
+          "gold.parcel_boundary_served_versions": "gold.parcel_boundary",
+          "gold.parcel_building_permits_versions": "gold.parcel_building_permit",
+          "gold.parcel_characteristics": "gold.parcel_characteristic",
+          "gold.parcel_court_auction_versions": "gold.parcel_court_auction",
+          "gold.parcel_demolitions_versions": "gold.parcel_demolition",
+          "gold.parcel_energy_versions": "gold.parcel_energy_use",
+          "gold.parcel_factories_versions": "gold.parcel_factory",
+          "gold.parcel_land_rights": "gold.parcel_land_right",
+          "gold.parcel_nearby_versions": "gold.parcel_nearby_facility",
+          "gold.parcel_ownership_versions": "gold.parcel_ownership",
+          "gold.parcel_panel_versions": "gold.parcel_panel",
+          "gold.parcel_public_auction_versions": "gold.parcel_public_auction",
+          "gold.parcel_real_transaction_versions": "gold.parcel_real_transaction",
+          "gold.parcel_register_masters_versions": "gold.parcel_register_master",
+          "gold.parcel_regulation_zones": "gold.parcel_regulation_zone",
+          "gold.parcel_sub_parcels_versions": "gold.parcel_sub_parcel",
+          "gold.place_id_bridge_versions": "gold.place_id_bridge",
+          "gold.place_id_registry_versions": "gold.place_id_registry",
+          "gold.real_transaction_region_stats_versions": "gold.real_transaction_region_statistics",
+          "gold.unit_price_versions": "gold.unit_official_price",
+          "intelligence.document_fact": "silver.document_fact",
+          "intelligence.document_fact_outcome": "silver.document_fact_outcome",
+          "intelligence.document_text_outcome": "silver.document_text_outcome",
+          "intelligence.document_text_page": "silver.document_text_page",
+          "reference.legal_dong_code_change": "silver.legal_dong_code_change",
+          "reference.legal_dong_code_snapshot": "silver.legal_dong_code",
+          "silver.adm_dong_code_linkage": "silver.administrative_dong_to_legal_dong",
+          "silver.administrative_boundaries": "silver.administrative_boundary",
+          "silver.building_maintenance_regular_inspection_history": "silver.building_regular_inspection",
+          "silver.building_permit_road_ledger": "silver.building_permit_road_register",
+          "silver.building_permit_structure_ledger": "silver.building_permit_structure_register",
+          "silver.building_register_apartment_price_versions": "silver.building_register_apartment_price",
+          "silver.building_register_floors": "silver.building_register_floor",
+          "silver.building_register_master": "silver.building_register_recap_title",
+          "silver.building_register_titles": "silver.building_register_title",
+          "silver.building_register_unit_areas": "silver.building_register_unit_area",
+          "silver.building_register_units": "silver.building_register_unit",
+          "silver.complex_parcel_memberships": "silver.industrial_complex_parcel_membership",
+          "silver.court_auction_appraisal_report_read": "silver.court_auction_appraisal_report_fetch_attempt",
+          "silver.court_auction_case_document_read": "silver.court_auction_case_document_fetch_attempt",
+          "silver.court_auction_case_object": "silver.court_auction_case_property",
+          "silver.court_auction_case_related": "silver.court_auction_related_case",
+          "silver.court_auction_dividend_object": "silver.court_auction_dividend_property",
+          "silver.court_auction_item_object": "silver.court_auction_item_property",
+          "silver.court_auction_sale_specification_read": "silver.court_auction_sale_specification_fetch_attempt",
+          "silver.court_auction_survey_object": "silver.court_auction_survey_property",
+          "silver.dong_population": "silver.administrative_dong_population",
+          "silver.household_count": "silver.administrative_dong_household",
+          "silver.industrial_complex_boundaries": "silver.industrial_complex_boundary",
+          "silver.industrial_complexes": "silver.industrial_complex",
+          "silver.industrial_land_sale_notice_read": "silver.industrial_land_sale_notice_fetch_attempt",
+          "silver.land_forest_ledger": "silver.land_forest_register",
+          "silver.land_transfer_history": "silver.land_transfer",
+          "silver.land_use_zone_area": "silver.regulation_zone",
+          "silver.parcel_boundaries": "silver.parcel_boundary",
+          "silver.unit_official_price_versions": "silver.unit_official_price"
+        },
+        "not_recreated": [
+          "gold.complex_catalog",
+          "gold.lineage_review_queue",
+          "gold.parcel_boundary_served",
+          "gold.parcel_building_permits",
+          "gold.parcel_court_auction",
+          "gold.parcel_demolitions",
+          "gold.parcel_energy",
+          "gold.parcel_factories",
+          "gold.parcel_nearby",
+          "gold.parcel_ownership",
+          "gold.parcel_panel",
+          "gold.parcel_public_auction",
+          "gold.parcel_real_transaction",
+          "gold.parcel_register_masters",
+          "gold.parcel_sub_parcels",
+          "gold.place_id_bridge",
+          "gold.place_id_registry",
+          "gold.real_transaction_region_stats",
+          "gold.unit_price",
+          "silver.building_register_apartment_price",
+          "silver.unit_official_price"
+        ],
+        "reason": "Root ADR-0626 §5: a temporary work list. A table keeps an old name only while it is listed here; its component's Lakekeeper switch PR (ADR-0624 A1) creates the new name, moves every reader, and deletes its entries. `not_recreated` tables are replaced by their versioned twin under the entity name. The block is deleted at A9."
+      }
     }
   },
   "order": {

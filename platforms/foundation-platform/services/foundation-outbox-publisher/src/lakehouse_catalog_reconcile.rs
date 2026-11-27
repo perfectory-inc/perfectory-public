@@ -28,6 +28,7 @@ use foundation_publisher_core::{
     lakehouse_rest_catalog,
 };
 use iceberg::{spec::Schema, Catalog, NamespaceIdent};
+use lakehouse_domain::naming::naming_registry;
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
 use reqwest::{Method, StatusCode};
 use serde::Deserialize;
@@ -94,6 +95,17 @@ fn validate(declaration: &Declaration) -> anyhow::Result<Vec<&'static LakehouseT
             .iter()
             .find(|contract| contract.table_name == table)
             .with_context(|| format!("{table}: no table contract declares it"))?;
+        // G3 (root ADR-0626 §7): the reconciler is the only creator, so a name outside the rules is
+        // never created, an old name on the rename work list included: a switched table takes its
+        // final name. Prevents the smoke tables production held in its catalog namespaces (F10).
+        naming_registry()
+            .map_err(|error| anyhow::anyhow!(error))?
+            .check_table_name(table)
+            .with_context(|| {
+                format!(
+                    "{table}: the reconciler creates only names that follow the naming registry"
+                )
+            })?;
         declared.push(contract);
     }
     for (lane, grants) in &declaration.lanes {
