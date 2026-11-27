@@ -4,7 +4,7 @@
   "beat": {
     "cron": "10 15 * * *",
     "timezone": "UTC",
-    "reason": "Once a day like every collector (owner decision 2026-11-27, after the check the owner asked for on 2026-11-26), at 00:10 KST, just after the KST day the call budget counts (daily_call_limit_per_api). The owner accepts the rounds a daily read never sees: a round leaves the item list when its bidding ends and a round the list never showed is never asked at item_bid_result, so a round listed under a day is lost for good. Measured in Silver 2026-11-27 (rounds first listed 11-10..11-26 that had ended): 12 of 2,227 rounds (0.54 %) were listed under 24 h, 9 under 12 h; median 167.7 h. The bid results of the rounds it does see are not lost: a closed round is asked after it closes (pending_results). On the host the job ran hourly with a full list pass every 3 hours (item_list.every_hours)."
+    "reason": "Once a day like every collector (owner decision 2026-11-27, after the check the owner asked for on 2026-11-26), at 00:10 KST, just after the KST day the call budget counts (daily_call_limit_per_api). The owner accepts the rounds a daily read never sees: a round leaves the item list when its bidding ends and a round the list never showed is never asked at item_bid_result, so a round listed under a day is lost for good. Measured in Silver 2026-11-27 (rounds first listed 11-10..11-26 that had ended): 12 of 2,227 rounds (0.54 %) were listed under 24 h, 9 under 12 h; median 167.7 h. The bid results of the rounds it does see are not lost: a closed round is asked after it closes (pending_results). On the host the job ran hourly with a full list pass every 3 hours (item_list.every_hours). One daily run does what 24 hourly runs did: every per-run limit is 24 times its hourly size, never above the API's or the media's daily limit, and the media time budgets are 24 times theirs; request spacing and the daily limits are unchanged."
   },
   "base_url": "https://apis.data.go.kr/B010003",
   "user_agent": "foundation-platform-onbid-collector/1 (+root ADR-0280)",
@@ -75,7 +75,7 @@
     "dataset_slug": "onbid_item_bid_result",
     "operation": "getCltrBidRsltDtl2",
     "path": "/OnbidCltrBidRsltDtlSrvc2/getCltrBidRsltDtl2",
-    "per_run_limit": 1000,
+    "per_run_limit": 20000,
     "retry_after_hours": 24,
     "max_asks": 3,
     "every_hours": 1
@@ -85,7 +85,7 @@
     "dataset_slug": "onbid_real_estate_item_detail",
     "operation": "getRlstDtlInf2",
     "path": "/OnbidRlstDtlSrvc2/getRlstDtlInf2",
-    "per_run_limit": 600,
+    "per_run_limit": 14400,
     "refresh_on_list_fields": ["mdfcnDt"],
     "bid_end_field": "cltrBidEndDt",
     "$coverage": "루트 ADR-0330. 한 회차는 상세를 받고 그 미디어가 전부 저장(또는 영구 제외: 형식 불명·상한 초과·4xx)된 뒤에야 state.details 에 '완료'로 남는다 — 상한·시간·일시 오류로 미디어가 덜 받힌 회차는 다음 run 이 상세를 다시 받는다(2026-10-28: 상세 50건 중 사진 50장 상한 밖의 회차는 '받음'으로 표시돼 사진이 영영 안 받혔다, 살아 있는 회차 72,188 중 사진 622). 받을 순서: 아직 안 받은 회차 → 목록 행이 바뀐 회차, 각각 입찰 마감(bid_end_field)이 지나지 않은 것 먼저·마감 이른 순. '바뀜' = refresh_on_list_fields 값의 다이제스트가 완료 때와 다름; mdfcnDt(제공자 수정일시)만 쓴다 — 실측(Silver 2026-10-26~29, 바뀐 판 20,793): 상태코드 13,038·유찰횟수 9,574 는 사진과 무관한 회차 상태라 목록에서 이미 Silver 로 가고, 제공자가 기록 수정을 알린 것은 1,836(하루 ~525). per_run_limit 600 = 0.5s 간격 × 600 ≈ 6분; 하루 24 run = 14,400 ≤ daily 20,000.",
@@ -98,7 +98,7 @@
     "dataset_slug": "onbid_item_bid_info",
     "operation": "getCltrBidInf2",
     "path": "/OnbidCltrBidDtlSrvc2/getCltrBidInf2",
-    "per_run_limit": 300,
+    "per_run_limit": 7200,
     "refresh_on_list_fields": ["mdfcnDt"],
     "bid_end_field": "cltrBidEndDt",
     "every_hours": 1
@@ -108,7 +108,7 @@
     "dataset_slug": "onbid_announcement_detail",
     "operation": "getPbancDtlInf2",
     "path": "/OnbidPbancDtlnfSrvc2/getPbancDtlInf2",
-    "per_run_limit": 200,
+    "per_run_limit": 4800,
     "every_hours": 1
   },
   "media": {
@@ -138,14 +138,14 @@
     },
     "url_host": "www.onbid.co.kr",
     "daily_download_limit": 45000,
-    "per_run_limit": 3000,
+    "per_run_limit": 45000,
     "download_timeout_seconds": 20,
     "$max_file_bytes": "루트 ADR-0503. 50 MiB(52,428,800)였다: 실측(2026-11-11, 최신 Bronze 사진 2,204 장 중) 원본 8 장이 5472×3648·5712×4284 PNG 57~63 MB 라 Oversize 로 빠져 화면에 끝내 안 나왔다. 128 MiB 로 올린다 — 제공자가 Content-Length 를 주므로 본문을 읽기 전에 거른다; 59 MB 받기 5.7 초(실측) < download_timeout_seconds 20. 메모리 최악(계산) = 동시 6 × 128 MiB + 사다리 동시 4 × 큰 원본 하나(24.5 MP RGB 73 MB + 축소 버퍼 ~300 MB) ≈ 2.2 GB < 유닛 MemoryMax 3G.",
     "max_file_bytes": 134217728,
     "concurrency": 6,
-    "run_time_budget_seconds": 600,
+    "run_time_budget_seconds": 14400,
     "$renditions": "루트 ADR-0427 §2. 사진의 표시 사다리(r2-connections.contract.json parcel_media.renditions)를 받기 단계 뒤 같은 run 에서 만든다: 회차(상세 한 줄) 단위로 그 사진의 원천(원본, 없으면 썸네일)마다 저장소에서 원본을 읽어 만들고, 이미 사다리 표시(manifest)가 있으면 HEAD 한 번으로 넘어간다. per_run_limit 개의 원천을 잡았거나 run_time_budget_seconds 가 지나면 새 회차를 시작하지 않고, 그 회차는 미완료로 남아 다음 run 이 다시 받는다(ADR-0330 §1). 실측(2026-11-06, 저장된 원본 크기 사진 40 장, 랩톱 Pillow·libavif 대리 측정): 원천 하나의 사다리(AVIF·WebP × 3 단계) CPU 평균 1.81초·최대 13.8초; rav1e(asm 없음)는 2~3배로 잡아 ~4.5초 → concurrency 4 로 300초에 ~270 원천(계산). 벽시계 최악 = 300초 + 한 회차(사진 ≤ 20 장 ÷ 4 × 14초 ≈ 70초); 미디어 단계 600초 + 한 회차와 더해도 작업 한도 40분 안이다. 백필 = 사진 원천 29,180(Silver 11-06) ÷ ~270 ≈ 108 run(시간마다, ~4.5일), CPU ~36 시간(계산).",
-    "renditions": {"per_run_limit": 600, "concurrency": 4, "run_time_budget_seconds": 300},
+    "renditions": {"per_run_limit": 14400, "concurrency": 4, "run_time_budget_seconds": 7200},
     "$throughput": "루트 ADR-0330. 한 run 의 미디어 단계는 회차(상세 한 줄) 단위로 받는다: 회차의 URL 을 concurrency 개씩 동시에 받고, run_time_budget_seconds 가 지나거나 per_run_limit 이 그 회차를 다 담지 못하면 새 회차를 시작하지 않는다(벽시계 최악 = 600s + 한 회차 ≤ ceil(URL/6)×20s). 이미 저장된 URL 은 state.media(URL → sha256, 열린 물건의 것만)로 다시 받지 않는다; 제공자가 수정을 알린 회차(refresh)만 다시 받아 확인한다(내용주소라 같은 바이트는 새로 쓰지 않는다). 상향 근거(Silver 2026-10-29 실측): 물건당 사진 3.3장(평균 213KB)·감정평가서 1.4개(평균 6.5MB), 물건당 회차 ~5.7 → run 당 회차 600 ≈ 새 물건 ~105 × URL 4.7 ≈ 500 다운로드·~1GB. 하루 ~12,000 < daily 20,000. **루트 ADR-0339**: 상세가 물건 단위라 run 당 최대 600 물건 × URL 4.7 ≈ 2,820 다운로드(≤ per_run_limit 3,000). 열린 물건 8,722 의 백필은 ~41,000 다운로드(~88GB, ADR-0330 에서 승인한 총량과 같다 — 더 빨리 받을 뿐)라 daily 를 45,000 으로 올려 하루 상한이 백필을 이틀로 쪼개지 않게 한다. R2 Class A 45,000 ≈ $0.2/일. 백필 뒤 하루는 새 물건 ~200 × 4.7 ≈ 940. **사진 먼저(루트 ADR-0339 개정 각주 2026-10-29)**: 위 상한·예산 안에서 모든 줄의 사진을 먼저, 그다음 감정평가서를 받고, 감정평가서만 남은 물건(state.photos_landed)은 상세 순서에서 사진이 없는 물건 뒤로 간다 — 0.8MB/s 에서 사진 전부 ~7.6일 → ~15시간, 전체는 같다."
   },
   "status_codes": {

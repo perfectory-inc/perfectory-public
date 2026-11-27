@@ -266,7 +266,11 @@ class AirliftParityTest(unittest.TestCase):
             if job.get("dagster_stage") == "dagster":
                 job["dagster_stage"] = "shadow"
         by_id = {job["id"]: job for job in jobs["jobs"]}
-        by_id["onbid_public_auction_collect"]["dagster_stage"] = "proxied"
+        # The collector here as it was on the host before it moved to AWS (root ADR-0616 §7, W101c): on.
+        onbid = by_id["onbid_public_auction_collect"]
+        onbid.update(enabled=True, enabled_since="2026-10-20T01:26:10Z")
+        onbid.pop("disabled_reason", None)
+        onbid["dagster_stage"] = "proxied"
         prefix = jobs["dag_id_prefix"]
         defs = definitions.build(self.instance, jobs, graph)
         repository = defs.get_repository_def()

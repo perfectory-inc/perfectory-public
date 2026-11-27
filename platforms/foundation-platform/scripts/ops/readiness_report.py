@@ -271,7 +271,8 @@ def main(argv: list[str]) -> int:
         print(f"readiness_report: the job outcomes are unread ({error})", file=sys.stderr)
         summary = {}
     missed: dict[str, list[dict]] = {}
-    for found in job_outcomes.overdue(jobs, summary, now) if summary else []:
+    held = job_specs.held_on_host({"jobs": jobs})["jobs"]  # a job that moved to AWS is judged there
+    for found in job_outcomes.overdue(held, summary, now) if summary else []:
         missed.setdefault(found["job"], []).append(found)
     rows = []
     for job in jobs:
