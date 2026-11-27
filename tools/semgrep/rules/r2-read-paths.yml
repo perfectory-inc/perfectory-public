@@ -39,6 +39,12 @@ rules:
     message: >-
       Builds an S3 client or imports an object-store filesystem. Spark reads R2 through the Iceberg
       catalog or the s3a settings that lakehouse_engine builds — root ADR-0261.
+    paths:
+      # The Lakekeeper dev rig's probes (W109) make raw S3 calls on purpose: they prove what a vended
+      # credential can and cannot reach (one call each, no retry wanted), and only the warehouse task
+      # lists the dev bucket with its own token. They read no data a lane serves.
+      exclude:
+        - /platforms/foundation-platform/infra/aws-lakekeeper-dev/probes/
     pattern-either:
       - pattern: boto3.client("s3", ...)
       - pattern: boto3.resource("s3", ...)
