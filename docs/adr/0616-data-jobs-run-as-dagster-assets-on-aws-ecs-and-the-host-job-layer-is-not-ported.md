@@ -92,6 +92,11 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
    서버만 다시 띄운다(새 것이 뜬 뒤 옛 것이 멈춘다). 웹서버·데몬은 그대로 돌아 예약의 틱을 놓치지 않는다. 이쪽도 run 태스크가 일을 하고 `ecs/*` 태그가 그대로 든다.
    둘째 태스크(`PipesECSClient`)는 쓰지 않는다. **Spark 작업은 목표에 없다**: AWS 로 가는 것은 DuckDB 로 새로 지은 레인뿐이다.
    ai-server 의 Spark 작업은 그 레인이 넘어가면 꺼지고, 넘어갈 레인이 없는 것은 사장·코디네이터가 끄라고 할 때 꺼진다(열린 질문 2).
+   **예외는 하나, 표 유지보수다**(사장 결정 2026-11-27): Iceberg 의 표준 프로시저(`expire_snapshots`·`remove_orphan_files`·`rewrite_data_files`)를
+   상류 그대로의 Spark 컨테이너 하나가 돌리고, Dagster 가 AWS 에서 필요할 때만 그 태스크를 띄운다. 그 컨테이너에는 우리 도메인 규칙이 없다.
+   우리 코드가 정하는 것은 표 속성과 태그뿐이다. Lakekeeper Plus(유료판의 유지보수)는 쓰지 않는다. 근거와 장부의 끝(1)은
+   [ADR-0559](./0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md)
+   의 2026-11-27 개정 메모에 있다.
 3. **권한은 IAM 이다.** Dagster 의 태스크 역할은 `ecs:RunTask`(run 의 태스크 정의 계열만)와 그 정의의 등록, `iam:PassRole`(계약의 run 경로
    `ecs.run_role_path` 아래 역할만, 제 역할은 거기 없다), 실패한 run 의 로그 읽기(run 계열의 줄만), ECS Exec 를 갖는다. 어느 run 도 이 역할을 갖지 않는다(8).
    일의 역할은 레인마다 하나이고 레이크하우스 자격은 발급 창구로만 받는다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 강제 명령·SSH 키·`start-scheduled-job.sh`·호스트 허가가 하던 일이다.
@@ -453,6 +458,7 @@ NAT 게이트웨이와 ALB 는 설계에 없다.
 | **수집 + 모든 작업** | **242.8(평월)** | 계산(2026-11-27: 웹서버·데몬을 나눔; 2026-11-26 248.4, 그 전 235.5) |
 
 Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 를 4 vCPU / 20 GB 로 약 123 을 더한다(크기는 가정).
+예외인 유지보수 컨테이너(§2-2)의 줄은 아직 없다: 필요할 때만 뜨므로 그 시간과 크기를 dev 에서 잰 뒤(표준 프로시저의 시험) 이 표에 넣는다.
 **타일 굽기**(양은 ADR-0618 §8 의 것, 단가는 이 표의 것; 필지 전량 굽기 한 번):
 
 | 줄 | 한 번(USD) | 근거 |

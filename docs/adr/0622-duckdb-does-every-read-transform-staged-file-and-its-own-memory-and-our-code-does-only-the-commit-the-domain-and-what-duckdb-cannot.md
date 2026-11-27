@@ -139,3 +139,14 @@ W101 이 2026-11-25 에 쟀다: **부동소수 집계는 스레드 수에 따라
 - **모든 사이트를 먼저 목록으로 만들고 옮기기.** 금방 낡는 큰 문서다; 표와 가드가 그 일을 한다.
 - **스레드를 계약의 `cpu_slots` 로 계속 정하기.** 태스크의 vCPU 가 DuckDB 에 닿지 않는다; DuckDB 가 cgroup 을 이미 읽는다.
 - **스필을 DuckDB 기본 90% 로.** ai-server 에서 그 디스크가 운영 Postgres 의 것이다.
+
+---
+
+개정 메모(2026-11-27, 사장 결정 — 열린 질문 2 를 닫는다): **AWS 의 표 유지보수는 Iceberg 의 표준 프로시저(`expire_snapshots`·
+`remove_orphan_files`·`rewrite_data_files`)를 상류 그대로의 Spark 컨테이너 하나가 돌리고, Dagster 가 AWS 에서 필요할 때만 그 컨테이너를
+띄운다.** 우리 코드는 표 속성과 태그뿐이다. 후보였던 R2 의 관리형 합치기·만료는 카탈로그가 자체 호스팅 오픈소스 Lakekeeper 로 옮기면(dev
+시험이 통과하면) 함께 떠나고, iceberg-rust 의 만료는 확인한 사람이 없어 쓰지 않는다. 오픈소스 Lakekeeper 의 유지보수는 메타데이터 파일
+정리뿐이고 만료·고아 정리·합치기는 유료판(Plus)의 것이며, Plus 는 사지 않는다. 그래서 "Spark 는 0" 이 아니다: 변환은 모두 DuckDB 이고(이
+ADR 의 결정), 유지보수 컨테이너 하나가 남는다. 자세한 것은
+[ADR-0559](./0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md)
+의 2026-11-27 개정 메모다.
