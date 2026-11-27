@@ -38,10 +38,8 @@ use iceberg::{
     table::Table,
     transaction::{ApplyTransactionAction, Transaction},
     transform::create_transform_function,
-    Catalog, CatalogBuilder, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
+    Catalog, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
 };
-use iceberg_catalog_rest::RestCatalogBuilder;
-use iceberg_storage_opendal::OpenDalStorageFactory;
 use lakehouse_domain::LakehouseTableContract;
 use lakehouse_infrastructure::{IcebergSnapshotManifestList, LakehouseCatalogConfig};
 use parquet::{
@@ -323,14 +321,9 @@ impl LakehouseDataCommitter {
         if let Some(token) = catalog.catalog_token {
             properties.insert("token".to_owned(), token);
         }
-        let catalog = RestCatalogBuilder::default()
-            .with_storage_factory(Arc::new(OpenDalStorageFactory::S3 {
-                customized_credential_load: None,
-            }))
-            .load("lakehouse", properties)
-            .await
-            .context("failed to open the lakehouse REST catalog for data commits")?;
-        Ok(Self::new(Arc::new(catalog)))
+        Ok(Self::new(
+            crate::lakehouse_rest_catalog::open(properties).await?,
+        ))
     }
 
     /// Creates `contract`'s table when the catalog does not hold it yet, as Spark's
