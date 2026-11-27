@@ -40,7 +40,7 @@ JSON
 
 expect() {
   local verdict="$1" literal="$2" repo
-  repo="$test_root/$(printf '%s' "$literal" | tr -c 'a-z0-9' '_')"
+  repo="$test_root/${literal//[^a-z0-9]/_}"
   build "$repo" "$literal"
   if bash "$guard" "$repo" >/dev/null 2>"$repo.err"; then
     [ "$verdict" = pass ] || fail "accepted $literal"

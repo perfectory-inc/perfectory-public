@@ -14,3 +14,10 @@ async fn switch_by_create(reconciler: &Reconciler, contract: &LakehouseTableCont
     // ok: a-table-is-never-renamed
     reconciler.create_table(contract).await?;
 }
+
+impl Catalog for Counting {
+    async fn rename_table(&self, src: &TableIdent, dest: &TableIdent) -> iceberg::Result<()> {
+        // ok: a-table-is-never-renamed
+        self.inner.rename_table(src, dest).await
+    }
+}

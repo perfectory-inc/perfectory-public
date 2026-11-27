@@ -7,8 +7,9 @@
 # silver -> gold kept its `__r2_data_catalog/silver/...` path, and every later reader of the path
 # layout is wrong about it.
 #
-# Allowed: the publisher's catalog wrapper, which forwards the `Catalog` trait's method (the trait
-# requires it), and the Lakekeeper dev rig's probe, which checks that a lane's rename is refused (403).
+# Allowed: a wrapper that forwards the `Catalog` trait's method to the catalog it wraps (the trait
+# requires the method; `self.inner.rename_table(…)`: the publisher's catalog and a test's counting
+# wrapper), and the Lakekeeper dev rig's probe, which checks that a lane's rename is refused (403).
 rules:
   - id: a-table-is-never-renamed
     languages: [regex]
@@ -24,4 +25,4 @@ rules:
       exclude:
         - /platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/lakehouse_data_commit.rs
         - /platforms/foundation-platform/infra/aws-lakekeeper/probes/
-    pattern-regex: \.rename_table\s*\(
+    pattern-regex: (?<!self\.inner)\.rename_table\s*\(
