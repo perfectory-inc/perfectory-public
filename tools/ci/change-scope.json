@@ -907,6 +907,15 @@
         ]
       },
       {
+        "name": "a-pull-request-undoes-no-merged-commit-self-test",
+        "paths": []
+      },
+      {
+        "name": "a-pull-request-undoes-no-merged-commit",
+        "always": "Any pull request may carry a tree that deletes what an earlier merged commit added (#1780 undid #1777, 2026-11-27); one git log of the files it changes.",
+        "budget_seconds": 20
+      },
+      {
         "name": "schema-registry-self-test",
         "paths": [
           "platforms/foundation-platform/scripts/schema_registry.py",
