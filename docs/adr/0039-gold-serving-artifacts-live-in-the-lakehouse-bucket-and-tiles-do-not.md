@@ -64,3 +64,5 @@ ADR-0038 은 이 셋을 확인하지 않고 썼다. 그 결과 실제로 존재�
   버킷 앞 Worker가 `r2_layout` 정본 프로필 키만 허용하며, Bronze·Silver·Iceberg 공간은 계속
   공개 경계 밖에 둔다.
 - ADR-0038 은 폐기되지 않고 대체된다. 왜 잘못된 경계를 한 번 그었는지가 기록으로 남는다.
+
+2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §6-1, §9): 결정 1 의 자리는 `serving/industrial_complex/profile/<artifact_id>.json`, 색인은 `serving/industrial_complex/index/current.json` 이다. `gold/` 최상위 폴더는 카탈로그 네임스페이스 `gold` 와 겹쳐 없앤다. 결정 3(타일 버킷)은 그대로다.

@@ -130,3 +130,5 @@ A2 의 첫 수집기 초안(#1758)은 손으로 정한 수 하나(40 분)에 세
 run 뒤에 새로 받은 열쇠로 한다. 시험: 유효 시간이 run 보다 짧으면 두 번째 쓰기 전에 다시 묻고, 길면 한 번만 묻는다
 (`r2/credential_tests.rs`); 모든 레인의 환경이 그 명령을 싣는다(`test_aws_collect_lane.py`). 남은 것: 발행기에 주던 열쇠 환경 변수 지우기(위
 "지운다", 다음 PR: 요구 목록이 `describe-requirements` 를 바꾼다), 갱신을 넘는 multipart 를 실제 R2 에서 시험하기.
+
+2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §1, §9): 레인마다의 쓰기 접두는 손으로 적지 않고 `naming.areas` 와 원천 등록부에서 생성한다.
