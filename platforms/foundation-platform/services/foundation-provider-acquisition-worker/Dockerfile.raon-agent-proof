@@ -24,39 +24,37 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s/ bookworm-updates main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list \
     && printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s/ bookworm-security main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list
 
-# Packages come from the dated Debian snapshot above, by name: the snapshot and the base image's digest
-# are what make the build repeatable. No per-package version is spelled here: 2026-11-25 a base-image
-# digest update (#1620) shipped newer curl and ca-certificates than the snapshot's, apt refused to
-# downgrade them ("Packages were downgraded and -y was used without --allow-downgrades"), the RAON batch
-# image stopped building, and source_sweep's RAON lane landed nothing on 2026-11-26 and 11-27.
+# Every package here is pinned to the dated Debian snapshot above, and none is one the base image's own
+# layers install (buildpack-deps:bookworm's curl and scm layers: ca-certificates, curl, procps): the
+# base's digest pins those, and a second pin of the same package breaks the build whenever the base
+# moves. 2026-11-25 a base digest update (#1620) shipped a newer ca-certificates than this list's pin,
+# apt refused to downgrade it ("Packages were downgraded and -y was used without --allow-downgrades"),
+# the RAON batch image stopped building, and source_sweep's RAON lane landed nothing on 11-26 and 11-27.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        cron \
-        dbus-x11 \
-        procps \
-        xvfb \
-        libasound2 \
-        libatk-bridge2.0-0 \
-        libatk1.0-0 \
-        libcairo2 \
-        libcups2 \
-        libdbus-1-3 \
-        libdrm2 \
-        libgbm1 \
-        libgtk-3-0 \
-        libnspr4 \
-        libnss3 \
-        libpango-1.0-0 \
-        libx11-xcb1 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxfixes3 \
-        libxkbcommon0 \
-        libxrandr2 \
-        libxss1 \
-        fonts-liberation \
+        cron=3.0pl1-162 \
+        dbus-x11=1.14.10-1~deb12u1 \
+        xvfb=2:21.1.7-3+deb12u12 \
+        libasound2=1.2.8-1+b1 \
+        libatk-bridge2.0-0=2.46.0-5 \
+        libatk1.0-0=2.46.0-5 \
+        libcairo2=1.16.0-7 \
+        libcups2=2.4.2-3+deb12u9 \
+        libdbus-1-3=1.14.10-1~deb12u1 \
+        libdrm2=2.4.114-1+b1 \
+        libgbm1=22.3.6-1+deb12u2 \
+        libgtk-3-0=3.24.38-2~deb12u3 \
+        libnspr4=2:4.35-1 \
+        libnss3=2:3.87.1-1+deb12u2 \
+        libpango-1.0-0=1.50.12+ds-1 \
+        libx11-xcb1=2:1.8.4-2+deb12u2 \
+        libxcomposite1=1:0.4.5-1 \
+        libxdamage1=1:1.1.6-1 \
+        libxfixes3=1:6.0.0-2 \
+        libxkbcommon0=1.5.0-1 \
+        libxrandr2=2:1.5.2-2+b1 \
+        libxss1=1:1.2.3-1 \
+        fonts-liberation=1:1.07.4-11 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL "${RAON_DEB_URL}" -o /tmp/raonk-2018_amd64.deb \
