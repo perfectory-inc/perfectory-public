@@ -219,7 +219,8 @@ fn normalize(
     Ok(normalize_industrial_complex_boundary_silver_rows(
         &IndustrialComplexBoundarySilverRowsInput {
             boundaries,
-            source_record_id: "bronze/source=vworldkr__sandan_boundary/synthetic-0001.zip",
+            source_record_id:
+                "bronze/source=vworldkr__industrial_complex_boundary/synthetic-0001.zip",
             source_snapshot_id: "synthetic-source-snapshot-0001",
             valid_from_utc: parse_utc(FIXTURE_VALID_FROM_UTC)?,
             ingested_at_utc: parse_utc(FIXTURE_INGESTED_AT_UTC)?,

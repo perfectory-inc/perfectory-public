@@ -19,8 +19,7 @@ use lakehouse_domain::{
 };
 
 use super::{
-    planned_objects, read_object, snapshot_id, write, OnbidSource, PlannedObject, Role,
-    PLAN_SCHEMA, ROLES,
+    planned_objects, read_object, write, OnbidSource, PlannedObject, Role, PLAN_SCHEMA, ROLES,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
@@ -109,14 +108,6 @@ fn lines(
     Ok(found)
 }
 
-#[test]
-fn the_run_id_is_read_from_the_key() -> anyhow::Result<()> {
-    assert_eq!(snapshot_id(OBJECT_KEY)?, "20990102T030405Z");
-    assert!(snapshot_id("bronze/x/onbid-2099.gz").is_err());
-    assert!(snapshot_id("bronze/x/onbid-20990102t030405z.json").is_err());
-    Ok(())
-}
-
 /// The SQL text with its runs of whitespace as one space: the binary's rendering and the verdict's
 /// are the same statements, not the same line breaks.
 fn squashed(sql: &str) -> String {
@@ -144,7 +135,8 @@ fn a_plan_names_its_table_and_each_object_once() -> anyhow::Result<()> {
     let plan = directory.path().join("onbid_item_bid_result");
     std::fs::create_dir_all(&plan)?;
     let slug = source.source_slug(Role::ItemBidResult)?;
-    let entry = serde_json::json!({"object_key": OBJECT_KEY, "source_slug": slug, "local_path": "objects/a.gz"});
+    let entry = serde_json::json!({"object_key": OBJECT_KEY, "source_slug": slug, "local_path": "objects/a.gz",
+                                   "collected_at": "2099-01-02T03:04:05.9Z"});
     std::fs::write(
         plan.join("plan.json"),
         serde_json::to_vec(&serde_json::json!({
@@ -154,6 +146,8 @@ fn a_plan_names_its_table_and_each_object_once() -> anyhow::Result<()> {
     let objects = planned_objects(std::slice::from_ref(&plan), &source)?;
     assert_eq!(objects.len(), 1);
     assert_eq!(objects[0].role, Role::ItemBidResult);
+    // The run is the ledger's collected_at the plan carries, never a part of the key (ADR-0626 G5).
+    assert_eq!(objects[0].source_snapshot_id, "20990102T030405Z");
     assert!(planned_objects(&[plan.clone(), plan.clone()], &source).is_err());
     std::fs::write(
         plan.join("plan.json"),

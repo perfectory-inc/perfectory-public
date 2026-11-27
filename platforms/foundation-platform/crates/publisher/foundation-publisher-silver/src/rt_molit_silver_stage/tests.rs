@@ -559,9 +559,9 @@ fn the_plan_gives_each_object_its_dataset_month_and_landing_time() -> anyhow::Re
         "table": TABLE,
         "objects": [
             {"object_key": OBJECT_KEY, "source_slug": format!("{SOURCE_PREFIX}{DATASET}"),
-             "last_modified": "2099-05-01T09:00:00+09:00", "local_path": "objects/1.csv"},
+             "landed_at": "2099-05-01T09:00:00+09:00", "local_path": "objects/1.csv"},
             {"object_key": OBJECT_KEY.replace("2099-04", "2099-03"), "source_slug": format!("{SOURCE_PREFIX}{DATASET}"),
-             "last_modified": "2099-04-30T00:00:00Z", "local_path": "objects/0.csv"},
+             "landed_at": "2099-04-30T00:00:00Z", "local_path": "objects/0.csv"},
         ],
     });
     std::fs::write(directory.path().join("plan.json"), plan.to_string())?;

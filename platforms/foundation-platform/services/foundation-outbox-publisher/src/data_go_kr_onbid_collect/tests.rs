@@ -911,7 +911,11 @@ async fn one_api_of_one_run_is_one_gzip_object_of_its_lines() -> anyhow::Result<
     assert!(!object.written);
     assert_eq!(
         object.object_key,
-        "bronze/source=datagokr__onbid_real_estate_item/item-list-20990102t030405z.gz"
+        format!(
+            "bronze/source=datagokr__onbid_real_estate_item/item-list--sha256-{}.gz",
+            object.checksum_sha256
+        ),
+        "the key names the bytes, not the run (root ADR-0626 G5)"
     );
     assert_eq!(object.lines, 2);
     let mut text = String::new();

@@ -145,6 +145,7 @@ platforms/foundation-platform/services/foundation-api/tests/deploy_contract/post
 platforms/foundation-platform/services/foundation-api/tests/local_vector_tile_seed_contract.rs:2
 platforms/foundation-platform/services/foundation-api/tests/tiles_slice_contract.rs:1
 platforms/foundation-platform/services/foundation-api/tests/tiles_slice_harness_contract.rs:3
+platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect/tests.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/tests.rs:1

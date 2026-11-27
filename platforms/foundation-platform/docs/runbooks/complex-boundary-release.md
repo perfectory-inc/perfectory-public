@@ -8,7 +8,7 @@ last_reviewed: 2026-10-14
 # 산업단지 경계 새 판 — 예약 작업 런북
 
 [루트 ADR-0240](../../../../docs/adr/0240-the-complex-boundary-file-is-loaded-by-a-scheduled-job.md) 의 운영 절차다.
-산단 경계 원천(`vworldkr__sandan_boundary`, 파일 하나)은 매일 수집이 받고, 예약 작업 `complex_boundary_release` 가
+산단 경계 원천(`vworldkr__industrial_complex_boundary`, 파일 하나)은 매일 수집이 받고, 예약 작업 `complex_boundary_release` 가
 새 파일을 `silver.industrial_complex_boundaries` 에 덧붙이고 산단 타일을 다시 굽는다.
 
 | 무엇 | 정본 |
@@ -24,7 +24,7 @@ last_reviewed: 2026-10-14
 
 1. Bronze 의 산단 경계 ZIP 중 **가장 늦게 올라온 것**을 고른다(키가 판을 말하지 않는다: 손 시절 `30137-1.zip`,
    수집이 쓰는 내용 주소 키).
-2. 읽기 키로 받고, 발행기가 Silver 행으로 바꾼다. 판 id 는 `vworldkr__sandan_boundary-<객체 이름>` 이다.
+2. 읽기 키로 받고, 발행기가 Silver 행으로 바꾼다. 판 id 는 `vworldkr__industrial_complex_boundary-<객체 이름>` 이다.
 3. Spark 가 적재한다. 표의 적재 기록(`foundation.ingest-batch-objects`)에 그 ZIP 이 이미 있으면 아무것도 쓰지 않는다.
 4. 바뀌었으면 `map-edit-fold.sh complex` 를 FORCE 로 부른다.
 

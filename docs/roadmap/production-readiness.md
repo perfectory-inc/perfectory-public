@@ -220,9 +220,9 @@ last_reviewed: 2026-11-07
 | 공장·산업단지 | 산업단지 고시 읽은 기록 (`silver.industrial_complex_notice_detail`) | — | — | 화면 |
 | 공장·산업단지 | 산업단지 기본 정보 (`silver.industrial_complexes`) | — | `complex-tiles` | 화면 |
 | 공장·산업단지 | 전국 등록공장 (`silver.registered_factory`) | `parcel-factories` | — | 화면 |
+| 공장·산업단지 | 산업용지 분양공고 첨부 (`silver.industrial_land_sale_notice_attachment`) | — | — | 적재 꺼짐 |
+| 공장·산업단지 | 산업용지 분양공고 읽은 기록 (`silver.industrial_land_sale_notice_read`) | — | — | 적재 꺼짐 |
 | 공장·산업단지 | 산업단지와 필지 소속 (`silver.complex_parcel_memberships`) | — | — | 없음 |
-| 공장·산업단지 | 산업용지 분양공고 첨부 (`silver.industrial_land_sale_notice_attachment`) | — | — | 없음 |
-| 공장·산업단지 | 산업용지 분양공고 읽은 기록 (`silver.industrial_land_sale_notice_read`) | — | — | 없음 |
 | 토지 | 필지별 토지특성 (`silver.land_characteristic`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 토지 | 필지별 임야대장 (`silver.land_forest_ledger`) | `parcel` | — | 화면 |
 | 토지 | 필지별 공시지가 (`silver.land_individual_price`) | `parcel` | — | 화면 |
@@ -311,11 +311,11 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 온비드 물건상세 (`silver.onbid_real_estate_item_detail`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 물건 사진 (`silver.onbid_real_estate_item_photo`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction` | — | 화면 |
-| 거래·공매·경매 | 법원경매 감정평가서 읽은 기록 (`silver.court_auction_appraisal_report_read`) | — | — | 없음 |
-| 거래·공매·경매 | 법원경매 사건 문서 읽은 기록 (`silver.court_auction_case_document_read`) | — | — | 없음 |
-| 거래·공매·경매 | 법원경매 배당요구종기공고 물건 (`silver.court_auction_dividend_object`) | — | — | 없음 |
-| 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
-| 거래·공매·경매 | 법원경매 매각물건명세서 읽은 기록 (`silver.court_auction_sale_specification_read`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 감정평가서 읽은 기록 (`silver.court_auction_appraisal_report_read`) | — | — | 적재 꺼짐 |
+| 거래·공매·경매 | 법원경매 사건 문서 읽은 기록 (`silver.court_auction_case_document_read`) | — | — | 적재 꺼짐 |
+| 거래·공매·경매 | 법원경매 배당요구종기공고 물건 (`silver.court_auction_dividend_object`) | — | — | 적재 꺼짐 |
+| 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 적재 꺼짐 |
+| 거래·공매·경매 | 법원경매 매각물건명세서 읽은 기록 (`silver.court_auction_sale_specification_read`) | — | — | 적재 꺼짐 |
 | 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 철도역 (`silver.railway_station`) | `parcel-nearby` | — | 화면 |

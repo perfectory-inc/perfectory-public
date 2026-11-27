@@ -22,8 +22,9 @@ use serde_json::Value;
 
 // The reserved 20991231DS9999x synthetic range; a captured provider object id is private
 // operational evidence and must not sit in a public fixture.
-const BRONZE_OBJECT_KEY: &str = "bronze/source=vworldkr__sandan_profile/20991231DS99990-1.zip";
-const SOURCE_SLUG: &str = "vworldkr__sandan_profile";
+const BRONZE_OBJECT_KEY: &str =
+    "bronze/source=vworldkr__industrial_complex_profile/20991231DS99990-1.zip";
+const SOURCE_SLUG: &str = "vworldkr__industrial_complex_profile";
 
 type TestResult = anyhow::Result<()>;
 
@@ -141,7 +142,7 @@ fn bronze_rows_emit_exactly_the_exported_transport_columns() -> TestResult {
     );
     assert_eq!(
         record["source_snapshot_id"],
-        "vworldkr__sandan_profile-202506"
+        "vworldkr__industrial_complex_profile-202506"
     );
     assert_eq!(record["valid_from_utc"], "2025-06-01T00:00:00Z");
     assert_eq!(record["ingested_at_utc"], "2026-08-16T04:05:06Z");

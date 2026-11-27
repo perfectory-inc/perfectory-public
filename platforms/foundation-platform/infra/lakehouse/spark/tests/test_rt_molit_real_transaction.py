@@ -361,7 +361,7 @@ class LoadsInSpark(unittest.TestCase):
 
 class ReadsPlans(unittest.TestCase):
     def plan(self, root: Path, slug: str, table="silver.real_transaction", schema=job.PLAN_SCHEMA,
-             last_modified="2099-01-02T03:04:05+00:00") -> Path:
+             landed_at="2099-01-02T03:04:05+00:00") -> Path:
         plan_dir = root / "plan"
         (plan_dir / "objects").mkdir(parents=True)
         key = f"bronze/source={slug}/period=2098-12/scope=nationwide/export--sha256-{'a' * 64}.csv"
@@ -369,7 +369,7 @@ class ReadsPlans(unittest.TestCase):
         (plan_dir / "plan.json").write_text(json.dumps({
             "schema_version": schema, "table": table,
             "objects": [{"object_key": key, "source_slug": slug, "local_path": "objects/a.csv",
-                         "last_modified": last_modified}]}), encoding="utf-8")
+                         "landed_at": landed_at}]}), encoding="utf-8")
         return plan_dir
 
     def test_a_plan_of_this_source_reads(self):
@@ -383,7 +383,7 @@ class ReadsPlans(unittest.TestCase):
         for kwargs in ({"slug": "datagokr__real_transaction_industrial_trade"},
                        {"slug": f"rtmolitgokr__{DATASET}", "table": "silver.onbid_real_estate_item"},
                        {"slug": f"rtmolitgokr__{DATASET}", "schema": "something.else.v1"},
-                       {"slug": f"rtmolitgokr__{DATASET}", "last_modified": None}):
+                       {"slug": f"rtmolitgokr__{DATASET}", "landed_at": None}):
             with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
                 job.planned_objects([self.plan(Path(tmp), **kwargs)], contract)
 

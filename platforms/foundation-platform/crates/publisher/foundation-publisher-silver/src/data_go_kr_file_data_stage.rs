@@ -30,9 +30,9 @@ use serde_json::Value;
 
 use crate::{
     duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
-    onbid_silver_stage::PLAN_SCHEMA,
     place_identity_stage::{self, PlacePins, CODE_CHANGE_TABLE},
     silver_changes::{self, REMOVED},
+    silver_load_plan::PLAN_SCHEMA,
 };
 
 pub(crate) const CONTRACT: &str =

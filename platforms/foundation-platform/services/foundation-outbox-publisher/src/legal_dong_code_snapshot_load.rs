@@ -21,8 +21,8 @@ use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     legal_dong_code_snapshot_stage::{
-        previous_code_go_kr_row_count, stage_snapshot, FullTableContract, CODE_GO_KR_TABLE_PREFIX,
-        TABLE,
+        code_go_kr_table_prefixes, previous_code_go_kr_row_count, stage_snapshot,
+        FullTableContract, CODE_GO_KR_TABLE_PREFIX, TABLE,
     },
     onbid_silver_stage::write,
     process_memory,
@@ -56,8 +56,12 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let snapshot_date = NaiveDate::parse_from_str(&day, "%Y-%m-%d")
         .with_context(|| format!("{SNAPSHOT_DATE_ENV} {day:?} is not YYYY-MM-DD"))?;
     let source_record_id = required_env_value(SOURCE_RECORD_ID_ENV)?;
+    // A table collected before the Bronze epoch and not loaded yet names its key under the source's
+    // former id (root ADR-0626 §4).
     ensure!(
-        source_record_id.starts_with(CODE_GO_KR_TABLE_PREFIX),
+        code_go_kr_table_prefixes()
+            .iter()
+            .any(|prefix| source_record_id.starts_with(prefix.as_str())),
         "{SOURCE_RECORD_ID_ENV} must be the collector's Bronze key under {CODE_GO_KR_TABLE_PREFIX}"
     );
     let source = FullTableContract::compiled()?;

@@ -25,16 +25,33 @@ rules:
           - pattern: $STORAGE.put_object(...)
           - pattern: $STORAGE.put_streaming_object(...)
 
+  # Root ADR-0626 §7 G7, widened by the Bronze epoch (§8 N2) to the lanes it fixed: the court, onbid
+  # and notice collectors put a run stamp in each leaf and their Silver stages parsed it back as the
+  # object's snapshot (3,969 rows in 24 sources, F12); the snapshot is the ledger's collected_at, which
+  # the plan carries (foundation-publisher-silver silver_load_plan).
   - id: bronze-lanes-take-no-catalog-fact-from-the-object-key
     languages: [rust]
     severity: ERROR
     message: >-
       A Bronze lane parses object_key; the key is a location label only (FP-ADR-0019). Carry source,
-      period, checksum and lineage through the plan, the committer and the catalog record.
+      period, checksum and lineage through the plan, the committer and the catalog record; when a
+      run collected an object is its ledger row's collected_at (root ADR-0626 rule 5).
     paths:
       include:
         - /platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/building_hub_bulk_ingest.rs
         - /platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_dataset_file_ingest.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_land_sale_notice_stage.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/silver_load_plan.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/silver_load_objects.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/detail.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_onbid_collect.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect.rs
     patterns:
       - pattern-either:
           - pattern: object_key.$READ(...)

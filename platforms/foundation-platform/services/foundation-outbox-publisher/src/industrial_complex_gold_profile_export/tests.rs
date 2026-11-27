@@ -49,7 +49,7 @@ fn row() -> JsonMap<String, JsonValue> {
         "calculated_area_sqm": JsonValue::Null,
         "parcel_count": 0,
         "boundary_object_key": JsonValue::Null,
-        "source_snapshot_id": "vworldkr__sandan_profile-202506",
+        "source_snapshot_id": "vworldkr__industrial_complex_profile-202506",
         "iceberg_snapshot_id": "999990000000000003",
         "published_at_utc": "2026-08-18T00:00:00Z"
     }) else {
@@ -137,7 +137,10 @@ fn export_entries_carry_the_pointer_publish_inputs() -> anyhow::Result<()> {
     );
     assert_eq!(entry.profile_row_count, 1);
     assert_eq!(entry.profile_checksum_sha256, artifact.checksum_sha256);
-    assert_eq!(entry.source_snapshot_id, "vworldkr__sandan_profile-202506");
+    assert_eq!(
+        entry.source_snapshot_id,
+        "vworldkr__industrial_complex_profile-202506"
+    );
     // The scanned Gold snapshot, not the `iceberg_snapshot_id` column the projection job wrote.
     assert_eq!(entry.iceberg_snapshot_id, "999990000000000001");
     assert_eq!(entry.published_at_utc, "2026-08-18T00:00:00Z");

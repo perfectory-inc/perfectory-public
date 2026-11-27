@@ -365,6 +365,10 @@ def naming_registry(naming):
             if prefix.count("/") != 1:
                 raise DefinitionError(f"{NAMING}: live area {area} is not a zone of the top level: {prefix}")
             live.add(prefix)
+    for old, new in naming["renames"]["sources"].items():
+        if old == new or old.partition("__")[0] != new.partition("__")[0] or new in naming["renames"]["sources"]:
+            raise DefinitionError(f"{NAMING}: renames.sources {old} -> {new}: a renamed source keeps its provider "
+                                  "(option K, root ADR-0626 §3) and is renamed once, to an id not renamed again")
     return owner
 
 
@@ -382,10 +386,16 @@ def naming_problems(root, documents):
     grammar = re.compile(naming["identifier"]["pattern"])
     owner = naming_registry(naming)
     problems = []
+    declared = set()
     for endpoint in read_json(root / ENDPOINTS)["endpoints"]:
         slug = (endpoint.get("bronze") or {}).get("source_slug")
         if slug is None:
             continue
+        declared.add(slug)
+        if slug in naming["renames"]["sources"]:
+            problems.append(f"{ENDPOINTS}: {endpoint['endpoint_slug']}: source id {slug} was renamed to "
+                            f"{naming['renames']['sources'][slug]} by the Bronze epoch and is never declared again "
+                            "(root ADR-0626 §4)")
         provider, sep, dataset = slug.partition("__")
         if not sep or provider not in naming["providers"] or not grammar.fullmatch(dataset):
             problems.append(f"{ENDPOINTS}: {endpoint['endpoint_slug']}: source id {slug} is not "
@@ -413,6 +423,9 @@ def naming_problems(root, documents):
     for where, key in consumers.items():
         if live_area(naming, key) is None:
             problems.append(f"{where}: {key} lies in no live area of {NAMING} (root ADR-0626 rule 5)")
+    for old, new in naming["renames"]["sources"].items():
+        if new not in declared:
+            problems.append(f"{NAMING}: renames.sources {old} -> {new}: {new} is not a source id of {ENDPOINTS}")
     pending = set(naming["renames"]["tables"]) | set(naming["renames"]["not_recreated"])
     for node in documents[GRAPH]["nodes"]:
         table = node.get("table_name")

@@ -4,7 +4,7 @@
   "base_url": "https://www.courtauction.go.kr",
   "item_search": {
     "$comment": "물건 검색 (진행 물건). cortAuctnSrchCondCd 0004601/0004602 and lclDspslGdsLstUsgCd 10000/20000 are the four combinations the site's own search form sends; the codes are stored as given, their meanings are not restated here. A pass is complete only when every combination was read to its last page.",
-    "dataset_slug": "auction_item",
+    "dataset_slug": "item",
     "operation": "searchControllerMain",
     "path": "/pgj/pgjsearch/searchControllerMain.on",
     "page_size": 50,
@@ -26,7 +26,7 @@
   },
   "sale_result_search": {
     "$comment": "매각결과 검색: the same row shape for items whose sale date has passed, with the sale amount.",
-    "dataset_slug": "auction_sale_result",
+    "dataset_slug": "sale_result",
     "operation": "selectDspslSchdRsltSrch",
     "path": "/pgj/pgjsearch/selectDspslSchdRsltSrch.on",
     "page_size": 50,
@@ -39,7 +39,7 @@
   },
   "item_detail": {
     "$comment": "Root ADR-0290 §7, ADR-0352, ADR-0384, ADR-0289. 물건상세, asked after a list pass that was not cut short, in the same run, on the same session pool and tally as the lists (collection.session; a block renews the session and asks again), paced in pace_group (collection.pace.goods_detail, the photo-heavy group), with the session headers and its own headers (none: measured 2026-11-04, one plain POST answered). Which properties are asked is computed each run (ADR-0352): this run's in-progress list rows against the last read recorded in read_from, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit: a safety bound above every in-progress property (37,244 measured 2026-11-11), so the run's deadline, not a count, ends the asking (root ADR-0540 §2; ADR-0384 §2 asked 1,800). As many answers are read at once as the pace group lets fly, each answer's photos stored photos.store_concurrency at a time, and a hash stored earlier in the run is not stored again (a case's properties answer the same photos). Measured 2026-11-10: 1,800 details and 21,283 photos took 2 h 30 min read one answer and one photo at a time. Measured 2026-11-04: HTTP 200 JSON, 3,274,352 bytes in 0.36 s, 11 JPEG photos, 221 KB each decoded. The details are asked until the run's deadline (collection.session.run_time_budget_seconds); what is left is due again next run. The run makes no display ladder (root ADR-0566): the hourly media_ladder_backlog makes each stored photo's ladder from the Silver photo index (data-go-kr-onbid.contract.json media.ladder_backlog), apart from the collection and under its own memory cap. Each photo (photos.file_field, base64) is decoded, its format sniffed, and stored once under the shared content-addressed media prefix (photos.object_prefix_from, the 공매 store the parcel edge already serves); the Bronze line keeps the response with that value replaced by sha256:<hex>.",
-    "dataset_slug": "auction_item_detail",
+    "dataset_slug": "item_detail",
     "operation": "selectAuctnCsSrchRslt",
     "path": "/pgj/pgj15B/selectAuctnCsSrchRslt.on",
     "pace_group": "goods_detail",
@@ -68,7 +68,7 @@
   },
   "common_codes": {
     "$comment": "Root ADR-0540 §1, §5. 공통코드: the names the site's own screens give the codes the documents carry (pgj.js getSTGcodeSystemNm reads them from this endpoint; sccdo.js loadIntgCdLst builds the request). Asked once a run, after a list pass that was not cut short, on the same pool, tally and pace group as the case documents; the answer lands as its own Bronze object and the Silver load appends the (system, owner, group, code) rows whose name changed to silver.court_auction_code. No name is kept in this repository: a code's name is what the site answered last (root ADR-0403). Each group is asked as `system[-owner]-group`, the groups of one system and owner joined by `&` and the systems by `,`, in one request (request_field); owner is the system unless given. `names` are the Silver columns (`table.column`) whose codes the group names: the Gold build attaches each name beside its code (`<column less _code>_name`), and rebuilds the properties whose code's name changed. Measured 2026-11-12: one request, HTTP 200 JSON, 60,622 bytes, 277 codes in these 14 groups (기일결과 001 매각, 002 유찰 ...).",
-    "dataset_slug": "auction_common_code",
+    "dataset_slug": "common_code",
     "operation": "sccdList",
     "path": "/pgj/scframe/lib/sccd/list.on",
     "pace_group": "case_detail",
@@ -102,7 +102,7 @@
     "documents": [
       {
         "role": "case_detail",
-        "dataset_slug": "auction_case_detail",
+        "dataset_slug": "case_detail",
         "operation": "selectAuctnCsSrchRslt",
         "path": "/pgj/pgj15A/selectAuctnCsSrchRslt.on",
         "headers": {"submissionid": "mf_wfm_mainFrame_sbm_selectCsDtlInf", "SC-Pgmid": "PGJ15AF01"},
@@ -111,7 +111,7 @@
       },
       {
         "role": "case_survey",
-        "dataset_slug": "auction_case_survey",
+        "dataset_slug": "case_survey",
         "operation": "selectCurstExmnRletIndctLst",
         "path": "/pgj/pgj15B/selectCurstExmnRletIndctLst.on",
         "headers": {"submissionid": "mf_sbm_selectCurstExmnRletIndctLst", "SC-Pgmid": "PGJ15BP02"},
@@ -123,7 +123,7 @@
       },
       {
         "role": "case_appraisal",
-        "dataset_slug": "auction_case_appraisal",
+        "dataset_slug": "case_appraisal",
         "operation": "selectAeeWevlInfo",
         "path": "/pgj/pgj15B/selectAeeWevlInfo.on",
         "headers": {"submissionid": "mf_sbm_selectAeeWevlInfo", "SC-Pgmid": "PGJ15BP03"},
@@ -136,7 +136,7 @@
       {
         "$comment": "Root ADR-0575 §4-§5. 문건·송달 (PGJ15AF03): the case's received filings (dlt_ofdocDtsLst: date, text, result) and deliveries (dlt_dlvrDtsLst: registered date, reached date and result, text). The site masks the names in the text with O (measured 2026-11-19: 17 filings, 26 deliveries on one case); the Silver load keeps the words before the masked ones (the role) and after them (the document kind and the action), never the masked words. Asked as the other case documents are: when the case is due (its list changed: a new sale date, result or status; or around its sale date).",
         "role": "case_filings",
-        "dataset_slug": "auction_case_filing",
+        "dataset_slug": "case_filing",
         "operation": "selectDlvrOfdocDtsDtl",
         "path": "/pgj/pgj15A/selectDlvrOfdocDtsDtl.on",
         "headers": {"SC-Pgmid": "PGJ15AF03"},
@@ -146,7 +146,7 @@
       {
         "$comment": "Root ADR-0575 §6 (the survey table's 현황조사서 row). The 현황조사서 page (PGJ15BP01): per 현황조사 round, its 임대차 list (dlt_ordTsLserLtn: 점유부분, 용도, 보증금, 차임, 전입일자, 확정일자, 비고), which the 현황조사 document (selectCurstExmnRletIndctLst) does not give (measured 2026-11-19: that answer holds no dlt_ordTsLserLtn; this one holds one lessee on the same case). The lessee's name (intrpsNm) and resident number field (enrrno) stay in Bronze; the Silver load reads neither. Asked as the other case documents are, every round its answer lists.",
         "role": "case_survey_report",
-        "dataset_slug": "auction_case_survey_report",
+        "dataset_slug": "case_survey_report",
         "operation": "selectCurstExmndc",
         "path": "/pgj/pgj15B/selectCurstExmndc.on",
         "headers": {"SC-Pgmid": "PGJ15BP01"},
@@ -160,7 +160,7 @@
   },
   "appraisal_reports": {
     "$comment": "Root ADR-0540 §1, §3, §6 of the chain. The 감정평가서 PDF of each 감정평가 round, from the viewer the site's own 감정평가 screen opens (PGJ15BP03: https://ca.kapanet.or.kr/view/{court}/{case}/{round}/{appraisal_no}/{written}, the court office code without its leading B). Asked after the case documents, until the run's deadline (the case documents stop run_time_budget_seconds before it, so these keep their share), at most per_run_limit, concurrency at a time. Which reports: the rounds of read_from whose (court, case, round, appraisal_no, written) no row of reports_from records and whose last read in reads_from is not gone within collection.recrawl.max_age_days, newest written first; a report is immutable, so a stored one is never asked again. One GET of the viewer page gives the file key (file_key_pattern); one GET of display_path?key= gives the PDF, sniffed and stored once in the shared content-addressed store (object_prefix_from), the same store the parcel edge serves (r2-connections.contract.json parcel_media). The viewer sometimes asks for a reCAPTCHA (captcha_marker, the page then carries no file key): that report is skipped and recorded as captcha, the asking waits captcha_waits_seconds[n] (the last repeats) and stops for the run after captcha_stop_after in a row. A CAPTCHA is never solved or bypassed and captcha-verify is never called. Each request is one Bronze line (the outcome and the stored hash, not the bytes). Measured 2026-11-12 on two live reports: the viewer page 4,349 bytes HTML with the key and no CAPTCHA, the PDF HTTP 200/206 application/pdf, 4,334,616 to 17,914,543 bytes, no cookie needed, asked as user_agent (our own name, not a browser's). The 매각물건명세서 PDF is not asked (root ADR-0540 §1: the court logs every view and the file carries a 개인정보 watermark).",
-    "dataset_slug": "auction_appraisal_report",
+    "dataset_slug": "appraisal_report",
     "operation": "kapanetAppraisalReport",
     "base_url": "https://ca.kapanet.or.kr",
     "view_path": "/view/{court}/{case}/{round}/{appraisal_no}/{written}",
@@ -185,7 +185,7 @@
   },
   "sale_notices": {
     "$comment": "Root ADR-0575 §6 (the survey table's 매각공고 row). Every court's 매각공고 of this month and the next months_ahead, read whole each run after the 공통코드, as the lists are (a notice list is one court and one month: a few sale dates), committed at once. The courts (courts_path, the site's own court list: 60 measured 2026-11-19), then per court, bid kind and month the notice list (PGJ143M01: srchYmd is YYYYMM; a past month answers none), then each listed notice's detail (PGJ143M02, the list row's detail_fields sent back as the screen sends them): its properties (최저가·감정가·비고·물건표시), its 정정공고 and its 취소·변경공고. Measured 2026-11-19 on one court: 3 sale dates this month; one notice held 102 properties of 67 cases, 1 정정 and 20 취소·변경. The notices name no person. concurrency at a time on pace_group, until run_time_budget_seconds from the phase's start.",
-    "dataset_slug": "auction_sale_notice",
+    "dataset_slug": "sale_notice",
     "operation": "selectRletDspslPbanc",
     "pace_group": "case_detail",
     "courts_path": "/pgj/pgjComm/selectCortOfcCdLst.on",
@@ -211,7 +211,7 @@
   },
   "dividend_notices": {
     "$comment": "Root ADR-0575 §6 (the survey table's 배당요구종기공고 row). Every court department's 배당요구종기공고, read after the 매각공고 with the courts that phase read, committed at once. The departments (depts_path, PGJ142M01's own list: 26 measured 2026-11-19 on one court), then each department's notice list (PGJ142M01 with dvsFlag C: the department is required, an empty one answers 550), read whole each run as the lists are: one row per case, its 개시결정일, 공고일, 배당요구종기일 and 대표지번 (32 rows measured on one department). Then each listed case's 물건 list (PGJ142P01, the row's objects_fields sent back): each property's address, 용도 and 등기 고유번호 (objctRletCarUnqNo, 14 digits), asked only for the cases objects_from does not hold yet, computed each run (root ADR-0352). The list names the creditor, debtor and owner unmasked (rprsCrdtrNm, rprsDebtrNm, rprsOwnrNm, rprsDebtrOwnrNm; realOwnr and realDebtr masked): those stay in Bronze, the Silver load reads none of them. concurrency at a time on pace_group, until run_time_budget_seconds from the phase's start.",
-    "dataset_slug": "auction_dividend_notice",
+    "dataset_slug": "dividend_notice",
     "operation": "searchDstrtDemnLstprdPbanc",
     "pace_group": "case_detail",
     "depts_operation": "selectCortOfcDeptLst",
@@ -238,7 +238,7 @@
   },
   "sale_specifications": {
     "$comment": "Root ADR-0575 §1-§3. The 매각물건명세서 PDF of each version, asked after the 물건상세 and before the case documents, until run_time_budget_seconds before the case documents' share, at most per_run_limit, concurrency at a time. Which versions: the 물건상세 this run read whose spec_object the site's own screen (PGJ15BM01) would open (real_kind_field is real_kind_value, orv_field and document_id_field not empty, today on or after one of opens: date_field less days_before for that bid kind), whose (court, case, item, document id) no row of reads_from records as stored or gone; soonest opening first. A new document id (the court rewrote the spec) is a new version; the same id is never asked again, so the court's view log (the log step) is written once per version. Three requests, as the screen and its viewer make them: the log step on the site's session pool (pace_group), then the viewer's info and download on viewer.base_url with our own name (user_agent), no cookie (measured 2026-11-19: none needed; SC-PgmId is). The watermark the download is asked with is watermark_template, filled with the document's written time: no name and no download time (the screen's own text names the submitter). The PDF names people (judge, occupants). The owner made it public knowing that (2026-11-28, root ADR-0626 §6-3: the court lets anyone download it), so it is stored once per content hash at <object_prefix>/document/sha256/<hash>.pdf in the one media store, which the parcel edge serves (r2-connections.contract.json parcel_media); until 2026-11-28 it was under courtauction-go-kr/sale-specifications/, which the edge did not serve. Each version asked is one Bronze line: its key, outcome, hash and the document's name and written time, never a person's name. A CAPTCHA or login page (captcha_marker) is recorded and ends the phase for the run; it is never solved or bypassed. Measured 2026-11-19 on one live property: the log step HTTP 200 with the viewer URL and encParam, the info 2,046 bytes JSON, the PDF HTTP 200 application/x-octetstream %PDF-1.4 191,460 bytes in 1.06 s, two pages, no CAPTCHA; the same version downloaded twice gave different bytes (191,460 and 191,461), so the version is the document id, not the hash.",
-    "dataset_slug": "auction_sale_specification",
+    "dataset_slug": "sale_specification",
     "operation": "saleSpecificationPdf",
     "pace_group": "case_detail",
     "spec_object": "dspslGdsDxdyInfo",

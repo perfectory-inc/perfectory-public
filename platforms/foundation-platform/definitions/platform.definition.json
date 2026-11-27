@@ -318,7 +318,7 @@
         "silver.building_footprints와 JUSO 변환은 계약·생산자가 없어 제거했다.",
         "canonical-silver-gold-live-write 및 postgis-mirror-and-dlq-schema의 과거 정적 차단 상태는 최신 계약·마이그레이션·runtime 증거로 대체한다.",
         "silver.complex_parcel_memberships 및 gold.complex_spatial_locator는 생산자 없이 계약만 있어 연결선을 만들지 않는다.",
-        "vworldkr__sandan_profile·sandan_boundary 및 ILIS 주소 근거는 실제 생산 코드에서 확인한 연결이다. 다른 sandan 원천까지 연결되었다고 추정하지 않는다.",
+        "vworldkr__industrial_complex_profile·industrial_complex_boundary 및 ILIS 주소 근거는 실제 생산 코드에서 확인한 연결이다. 다른 sandan 원천까지 연결되었다고 추정하지 않는다.",
         "gold.building_panel·gold.parcel_panel의 by-PNU 서빙 내보내기(ADR-0096·0100)를 서빙 접점 노드로 추가했다. 이제 가드가 연결성(비-contract_only 표는 생산자·소비자 각 1개 이상)을 강제한다.",
         "지역 코드 변경의 정본은 reference.legal_dong_code_change 하나다(루트 ADR-0145). ADR-0103 Wave 1 의 법정동코드 등록부와 저장된 시군구 대응표는 폐기했다: 읽는 곳이 없었고 운영 카탈로그에 표가 없었다. 시군구 대응표는 변경표의 view 이며 투영 파일이 그 파일 형태다. 폐기 대상 목록은 infra/lakehouse/contracts/region-code-holders.json 에 있다."
       ],
@@ -1737,7 +1737,34 @@
           "silver.building_register_apartment_price",
           "silver.unit_official_price"
         ],
-        "reason": "Root ADR-0626 §5: a temporary work list. A table keeps an old name only while it is listed here; its component's Lakekeeper switch PR (ADR-0624 A1) creates the new name, moves every reader, and deletes its entries. `not_recreated` tables are replaced by their versioned twin under the entity name. The block is deleted at A9."
+        "sources": {
+          "codegokr__legal_dong_code_table": "codegokr__legal_dong_code",
+          "courtauctiongokr__auction_appraisal_report": "courtauctiongokr__appraisal_report",
+          "courtauctiongokr__auction_case_appraisal": "courtauctiongokr__case_appraisal",
+          "courtauctiongokr__auction_case_detail": "courtauctiongokr__case_detail",
+          "courtauctiongokr__auction_case_filing": "courtauctiongokr__case_filing",
+          "courtauctiongokr__auction_case_survey": "courtauctiongokr__case_survey",
+          "courtauctiongokr__auction_case_survey_report": "courtauctiongokr__case_survey_report",
+          "courtauctiongokr__auction_common_code": "courtauctiongokr__common_code",
+          "courtauctiongokr__auction_dividend_notice": "courtauctiongokr__dividend_notice",
+          "courtauctiongokr__auction_item": "courtauctiongokr__item",
+          "courtauctiongokr__auction_item_detail": "courtauctiongokr__item_detail",
+          "courtauctiongokr__auction_sale_notice": "courtauctiongokr__sale_notice",
+          "courtauctiongokr__auction_sale_result": "courtauctiongokr__sale_result",
+          "courtauctiongokr__auction_sale_specification": "courtauctiongokr__sale_specification",
+          "datagokr__building_register_house_price": "datagokr__building_register_apartment_price",
+          "datagokr__lh_land_notice_detail": "datagokr__korea_land_housing_land_notice_detail",
+          "datagokr__lh_land_notice_list": "datagokr__korea_land_housing_land_notice_list",
+          "vworldkr__sandan_boundary": "vworldkr__industrial_complex_boundary",
+          "vworldkr__sandan_facility_land_use": "vworldkr__industrial_complex_facility_land_use",
+          "vworldkr__sandan_land_use_zone": "vworldkr__industrial_complex_land_use_zone",
+          "vworldkr__sandan_location": "vworldkr__industrial_complex_location",
+          "vworldkr__sandan_parcel": "vworldkr__industrial_complex_parcel",
+          "vworldkr__sandan_permitted_industry": "vworldkr__industrial_complex_permitted_industry",
+          "vworldkr__sandan_profile": "vworldkr__industrial_complex_profile"
+        },
+        "reason": "Root ADR-0626 §5: a temporary work list. A table keeps an old name only while it is listed here; its component's Lakekeeper switch PR (ADR-0624 A1) creates the new name, moves every reader, and deletes its entries. `not_recreated` tables are replaced by their versioned twin under the entity name. The block is deleted at A9.",
+        "sources_reason": "Root ADR-0626 §4: the dataset ids the Bronze epoch (§8 N2) renamed. Their Bronze objects, ledger rows and source_catalog rows carry the new id since the epoch (rekey-bronze-epoch moves them together and records the moves in its evidence manifest), but Silver and Gold rows written before it keep the old id and old key strings as data until their component's Lakekeeper switch rebuilds them from Bronze (root ADR-0624 10-6). A reader that must match such rows asks for a source's former ids here (collection-domain source_slug::former_source_slugs); each switch PR deletes the entries of its component, and the block is deleted at A9. An old id is never declared in the endpoint catalog again (G1)."
       }
     }
   },

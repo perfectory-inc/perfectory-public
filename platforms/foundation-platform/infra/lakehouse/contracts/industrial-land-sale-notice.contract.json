@@ -103,9 +103,9 @@
       "provider": "data.go.kr",
       "base_url": "https://apis.data.go.kr/B552555",
       "service_key_env": "DATA_GO_KR_SERVICE_KEY",
-      "detail_dataset_slug": "lh_land_notice_detail",
+      "detail_dataset_slug": "korea_land_housing_land_notice_detail",
       "list": {
-        "dataset_slug": "lh_land_notice_list",
+        "dataset_slug": "korea_land_housing_land_notice_list",
         "operation": "lhLeaseNoticeInfo1",
         "path": "lhLeaseNoticeInfo1/lhLeaseNoticeInfo1",
         "notice_kind_code": "01",

@@ -74,8 +74,9 @@
         "source-courtauction-go-kr-to-silver-court-auction-dividend-notice",
         "source-courtauction-go-kr-to-silver-court-auction-dividend-object"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-30T13:30:00Z",
+      "enabled": false,
+      "enabled_since": null,
+      "disabled_reason": "Paused for the Bronze epoch (root ADR-0626 §8 N2, W114, coordinator 2026-11-28): the reader of those sources. The job bronze_epoch moves those objects to the key today's writer builds and their ledger rows in place, and refuses while a writer of theirs has run in the last two close intervals; a run here meanwhile would split a source row or land a key of the old form. The resume pull request turns it on again (enabled true, enabled_since its merge) once the epoch's report is verified. Nothing is lost while it is off: a collector's next run asks what is due from its state and its Silver table, and a Silver load plans from the ledger what its table has not recorded.",
       "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": 54,

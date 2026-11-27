@@ -19,7 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 STATE_ROOT="${FOUNDATION_COMPLEX_BOUNDARY_RELEASE_STATE_ROOT:-/var/lib/foundation-platform/map-edit-fold/complex-boundary-release}"
 source "$(dirname "${BASH_SOURCE[0]}")/job-state-root.sh"
 LAKEHOUSE_STATE_ROOT="${FOUNDATION_COMPLEX_BOUNDARY_RELEASE_LAKEHOUSE_STATE_ROOT:-$(job_state_root complex_boundary_release)/lakehouse}"
-SOURCE_SLUG=vworldkr__sandan_boundary
+SOURCE_SLUG=vworldkr__industrial_complex_boundary
 # 쓰기 키는 이 작업에 필요 없다: 받기는 읽기 키 한 쌍으로만 한다(root ADR-0152).
 unset FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY
 for name in FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT \

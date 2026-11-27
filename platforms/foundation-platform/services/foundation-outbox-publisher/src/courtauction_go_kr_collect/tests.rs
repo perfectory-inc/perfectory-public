@@ -521,33 +521,31 @@ async fn the_details_ride_the_same_pool_a_block_renews_and_photos_become_hashes(
 }
 
 #[tokio::test]
-async fn every_search_keeps_its_key_form_and_the_detail_parts_are_keyed_by_the_run(
+async fn every_search_keeps_its_key_form_and_the_key_names_its_bytes_not_the_run(
 ) -> anyhow::Result<()> {
     let contract = source_contract()?;
-    let at = at("2099-01-02T16:05:04Z");
     let dir = tempfile::tempdir()?;
     let detail = contract.item_detail.as_search();
     let mut objects = dry_objects(&detail, dir.path())?;
     objects.push_group(&["{}"]).await?;
     let landed = objects.finish().await?;
+    let key = &landed[0].object_key;
     assert!(
-        landed[0]
-            .object_key
-            .ends_with("/auction-item-detail-part0001-20990101t170000z.gz"),
-        "{}",
-        landed[0].object_key
+        key.ends_with(&format!(
+            "/item-detail-part0001--sha256-{}.gz",
+            landed[0].checksum_sha256
+        )),
+        "{key}"
     );
-    assert_eq!(
-        super::file_id(&detail, at, Some(2)),
-        "auction-item-detail-part0002-20990102t160504z"
+    assert!(
+        collection_domain::run_stamp_range(key).is_none(),
+        "the key carries no run stamp (root ADR-0626 G5): {key}"
     );
+    assert_eq!(super::file_id(&detail, Some(2)), "item-detail-part0002");
     let notices = contract.sale_notices.as_search();
     assert_eq!(
-        super::file_id(&notices, at, None),
-        format!(
-            "{}-20990102t160504z",
-            notices.dataset_slug.replace('_', "-")
-        )
+        super::file_id(&notices, None),
+        notices.dataset_slug.replace('_', "-")
     );
     Ok(())
 }

@@ -43,8 +43,9 @@
       "pipeline_graph_edges": [
         "source-code-go-kr-to-reference-legal-dong-code-snapshot"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-05T03:16:07Z",
+      "enabled": false,
+      "enabled_since": null,
+      "disabled_reason": "Paused for the Bronze epoch (root ADR-0626 §8 N2, W114, coordinator 2026-11-28): the writer of the code.go.kr table the epoch renames (codegokr__legal_dong_code) and re-keys. The job bronze_epoch moves those objects to the key today's writer builds and their ledger rows in place, and refuses while a writer of theirs has run in the last two close intervals; a run here meanwhile would split a source row or land a key of the old form. The resume pull request turns it on again (enabled true, enabled_since its merge) once the epoch's report is verified. Nothing is lost while it is off: a collector's next run asks what is due from its state and its Silver table, and a Silver load plans from the ledger what its table has not recorded.",
       "dagster_stage": "dagster",
       "started_once_after_deploy": true,
       "expected_outcome": {

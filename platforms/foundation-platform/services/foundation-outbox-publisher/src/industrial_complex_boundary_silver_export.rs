@@ -49,7 +49,7 @@ use crate::{
 };
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_SILVER_HANDOFF";
-const DEFAULT_SOURCE_SLUG: &str = "vworldkr__sandan_boundary";
+const DEFAULT_SOURCE_SLUG: &str = "vworldkr__industrial_complex_boundary";
 const SUMMARY_SCHEMA_VERSION: &str =
     "foundation-platform.industrial_complex_boundary_silver_handoff_export.v1";
 

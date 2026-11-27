@@ -36,7 +36,7 @@ use crate::silver_changes;
 pub const TABLE: &str = "silver.real_transaction";
 /// The lines an export carried that are not loaded, each with its Bronze reference (root ADR-0364).
 pub const REJECTED_TABLE: &str = "silver.real_transaction_rejected";
-const PLAN_SCHEMA: &str = "foundation-platform.silver_load_objects.v1";
+use crate::silver_load_plan::PLAN_SCHEMA;
 const SOURCE_PREFIX: &str = "rtmolitgokr__";
 const SOURCE_CONTRACT: &str =
     include_str!("../../../../infra/lakehouse/contracts/rt-molit-real-transaction.contract.json");
@@ -215,12 +215,9 @@ pub fn planned_objects(
                 .strip_prefix(SOURCE_PREFIX)
                 .filter(|dataset| source.datasets.contains(*dataset))
                 .with_context(|| format!("{key}: {slug} is not a 실거래 source this load reads"))?;
-            let landed = entry["last_modified"]
-                .as_str()
-                .with_context(|| format!("{key}: the plan carries no last_modified"))?;
-            let landed = chrono::DateTime::parse_from_rfc3339(landed)
-                .with_context(|| format!("{key}: last_modified {landed:?} is not an instant"))?
-                .with_timezone(&chrono::Utc);
+            // When the export landed: its ledger row's creation (root ADR-0348 §5; a key that names
+            // its bytes names no run).
+            let landed = crate::silver_load_plan::landed_at(entry)?;
             let local = entry["local_path"]
                 .as_str()
                 .context("a planned object has no local path")?;

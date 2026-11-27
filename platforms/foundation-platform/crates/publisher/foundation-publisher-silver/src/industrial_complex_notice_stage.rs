@@ -25,8 +25,7 @@ use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYT
 pub const DETAIL_TABLE: &str = "silver.industrial_complex_notice_detail";
 /// The index of the attachments the media store holds.
 pub const ATTACHMENT_TABLE: &str = "silver.industrial_complex_notice_attachment";
-/// The plan file `plan-silver-load-objects` writes.
-pub const PLAN_SCHEMA: &str = "foundation-platform.silver_load_objects.v1";
+pub use crate::silver_load_plan::PLAN_SCHEMA;
 /// Columns a load writes, not the source: never compared.
 const LOAD_COLUMNS: [&str; 4] = [
     "source_record_id",
@@ -97,38 +96,11 @@ pub fn notice_source() -> anyhow::Result<NoticeSource> {
 pub struct PlannedObject {
     /// Its key in the lakehouse bucket: the batch identity both tables record.
     pub object_key: String,
-    /// The run id the collector put in the key (`…-20990102t030405z-000.gz` → `20990102T030405Z`).
+    /// When the collector's run collected it (`20990102T030405Z`): its ledger row's `collected_at`,
+    /// which the plan carries (never read from the key, root ADR-0626 rule 5).
     pub source_snapshot_id: String,
     /// Where the plan put the object.
     pub path: PathBuf,
-}
-
-/// The run id in an object key.
-///
-/// # Errors
-/// Refuses a key that carries none.
-pub fn snapshot_id(object_key: &str) -> anyhow::Result<String> {
-    let stem = object_key
-        .strip_suffix(".gz")
-        .with_context(|| format!("{object_key} carries no run id"))?;
-    let (rest, part) = stem
-        .rsplit_once('-')
-        .with_context(|| format!("{object_key} carries no run id"))?;
-    let (_, run) = rest
-        .rsplit_once('-')
-        .with_context(|| format!("{object_key} carries no run id"))?;
-    let digits = |text: &str| text.bytes().all(|byte| byte.is_ascii_digit());
-    ensure!(
-        part.len() == 3
-            && digits(part)
-            && run.len() == 16
-            && digits(&run[..8])
-            && run.as_bytes()[8] == b't'
-            && digits(&run[9..15])
-            && run.as_bytes()[15] == b'z',
-        "{object_key} carries no run id"
-    );
-    Ok(run.to_ascii_uppercase())
 }
 
 /// Every object the plan in `plan_dir` fetched, oldest run first.
@@ -170,7 +142,7 @@ pub fn planned_objects(
             );
             Ok(PlannedObject {
                 object_key: key.to_owned(),
-                source_snapshot_id: snapshot_id(key)?,
+                source_snapshot_id: crate::silver_load_plan::snapshot_id(entry)?,
                 path: plan_dir.join(local),
             })
         })

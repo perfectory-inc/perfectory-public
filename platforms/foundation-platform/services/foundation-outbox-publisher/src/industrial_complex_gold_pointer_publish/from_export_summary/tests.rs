@@ -48,7 +48,7 @@ fn summary_json(profile_url_template: Option<&str>) -> serde_json::Value {
             "profile_size_bytes": 1401,
             "profile_row_count": 1,
             "profile_checksum_sha256": "a".repeat(64),
-            "source_snapshot_id": "vworldkr__sandan_profile-202506",
+            "source_snapshot_id": "vworldkr__industrial_complex_profile-202506",
             "iceberg_snapshot_id": "999990000000000001",
             "published_at_utc": "2026-08-18T00:00:00Z",
             "created": true
@@ -95,7 +95,7 @@ fn reads_the_publish_inputs_the_export_wrote() -> anyhow::Result<()> {
     assert_eq!(artifact.profile_checksum_sha256, "a".repeat(64));
     assert_eq!(
         artifact.source_snapshot_id,
-        "vworldkr__sandan_profile-202506"
+        "vworldkr__industrial_complex_profile-202506"
     );
     assert_eq!(artifact.iceberg_snapshot_id, "999990000000000001");
     assert_eq!(artifact.published_at_utc, "2026-08-18T00:00:00Z");

@@ -2,7 +2,7 @@
 (root ADR-0286 §3, ADR-0376), on a Spark runtime.
 
 The edition order is each edition's maxima of `newest_first`, never the edition id: on 2026-10-20 the
-complex boundary editions were named `vworldkr__sandan_boundary-30137-1` and the floor generations
+complex boundary editions were named `vworldkr__industrial_complex_boundary-30137-1` and the floor generations
 by a content hash, neither in time order. Skipped where pyspark is missing; the CI spark-runtime lane
 runs it.
 """
@@ -129,8 +129,8 @@ def old_newest(pairs):
 
 # Editions named so that id order and load order disagree, loaded at distinct instants (no tie: the
 # old rule broke one by id, the contract refuses it, and 2026-11-04 production held none).
-EDITIONS = [("vworldkr__sandan_boundary-30137-1", datetime(2026, 8, 21)),
-            ("vworldkr__sandan_boundary-29001-9", datetime(2026, 10, 2)),
+EDITIONS = [("vworldkr__industrial_complex_boundary-30137-1", datetime(2026, 8, 21)),
+            ("vworldkr__industrial_complex_boundary-29001-9", datetime(2026, 10, 2)),
             ("building-register-floor-selection-v2-" + "b" * 8, datetime(2026, 9, 29)),
             ("building-register-floor-content-v1-" + "a" * 8, datetime(2026, 7, 1))]
 

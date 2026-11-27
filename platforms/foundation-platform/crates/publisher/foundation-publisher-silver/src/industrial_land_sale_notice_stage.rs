@@ -66,25 +66,6 @@ pub fn detail_source_slugs() -> anyhow::Result<Vec<String>> {
         .collect()
 }
 
-/// The run id in a content-qualified detail object key
-/// (`…-20990102t030405z-000--sha256-<hex>.gz` → `20990102T030405Z`).
-///
-/// # Errors
-/// Refuses a key that carries no content hash or no run id.
-pub fn snapshot_id(object_key: &str) -> anyhow::Result<String> {
-    ensure!(
-        collection_domain::bronze_content_object_key_checksum(object_key).is_some(),
-        "{object_key} is not content-qualified (root ADR-0152)"
-    );
-    let (stem, extension) = object_key
-        .rsplit_once('.')
-        .with_context(|| format!("{object_key} has no extension"))?;
-    let (base, _) = stem
-        .rsplit_once(collection_domain::BRONZE_CONTENT_KEY_SEPARATOR)
-        .with_context(|| format!("{object_key} carries no content hash"))?;
-    crate::industrial_complex_notice_stage::snapshot_id(&format!("{base}.{extension}"))
-}
-
 /// Every object the plan in `plan_dir` fetched, oldest run first.
 ///
 /// # Errors
@@ -120,9 +101,13 @@ pub fn planned_objects(plan_dir: &Path, slugs: &[String]) -> anyhow::Result<Vec<
                 !local.starts_with('/') && !local.split('/').any(|part| part == ".."),
                 "{key}: the local path {local:?} leaves the plan directory"
             );
+            ensure!(
+                collection_domain::bronze_content_object_key_checksum(key).is_some(),
+                "{key} is not content-qualified (root ADR-0152)"
+            );
             Ok(PlannedObject {
                 object_key: key.to_owned(),
-                source_snapshot_id: snapshot_id(key)?,
+                source_snapshot_id: crate::silver_load_plan::snapshot_id(entry)?,
                 path: plan_dir.join(local),
             })
         })

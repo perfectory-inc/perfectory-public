@@ -833,13 +833,11 @@ pub(crate) fn plan(
     Ok(plan)
 }
 
-/// The id of a detail batch object: `<dataset with dashes>-<run>-<batch>`.
-pub(crate) fn batch_file_id(dataset_slug: &str, at: DateTime<Utc>, batch: u32) -> String {
-    format!(
-        "{}-{}-{batch:03}",
-        dataset_slug.replace('_', "-"),
-        at.format("%Y%m%dt%H%M%Sz")
-    )
+/// The id of a detail batch object: `<dataset with dashes>-<batch>`; its key adds the batch's hash.
+/// When a run collected it is its ledger row's `collected_at`, never a part of the key (root
+/// ADR-0626 rule 5).
+pub(crate) fn batch_file_id(dataset_slug: &str, batch: u32) -> String {
+    format!("{}-{batch:03}", dataset_slug.replace('_', "-"))
 }
 
 /// The id of a list answer object: `<dataset with dashes>-<page>`; its key adds the answer's hash,
@@ -1011,7 +1009,7 @@ pub async fn run() -> anyhow::Result<()> {
             source: detail_entry,
             operation: "detail",
             collected_at: started_at,
-            file_id: Box::new(move |n| batch_file_id(detail_dataset, started_at, n)),
+            file_id: Box::new(move |n| batch_file_id(detail_dataset, n)),
             content_qualified: true,
             params: Box::new(move || json!({ "source": source })),
         },

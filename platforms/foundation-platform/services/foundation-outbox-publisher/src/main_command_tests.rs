@@ -772,6 +772,15 @@ fn verify_lakehouse_engine_extensions_command_is_explicit() -> anyhow::Result<()
 }
 
 #[test]
+fn the_bronze_epoch_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "rekey-bronze-epoch"])?,
+        Command::RekeyBronzeEpoch
+    );
+    Ok(())
+}
+
+#[test]
 fn verify_r2_cleanup_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "verify-r2-cleanup"])?,

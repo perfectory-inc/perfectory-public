@@ -29,7 +29,7 @@ use lakehouse_application::{
 use lakehouse_domain::BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL;
 use zip::ZipArchive;
 
-const DEFAULT_SOURCE_SLUG: &str = "vworldkr__sandan_profile";
+const DEFAULT_SOURCE_SLUG: &str = "vworldkr__industrial_complex_profile";
 const BRONZE_ROOT_ENV: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BRONZE_RAW_JSONL_BRONZE_ROOT";
 const SOURCE_SLUG_ENV: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BRONZE_RAW_JSONL_SOURCE_SLUG";
 const SOURCE_OBJECT_ENV: &str =

@@ -84,9 +84,10 @@ pub use public_data_bronze_plan::{
 pub use public_data_bulk_plan::{
     plan_public_data_bulk_file, plan_public_data_bulk_file_metadata,
     plan_public_data_bulk_file_storage_location, public_data_bulk_file_dedupe_key,
-    public_data_bulk_file_request_params, public_data_bulk_file_source_partition_key,
-    PublicDataBulkFileIdentity, PublicDataBulkFileMetadataInput, PublicDataBulkFileMetadataPlan,
-    PublicDataBulkFilePlan, PublicDataBulkFilePlanError, PublicDataBulkFilePlanInput,
+    public_data_bulk_file_request_params, public_data_bulk_file_source_identity_key,
+    public_data_bulk_file_source_partition_key, PublicDataBulkFileIdentity,
+    PublicDataBulkFileMetadataInput, PublicDataBulkFileMetadataPlan, PublicDataBulkFilePlan,
+    PublicDataBulkFilePlanError, PublicDataBulkFilePlanInput,
     PublicDataBulkFileSourcePartitionKeyInput, PublicDataBulkFileStorageLocationInput,
     PublicDataBulkFileStorageLocationPlan,
 };

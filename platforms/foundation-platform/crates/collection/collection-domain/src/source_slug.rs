@@ -56,29 +56,72 @@ pub struct Provider {
 #[derive(Deserialize)]
 struct Registry {
     providers: BTreeMap<String, Provider>,
+    renames: Renames,
 }
 
-fn registry() -> &'static Result<Vec<Provider>, String> {
-    static PROVIDERS: OnceLock<Result<Vec<Provider>, String>> = OnceLock::new();
-    PROVIDERS.get_or_init(|| parse_registry(NAMING_CONTRACT))
+#[derive(Deserialize)]
+struct Renames {
+    sources: BTreeMap<String, String>,
 }
 
-fn parse_registry(text: &str) -> Result<Vec<Provider>, String> {
+/// The providers and the renamed source ids, read once.
+struct Parsed {
+    providers: Vec<Provider>,
+    renamed_sources: BTreeMap<String, String>,
+}
+
+fn registry() -> &'static Result<Parsed, String> {
+    static REGISTRY: OnceLock<Result<Parsed, String>> = OnceLock::new();
+    REGISTRY.get_or_init(|| parse_registry(NAMING_CONTRACT))
+}
+
+fn parse_registry(text: &str) -> Result<Parsed, String> {
     let registry: Registry = serde_json::from_str(text).map_err(|error| {
         format!("config/naming.contract.json does not parse (run declared_definitions.py generate): {error}")
     })?;
-    Ok(registry
-        .providers
-        .into_iter()
-        .map(|(id, provider)| Provider { id, ..provider })
-        .collect())
+    Ok(Parsed {
+        providers: registry
+            .providers
+            .into_iter()
+            .map(|(id, provider)| Provider { id, ..provider })
+            .collect(),
+        renamed_sources: registry.renames.sources,
+    })
 }
 
 /// The registered providers, in id order; empty when the registry cannot be read
 /// ([`provider_registry_error`] says why, and this crate's tests refuse it).
 #[must_use]
 pub fn providers() -> &'static [Provider] {
-    registry().as_ref().map_or(&[], Vec::as_slice)
+    registry()
+        .as_ref()
+        .map_or(&[], |parsed| parsed.providers.as_slice())
+}
+
+/// The source ids the Bronze epoch renamed, old id -> new id (root ADR-0626 §4,
+/// `naming.renames.sources`); empty when the registry cannot be read.
+///
+/// The Bronze objects, ledger rows and source rows of a renamed source carry the new id. Silver and
+/// Gold rows written before the epoch keep the old id and old key strings until their component's
+/// switch rebuilds them from Bronze, so a reader that must match such rows asks
+/// [`former_source_slugs`].
+#[must_use]
+pub fn renamed_source_slugs() -> &'static BTreeMap<String, String> {
+    static EMPTY: BTreeMap<String, String> = BTreeMap::new();
+    registry()
+        .as_ref()
+        .map_or(&EMPTY, |parsed| &parsed.renamed_sources)
+}
+
+/// The ids `slug` had before the Bronze epoch renamed it, oldest first; empty for a source never
+/// renamed.
+#[must_use]
+pub fn former_source_slugs(slug: &str) -> Vec<&'static str> {
+    renamed_source_slugs()
+        .iter()
+        .filter(|(_, new)| new.as_str() == slug)
+        .map(|(old, _)| old.as_str())
+        .collect()
 }
 
 /// Why the provider registry could not be read, or `None`.
@@ -165,8 +208,9 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{
-        assert_canonical_source_slug, is_canonical_source_slug, parse_registry, provider_id,
-        provider_registry_error, providers, source_slug,
+        assert_canonical_source_slug, former_source_slugs, is_canonical_source_slug,
+        parse_registry, provider_id, provider_registry_error, providers, renamed_source_slugs,
+        source_slug,
     };
     use crate::bronze::{build_bronze_object_key, BronzeObjectKeyParts};
 
@@ -319,6 +363,26 @@ mod tests {
     fn an_unreadable_registry_is_an_error_not_an_empty_list() {
         assert!(parse_registry("{}").is_err());
         assert!(parse_registry(r#"{"providers": {"x": {}}}"#).is_err());
+        assert!(parse_registry(r#"{"providers": {}}"#).is_err());
+    }
+
+    /// A renamed source keeps its provider and is canonical on both sides, and an id is renamed
+    /// once (root ADR-0626 §4; G1 holds the endpoint catalog to the same list).
+    #[test]
+    fn every_renamed_source_keeps_its_provider_and_names_one_new_id() {
+        let renamed = renamed_source_slugs();
+        assert!(!renamed.is_empty());
+        for (old, new) in renamed {
+            assert!(is_canonical_source_slug(old), "{old}");
+            assert!(is_canonical_source_slug(new), "{new}");
+            assert_eq!(
+                old.split_once("__").map(|(p, _)| p),
+                new.split_once("__").map(|(p, _)| p)
+            );
+            assert!(!renamed.contains_key(new), "{new} is renamed again");
+            assert!(former_source_slugs(new).contains(&old.as_str()));
+        }
+        assert!(former_source_slugs("datagokr__building_register_main").is_empty());
     }
 
     #[test]

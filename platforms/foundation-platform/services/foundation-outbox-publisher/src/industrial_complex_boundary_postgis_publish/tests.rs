@@ -19,8 +19,8 @@ use super::{is_positive_decimal, is_sha256_hex, is_uuid_v5, read_rows, Config};
 const LAKEHOUSE_COMPLEX_ID: &str = "7df3859c-1111-51fa-8222-333344445555";
 const LOCAL_COMPLEX_ID: &str = "01a0136d-1111-7e61-8222-333344445555";
 const OFFICIAL_CODE: &str = "999ZZ0";
-const SOURCE_SNAPSHOT_ID: &str = "vworldkr__sandan_boundary-publish-test";
-const SOURCE_OBJECT_KEY: &str = "bronze/vworldkr__sandan_boundary/publish-test.zip";
+const SOURCE_SNAPSHOT_ID: &str = "vworldkr__industrial_complex_boundary-publish-test";
+const SOURCE_OBJECT_KEY: &str = "bronze/vworldkr__industrial_complex_boundary/publish-test.zip";
 /// A well-formed little-endian WKB polygon is not needed here: nothing in `read_rows` parses WKB,
 /// it only hashes the bytes. PostGIS is what refuses a payload that is not a polygon.
 const GEOMETRY_WKB_HEX: &str = "0103000000";
@@ -154,7 +154,10 @@ fn a_row_from_another_snapshot_is_refused() {
             line(
                 LAKEHOUSE_COMPLEX_ID,
                 OFFICIAL_CODE,
-                &[("source_snapshot_id", "vworldkr__sandan_boundary-other")],
+                &[(
+                    "source_snapshot_id",
+                    "vworldkr__industrial_complex_boundary-other"
+                )],
             )
         ),
     );

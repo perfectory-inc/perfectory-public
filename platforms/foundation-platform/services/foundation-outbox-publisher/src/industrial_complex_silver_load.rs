@@ -4,13 +4,15 @@
 //! Two commands, run by `industrial-complex-silver-load.sh` around the two that already build the
 //! export:
 //!
-//! 1. `plan-industrial-complex-silver-inputs` lists the Bronze prefixes of the export's inputs on R2
-//!    (the lakehouse reader key) and takes the newest object of each: the profile workbook, the ILIS
-//!    complex list and notice list, the ILIS detail of each complex the list lacks (the newest per
-//!    complex), and the V-World district boundary whose `.dbf` is the district authority. When the
-//!    table's commits record every one of them (`load_ingested_batch_objects`), nothing is owed and
-//!    nothing is fetched. Otherwise it fetches them into the run's directory under their own keys,
-//!    the layout the two builders read (`bronze/source=<slug>/…`), and writes `plan.json`.
+//! 1. `plan-industrial-complex-silver-inputs` reads the Bronze objects of the export's inputs from
+//!    the ledger (root ADR-0626 §4; it listed R2) and takes the newest landed object of each: the
+//!    profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the
+//!    list lacks (the newest per complex), and the V-World district boundary whose `.dbf` is the
+//!    district authority. When the table's commits record every one of them
+//!    (`load_ingested_batch_objects`), under its key or a key it had before the Bronze epoch, nothing
+//!    is owed and nothing is fetched. Otherwise it fetches them into the run's directory under their
+//!    own keys (the lakehouse reader key), the layout the two builders read
+//!    (`bronze/source=<slug>/…`), and writes `plan.json`.
 //! 2. `build-industrial-complex-address-resolution` and `export-industrial-complex-bronze-raw-jsonl`
 //!    build the export from that directory, unchanged.
 //! 3. `load-industrial-complex-silver` stages the export in `DuckDB`
@@ -31,8 +33,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Context};
-use chrono::{DateTime, Utc};
-use foundation_outbox::object_storage::{R2InventoryRequest, R2ObjectStorageConfig};
+use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use foundation_outbox::R2ObjectStorage;
 use foundation_publisher_core::lakehouse_data_commit::{
     AppendOutcome, DataAppend, LakehouseDataCommitter, TableField, TableShape,
@@ -45,11 +46,11 @@ use lakehouse_domain::SILVER_INDUSTRIAL_COMPLEXES;
 use lakehouse_infrastructure::IcebergRestCatalog;
 use serde_json::{json, Value};
 
+use crate::bronze_ledger_objects::{ledger_from_env, objects_of, LedgerObject};
 use crate::public_data_control_support::{required_env_value, write_json_file};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_SILVER";
 const PLAN_SCHEMA: &str = "foundation-platform.industrial_complex_silver_inputs.v1";
-const LIST_PAGE: i32 = 1000;
 
 /// One input of the export: a Bronze source and how its newest object is chosen.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,7 +66,7 @@ pub(crate) struct Input {
 /// What the export is built from (`build-industrial-complex-address-resolution` reads them all).
 pub(crate) const INPUTS: [Input; 5] = [
     Input {
-        source_slug: "vworldkr__sandan_profile",
+        source_slug: "vworldkr__industrial_complex_profile",
         extension: "zip",
         per_complex: false,
     },
@@ -91,13 +92,6 @@ pub(crate) const INPUTS: [Input; 5] = [
     },
 ];
 
-/// One Bronze object as R2 lists it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Listed {
-    pub(crate) key: String,
-    pub(crate) last_modified: DateTime<Utc>,
-}
-
 /// The `complex=<code>` segment of a per-complex key.
 fn complex_of(key: &str) -> Option<&str> {
     key.split('/')
@@ -105,14 +99,17 @@ fn complex_of(key: &str) -> Option<&str> {
         .filter(|code| !code.is_empty())
 }
 
-/// The newest object of `input` among `listed` (its own prefix), or of each complex: newest by
-/// R2's modification time, then by key.
+/// The newest object of `input` among `listed` (its own source), or of each complex: newest by when
+/// it landed (its ledger row, which a re-key keeps), then by key.
 ///
 /// # Errors
 /// A source with no object of its extension: the export cannot be built without it.
-pub(crate) fn newest(input: &Input, listed: &[Listed]) -> anyhow::Result<Vec<String>> {
+pub(crate) fn newest<'a>(
+    input: &Input,
+    listed: &'a [LedgerObject],
+) -> anyhow::Result<Vec<&'a LedgerObject>> {
     let suffix = format!(".{}", input.extension);
-    let mut chosen: BTreeMap<&str, &Listed> = BTreeMap::new();
+    let mut chosen: BTreeMap<&str, &LedgerObject> = BTreeMap::new();
     for object in listed
         .iter()
         .filter(|object| object.key.to_ascii_lowercase().ends_with(&suffix))
@@ -125,9 +122,9 @@ pub(crate) fn newest(input: &Input, listed: &[Listed]) -> anyhow::Result<Vec<Str
         } else {
             ""
         };
-        let newer = chosen.get(group).is_none_or(|held| {
-            (object.last_modified, &object.key) > (held.last_modified, &held.key)
-        });
+        let newer = chosen
+            .get(group)
+            .is_none_or(|held| (object.landed_at, &object.key) > (held.landed_at, &held.key));
         if newer {
             chosen.insert(group, object);
         }
@@ -140,7 +137,7 @@ pub(crate) fn newest(input: &Input, listed: &[Listed]) -> anyhow::Result<Vec<Str
             input.source_slug
         );
     }
-    Ok(chosen.values().map(|object| object.key.clone()).collect())
+    Ok(chosen.into_values().collect())
 }
 
 /// Where a key lands in the run's directory: under its own key, the layout the builders read.
@@ -158,43 +155,34 @@ fn mirror_path(root: &Path, key: &str) -> anyhow::Result<PathBuf> {
     Ok(root.join(key))
 }
 
-fn parse_modified(key: &str, value: Option<&str>) -> anyhow::Result<DateTime<Utc>> {
-    let text = value.with_context(|| format!("R2 lists {key} without a modification time"))?;
-    DateTime::parse_from_rfc3339(text)
-        .map(|at| at.with_timezone(&Utc))
-        .with_context(|| format!("R2 lists {key} with an unreadable modification time {text:?}"))
-}
-
 /// `plan-industrial-complex-silver-inputs`: chooses the inputs, asks the table, fetches what is
 /// owed and writes `plan.json` in `..._WORK_DIR`. Its last stdout line says `owed` or `unchanged`.
 ///
 /// # Errors
-/// R2 or the catalog cannot be read, a source has no object, or a file cannot be written.
+/// The ledger, R2 or the catalog cannot be read, a source has no object, or a file cannot be
+/// written.
 pub(crate) async fn plan() -> anyhow::Result<()> {
     let work = PathBuf::from(required_env_value(&format!("{PREFIX}_WORK_DIR"))?);
     let storage = R2ObjectStorage::from_config(
         R2ObjectStorageConfig::lakehouse_reader_from_env()
             .context("the industrial-complex Silver plan reads R2 with the lakehouse reader key")?,
     );
+    let ledger = ledger_from_env().await?;
+    let slugs = INPUTS
+        .iter()
+        .map(|input| input.source_slug.to_owned())
+        .collect::<Vec<_>>();
+    let listed = objects_of(&ledger, &slugs).await?;
+    ledger.close().await;
     let mut chosen = Vec::new();
     for input in &INPUTS {
-        let prefix = format!("bronze/source={}/", input.source_slug);
-        let report = storage
-            .inventory_audit(R2InventoryRequest::new(Some(&prefix), Some(LIST_PAGE))?)
-            .await
-            .with_context(|| format!("failed to list {prefix}"))?;
-        let listed = report
-            .objects()
+        let own = listed
             .iter()
-            .map(|object| {
-                Ok(Listed {
-                    key: object.key.clone(),
-                    last_modified: parse_modified(&object.key, object.last_modified.as_deref())?,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        for key in newest(input, &listed)? {
-            chosen.push((input.source_slug, key));
+            .filter(|object| object.source_slug == input.source_slug)
+            .cloned()
+            .collect::<Vec<_>>();
+        for object in newest(input, &own)? {
+            chosen.push((input.source_slug, object.clone()));
         }
     }
     let catalog = IcebergRestCatalog::new(read_catalog_config()?)?;
@@ -204,13 +192,14 @@ pub(crate) async fn plan() -> anyhow::Result<()> {
         .with_context(|| format!("{TABLE} does not exist"))?;
     let unrecorded = chosen
         .iter()
-        .filter(|(_, key)| !recorded.contains(key))
-        .map(|(_, key)| key.clone())
+        .filter(|(_, object)| !object.is_recorded_in(&recorded))
+        .map(|(_, object)| object.key.clone())
         .collect::<Vec<_>>();
     let owed = !unrecorded.is_empty();
     let bronze_root = work.join("bronze-root");
     let mut objects = Vec::with_capacity(chosen.len());
-    for (slug, key) in &chosen {
+    for (slug, object) in &chosen {
+        let key = &object.key;
         let path = mirror_path(&bronze_root, key)?;
         if owed {
             if let Some(parent) = path.parent() {
@@ -229,7 +218,7 @@ pub(crate) async fn plan() -> anyhow::Result<()> {
     let boundary = chosen
         .iter()
         .find(|(slug, _)| *slug == "vworldkr__boundary_sigungu")
-        .map(|(_, key)| key.clone())
+        .map(|(_, object)| object.key.clone())
         .context("no district boundary was chosen")?;
     let plan = json!({
         "schema_version": PLAN_SCHEMA,

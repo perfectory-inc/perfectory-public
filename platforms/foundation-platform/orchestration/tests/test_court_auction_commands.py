@@ -60,20 +60,20 @@ if sys.argv[1] == "load-courtauction-go-kr-silver":
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
 prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
-assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__auction_item"},
-                         {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"},
-                         {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"},
-                         {"silver.court_auction_appraisal_point": "courtauctiongokr__auction_item_detail"},
-                         {"silver.court_auction_code": "courtauctiongokr__auction_common_code"},
-                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_detail"},
-                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_survey"},
-                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_appraisal"},
-                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_filing"},
-                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_survey_report"},
-                         {"silver.court_auction_appraisal_report_read": "courtauctiongokr__auction_appraisal_report"},
-                         {"silver.court_auction_sale_specification_read": "courtauctiongokr__auction_sale_specification"},
-                         {"silver.court_auction_sale_notice_item": "courtauctiongokr__auction_sale_notice"},
-                         {"silver.court_auction_dividend_object": "courtauctiongokr__auction_dividend_notice"}), (table, slug)
+assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__item"},
+                         {"silver.court_auction_sale_result": "courtauctiongokr__sale_result"},
+                         {"silver.court_auction_item_detail": "courtauctiongokr__item_detail"},
+                         {"silver.court_auction_appraisal_point": "courtauctiongokr__item_detail"},
+                         {"silver.court_auction_code": "courtauctiongokr__common_code"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__case_detail"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__case_survey"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__case_appraisal"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__case_filing"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__case_survey_report"},
+                         {"silver.court_auction_appraisal_report_read": "courtauctiongokr__appraisal_report"},
+                         {"silver.court_auction_sale_specification_read": "courtauctiongokr__sale_specification"},
+                         {"silver.court_auction_sale_notice_item": "courtauctiongokr__sale_notice"},
+                         {"silver.court_auction_dividend_object": "courtauctiongokr__dividend_notice"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "7")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)

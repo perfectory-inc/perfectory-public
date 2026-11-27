@@ -11,8 +11,8 @@ use foundation_shared_kernel::ids::SourceCatalogId;
 use uuid::Uuid;
 
 use super::{
-    dated_file_id, persist, plan, probe_file_id, request_form, request_spacing, source_contract,
-    CollectConfig, Fetched, DATASET_SLUG, OPERATION, PREFIX,
+    persist, plan, request_form, request_spacing, source_contract, CollectConfig, Fetched,
+    DATASET_SLUG, OPERATION, PREFIX, PROBE_FILE_ID, TABLE_FILE_ID,
 };
 
 fn at() -> chrono::DateTime<chrono::Utc> {
@@ -21,10 +21,10 @@ fn at() -> chrono::DateTime<chrono::Utc> {
         .unwrap_or_default()
 }
 
-fn table(at: chrono::DateTime<chrono::Utc>, bytes: &[u8]) -> Fetched {
+fn table(bytes: &[u8]) -> Fetched {
     Fetched {
-        provider_file_id: dated_file_id(at),
-        provider_file_name: format!("{}.html", dated_file_id(at)),
+        provider_file_id: TABLE_FILE_ID.to_owned(),
+        provider_file_name: format!("{TABLE_FILE_ID}.html"),
         content_type: "text/html;charset=UTF-8".to_owned(),
         bytes: bytes.to_vec(),
     }
@@ -62,7 +62,7 @@ fn the_probe_is_the_table_form_narrowed_by_its_change_window() -> anyhow::Result
     assert!(full.iter().all(|pair| probe.contains(pair)));
     assert!(probe.contains(&("stdate".to_owned(), "2099-01-02".to_owned())));
     assert!(probe.contains(&("enddate".to_owned(), "9999-12-31".to_owned())));
-    assert_ne!(probe_file_id(at()), dated_file_id(at()));
+    assert_ne!(PROBE_FILE_ID, TABLE_FILE_ID);
     Ok(())
 }
 
@@ -91,14 +91,16 @@ fn the_notice_board_is_not_a_source() -> anyhow::Result<()> {
 }
 
 #[test]
-fn the_object_key_follows_the_bulk_layout_and_names_the_second_it_was_taken() -> anyhow::Result<()>
-{
+fn the_object_key_follows_the_bulk_layout_and_names_the_bytes_not_the_run() -> anyhow::Result<()> {
     let run = foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4());
-    // The snapshot loader recognises a code.go.kr table by this prefix
-    // (legal_dong_code_snapshot_to_reference.py, CODE_GO_KR_TABLE_PREFIX).
+    // The snapshot loader recognises a code.go.kr table by this prefix (CODE_GO_KR_TABLE_PREFIX).
+    let planned = plan(&table(b"<table></table>"), run, at())?;
     assert_eq!(
-        plan(&table(at(), b"<table></table>"), run, at())?.object_key.as_str(),
-        "bronze/source=codegokr__legal_dong_code_table/operation=regCodeL/regcode-20990102T030405Z.html"
+        planned.object_key.as_str(),
+        format!(
+            "bronze/source=codegokr__legal_dong_code/operation=regCodeL/regcode--sha256-{}.html",
+            planned.checksum_sha256
+        )
     );
     Ok(())
 }
@@ -224,7 +226,7 @@ async fn a_table_is_committed_once_and_a_local_copy_kept() -> anyhow::Result<()>
         output_dir: root.join("out"),
         changed_since: None,
     };
-    let fetched = table(at(), b"<table><tr><td>synthetic</td></tr></table>");
+    let fetched = table(b"<table><tr><td>synthetic</td></tr></table>");
     let storage = FileObjectStorage::new(root.join("bronze"))?;
     let uow = RecordingUow::default();
     let object = persist(&config, &fetched, at(), &uow, &storage).await?;
@@ -246,22 +248,19 @@ async fn a_table_is_committed_once_and_a_local_copy_kept() -> anyhow::Result<()>
             .len(),
         1
     );
-    // Different bytes under one run's key are refused, never overwritten.
-    let changed = table(at(), b"<table>changed</table>");
-    assert!(persist(&config, &changed, at(), &uow, &storage)
-        .await
-        .is_err());
-    // The next day's table is its own object beside the first.
+    // A changed table, the same run or the next day, is its own object beside the first: the key
+    // names the bytes, never the run (root ADR-0152, ADR-0626 rule 5).
     let later = at() + chrono::Duration::days(1);
     let next = persist(
         &config,
-        &table(later, b"<table>next</table>"),
+        &table(b"<table>changed</table>"),
         later,
         &uow,
         &storage,
     )
     .await?;
     assert_ne!(next.object_key, object.object_key);
+    assert!(root.join("bronze").join(&object.object_key).exists());
     std::fs::remove_dir_all(&root)?;
     assert!(PREFIX.starts_with("FOUNDATION_PLATFORM_"));
     Ok(())

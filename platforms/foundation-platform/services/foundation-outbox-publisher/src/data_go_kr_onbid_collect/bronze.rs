@@ -13,16 +13,14 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-use super::{run_id, Api, Endpoint, SourceContract, PROVIDER};
+use super::{Api, Endpoint, SourceContract, PROVIDER};
 use crate::bronze_line_objects::{JsonLinesWriter, LineObject, LineObjects, Target};
 
-/// The provider file id of one API's object of one run.
-pub(crate) fn file_id(api: Api, at: DateTime<Utc>) -> String {
-    format!(
-        "{}-{}",
-        api.name().replace('_', "-"),
-        run_id(at).to_ascii_lowercase()
-    )
+/// The provider file id of one API's object: the API's name. The key adds the object's checksum
+/// (root ADR-0152), so two runs' answers are two objects and the same answer is one; when a run
+/// collected it is its ledger row's `collected_at`, never a part of the key (root ADR-0626 rule 5).
+pub(crate) fn file_id(api: Api) -> String {
+    api.name().replace('_', "-")
 }
 
 /// One landed (or, in a dry run, planned) object, as the manifest names it.
@@ -58,8 +56,8 @@ where
             source: source_catalog_entry(contract, endpoint, at)?,
             operation: &endpoint.operation,
             collected_at: at,
-            file_id: Box::new(move |_| file_id(api, at)),
-            content_qualified: false,
+            file_id: Box::new(move |_| file_id(api)),
+            content_qualified: true,
             params: Box::new(|| JsonValue::Null),
         },
         Target::of(live, output_dir),

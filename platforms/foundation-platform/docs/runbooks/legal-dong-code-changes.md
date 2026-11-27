@@ -24,7 +24,7 @@ last_reviewed: 2026-10-05
 | 수집 작업 일정·풀·켜짐 | `orchestration/jobs.v1.json` 의 `legal_dong_code_changes`, `parcel_number_change_history` (둘 다 default_pool, Spark 없음) |
 | 수집 실행 계정·환경·시간 상한 | `infra/systemd/foundation-legal-dong-code.service` → `scripts/ops/legal-dong-code-collect.sh` |
 | 적재·짝 맞추기 | `lineage_stewardship` 단위의 첫 단계, `scripts/ops/legal-dong-code-load.sh` |
-| 응답 원본 | Bronze `codegokr__legal_dong_code_table` |
+| 응답 원본 | Bronze `codegokr__legal_dong_code` |
 | 파서·짝 규칙 | `infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py` (지번 집합은 `parcel_lineage.py` 의 것을 쓴다) |
 | 표 | `reference.legal_dong_code_snapshot`(원본), `reference.legal_dong_code_change`(정본, 유일하게 쓰는 표) |
 | 지번 근거 | `silver.parcel_boundaries` 의 스냅숏 둘(개편 전·후). 필지 계보는 근거가 아니다(계보가 이 표를 읽는다) |

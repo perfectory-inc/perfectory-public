@@ -15,6 +15,9 @@ pub mod operation_dataset_slug;
 /// Provider-side acquisition jobs for non-plain-HTTP sources.
 pub mod provider_acquisition;
 
+/// The run stamp a Bronze leaf may not carry (root ADR-0626 G5).
+pub mod run_stamp;
+
 /// Canonical Collection source-slug generator.
 pub mod source_slug;
 
@@ -40,9 +43,11 @@ pub use provider_acquisition::{
     ProviderAcquisitionError, ProviderAcquisitionEvidence, ProviderAcquisitionJob,
     ProviderAcquisitionMethod, ProviderAcquisitionResource,
 };
+pub use run_stamp::run_stamp_range;
 pub use source_slug::{
-    assert_canonical_source_slug, is_canonical_source_slug, provider_id, provider_registry_error,
-    providers, source_slug, Provider, SourceSlugError,
+    assert_canonical_source_slug, former_source_slugs, is_canonical_source_slug, provider_id,
+    provider_registry_error, providers, renamed_source_slugs, source_slug, Provider,
+    SourceSlugError,
 };
 pub use vworld_cadastral::{
     dedupe_vworld_cadastral_features_by_pnu, VWorldCadastralDedupedFeature,

@@ -893,6 +893,15 @@ fn validate_leaf_name(value: &str) -> Result<(), BronzeObjectKeyError> {
             "must be a readable provider file/page identity, not an opaque hash/uuid digest",
         ));
     }
+    // G5 (root ADR-0626 rule 5, §7): the leaf carries no run stamp. A stamp made each retry a new
+    // key and a new ledger row (3,969 of them in 24 sources, F12), and readers parsed it back as
+    // the snapshot time; when an object was collected is the ledger's `collected_at`.
+    if crate::run_stamp::run_stamp_range(value).is_some() {
+        return Err(invalid_bronze_key_part(
+            "leaf_name",
+            "must not carry a run stamp (YYYYMMDDtHHMMSSz); when an object was collected is the              ledger's collected_at, and a key that names its bytes is --sha256-<hex> (root ADR-0152)",
+        ));
+    }
     Ok(())
 }
 
@@ -1318,6 +1327,37 @@ mod tests {
             .is_err(),
             "operation already represented by source_slug must not be repeated in the path"
         );
+    }
+
+    /// G5 (root ADR-0626 §7): a leaf carries no run stamp, in either case; a provider number
+    /// that only holds digits is not one.
+    #[test]
+    fn a_leaf_carries_no_run_stamp() {
+        let key = |leaf: &str| {
+            build_bronze_object_key(BronzeObjectKeyParts {
+                source_slug: "courtauctiongokr__item",
+                partition_path: "operation=searchControllerMain",
+                leaf_name: leaf,
+                extension: "gz",
+            })
+        };
+        for stamped in [
+            "item-20991231t235959z",
+            "item-detail-part0001-20991231t235959z",
+            "regcode-20991231T235959Z",
+            "notice-detail-20991231t235959z-000",
+        ] {
+            assert!(key(stamped).is_err(), "{stamped} carries a run stamp");
+        }
+        for leaf in [
+            "item",
+            "item-detail-part0001",
+            "OPN209912310000000002",
+            "20991231DS00160-128",
+            "page-000001",
+        ] {
+            assert!(key(leaf).is_ok(), "{leaf} carries no run stamp");
+        }
     }
 
     /// Opaque hash / uuid values are forbidden as partition values and as leaf stems.

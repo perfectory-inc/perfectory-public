@@ -44,7 +44,9 @@ fn bronze_zip(
     types: &[&str],
     projection: &str,
 ) -> anyhow::Result<()> {
-    let source_dir = root.join("bronze").join("source=vworldkr__sandan_boundary");
+    let source_dir = root
+        .join("bronze")
+        .join("source=vworldkr__industrial_complex_boundary");
     fs::create_dir_all(&source_dir)?;
     let rows = codes
         .iter()
@@ -69,7 +71,7 @@ fn bronze_zip(
 fn config(root: &Path) -> BoundarySilverExportConfig {
     BoundarySilverExportConfig {
         bronze_local_object_root: root.to_path_buf(),
-        source_slug: "vworldkr__sandan_boundary".to_owned(),
+        source_slug: "vworldkr__industrial_complex_boundary".to_owned(),
         source_object: None,
         output_path: root.join("out").join("boundaries.jsonl"),
         summary_path: Some(root.join("out").join("summary.json")),

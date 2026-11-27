@@ -190,7 +190,7 @@ mod tests {
     fn the_groups_are_asked_as_the_sites_screen_asks_them() {
         let contract = super::super::source_contract().expect("the contract parses");
         let codes = &contract.common_codes;
-        assert_eq!(codes.as_search().dataset_slug, "auction_common_code");
+        assert_eq!(codes.as_search().dataset_slug, "common_code");
         // The shape `sccdo.js loadIntgCdLst` sends, measured 2026-11-12 (one answer, 277 codes).
         assert_eq!(
             codes.request_value(),

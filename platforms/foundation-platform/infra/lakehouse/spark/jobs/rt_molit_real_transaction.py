@@ -575,12 +575,15 @@ def month_of(object_key: str) -> str:
     return found.group(1) + found.group(2)
 
 
-def snapshot_id(last_modified: str | None, object_key: str) -> str:
-    """The object's landing time as `YYYYMMDDTHHMMSSZ`: the edition of a content-qualified export."""
+def snapshot_id(landed_at: str | None, object_key: str) -> str:
+    """The object's landing time as `YYYYMMDDTHHMMSSZ`: the edition of a content-qualified export.
 
-    if not last_modified:
-        raise ValueError(f"{object_key}: the plan carries no last_modified")
-    landed = datetime.fromisoformat(last_modified.replace("Z", "+00:00")).astimezone(timezone.utc)
+    `landed_at` is the ledger row's creation the plan carries (root ADR-0626 §4: plan-silver-load-objects
+    reads the ledger, and a re-key keeps the row's creation where a copy would reset R2's)."""
+
+    if not landed_at:
+        raise ValueError(f"{object_key}: the plan carries no landed_at")
+    landed = datetime.fromisoformat(landed_at.replace("Z", "+00:00")).astimezone(timezone.utc)
     return landed.strftime("%Y%m%dT%H%M%SZ")
 
 
@@ -596,7 +599,7 @@ def planned_objects(plan_dirs: Sequence[Path], contract: Mapping[str, Any]) -> l
             objects.append({"object_key": entry["object_key"],
                             "dataset": dataset_of(entry["source_slug"], contract),
                             "month": month_of(entry["object_key"]),
-                            "source_snapshot_id": snapshot_id(entry.get("last_modified"), entry["object_key"]),
+                            "source_snapshot_id": snapshot_id(entry.get("landed_at"), entry["object_key"]),
                             "path": plan_dir / entry["local_path"]})
     return sorted(objects, key=lambda o: (o["source_snapshot_id"], o["object_key"]))
 
