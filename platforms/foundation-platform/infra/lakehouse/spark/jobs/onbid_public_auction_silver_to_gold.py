@@ -54,6 +54,8 @@ LINEAGE_SOURCE = "silver.parcel_lineage"
 KEY = ("cltr_mng_no", "pbct_cdtn_no")
 # The media belong to the item, not to a round (root ADR-0339): every round of an item carries them.
 ITEM = "cltr_mng_no"
+# names-are-declared-once: no contract declares this table; it is read only when a pin names it, which no
+# producer writes (root ADR-0626 §7 finding, 2026-11-28). It leaves with this Spark job.
 USAGE_CODE_SOURCE = "reference.onbid_usage_code"
 PHOTO_SOURCE = "silver.onbid_real_estate_item_photo"
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"

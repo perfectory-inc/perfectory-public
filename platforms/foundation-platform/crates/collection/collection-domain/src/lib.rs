@@ -41,8 +41,8 @@ pub use provider_acquisition::{
     ProviderAcquisitionMethod, ProviderAcquisitionResource,
 };
 pub use source_slug::{
-    assert_canonical_source_slug, is_canonical_source_slug, provider_id, source_slug,
-    SourceSlugError, APPROVED_PROVIDER_DOMAINS,
+    assert_canonical_source_slug, is_canonical_source_slug, provider_id, provider_registry_error,
+    providers, source_slug, Provider, SourceSlugError,
 };
 pub use vworld_cadastral::{
     dedupe_vworld_cadastral_features_by_pnu, VWorldCadastralDedupedFeature,

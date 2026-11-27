@@ -190,3 +190,5 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
 ---
 
 2026-11-20 각주: 결정 3 이 `Editions.per` 의 예로 든 `silver.parcel_number_change_history` 는 더 이상 `Editions` 가 아니다. [ADR-0318](./0318-the-remaining-silver-lanes-append-their-changed-keys-compared-bucket-by-bucket.md) §8 부터 적재가 표에 없는 행만 붙이므로 판 하나가 전체 이력이 아니다. 계약은 `Events` 로 선언하고 모든 행을 읽는다(ADR-0318 의 2026-11-20 각주). 필수 열 `source_region_code` 는 그대로 남는다.
+
+2026-11-28 각주: 표 이름은 행이 쌓이는 방식을 말하지 않는다(`_versions` 없음). 그것은 `row_versions` 만 말한다([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) 규칙 7).

@@ -30,3 +30,5 @@ ADR-0233 으로 필지 종류 6레인을 조각 없이 g2 로 다시 굽는다. 
 - 레인마다 g2 가 서빙된 지 7일 뒤 첫 예약 실행에서 g1 이 지워진다. R2 삭제는 과금되지 않는다.
 - 7일이 지나면 g1 을 이름한 manifest 기록으로는 되돌릴 수 없다. 그 뒤의 되돌리기는 Gold 에서 다시 굽는 것이다.
 - 패치 세대도 그 기본 세대 아래에 있으므로 함께 지워진다.
+
+2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) 규칙 4): 세대 표시의 철자는 서빙 다시 짓기에서 `generation=<n>/patch=<n>` 이 된다. 순서와 은퇴를 manifest 가 말하는 이 ADR 의 규칙은 그대로다.

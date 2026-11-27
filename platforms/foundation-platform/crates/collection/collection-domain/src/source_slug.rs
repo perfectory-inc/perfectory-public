@@ -1,9 +1,11 @@
 //! Canonical Bronze `source_slug` generator (the single SSOT producer).
 //!
-//! `source_slug = providerid(provider) + "__" + dataset_slug` (ADR 0014 D1/D2/D3).
+//! `source_slug = providerid + "__" + dataset_slug` (FP-ADR-0014 D1/D3, root ADR-0626 rule 2).
 //!
-//! - `provider` is the catalog-native provider label (e.g. `data.go.kr`), mapped to a stable,
-//!   engine-portable `providerid` (e.g. `datagokr`) by [`provider_id`].
+//! - The `providerid` is a fixed key of the naming registry (root ADR-0626 §3,
+//!   `config/naming.contract.json`, generated from `definitions/platform.definition.json`). It is
+//!   never derived from a host name at run time: the catalog-native provider label (e.g.
+//!   `data.go.kr`) is one of the key's `domains`, an attribute. [`provider_id`] looks it up.
 //! - `dataset_slug` is the canonical *semantic* dataset identity in `snake_case` (e.g.
 //!   `building_register_main`). It is **distinct from** the provider-native `operation`
 //!   (e.g. `getBrTitleInfo`); the generator takes `dataset_slug`, never `operation`.
@@ -12,12 +14,19 @@
 //! slugs, fallback formatters) is intended to route through [`source_slug`] so the slug has exactly
 //! one origin and cannot silently diverge.
 
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+use serde::Deserialize;
 use thiserror::Error;
+
+/// The naming registry (root ADR-0626 §1): generated, never committed (root ADR-0418).
+const NAMING_CONTRACT: &str = include_str!("../../../../config/naming.contract.json");
 
 /// Validation error returned by the canonical Collection source-slug rules.
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum SourceSlugError {
-    /// Provider is outside the owner-approved provider map.
+    /// Provider is outside the owner-approved provider registry.
     #[error("unknown provider for source_slug generation: {0:?}")]
     UnknownProvider(String),
 
@@ -29,49 +38,71 @@ pub enum SourceSlugError {
 
     /// Complete source slug does not match the canonical provider/dataset grammar.
     #[error(
-        "non-canonical Bronze source_slug {0:?}: must use an approved providerid and lowercase snake_case dataset_slug"
+        "non-canonical Bronze source_slug {0:?}: must use a registered providerid and lowercase snake_case dataset_slug"
     )]
     NonCanonicalSourceSlug(String),
 }
 
-/// The owner-approved set of canonical provider domain labels (ADR 0032).
-///
-/// This is the only manually maintained provider-identity list. A canonical `providerid` is always
-/// derived by removing `.` from one of these labels, so a label and its id cannot drift apart.
-pub const APPROVED_PROVIDER_DOMAINS: [&str; 11] = [
-    "vworld.kr",
-    "data.go.kr",
-    "rt.molit.go.kr",
-    "hub.go.kr",
-    "juso.go.kr",
-    "mois.go.kr",
-    "factoryon.go.kr",
-    "industryland.or.kr",
-    // 행정표준코드관리시스템: the owner chose it as the 법정동 code change source (root ADR-0143).
-    "code.go.kr",
-    // 법원경매정보: the owner decided to collect it, openly and politely (root ADR-0280, ADR-0281).
-    "courtauction.go.kr",
-    // 한국산업단지공단: its sale board carries the notices of the complexes it develops itself, which
-    // the ILIS registry does not (owner approval 2026-11-22, root ADR-0603).
-    "kicox.or.kr",
-];
+/// One provider of the naming registry: its fixed id and the domain labels that name it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct Provider {
+    /// The fixed registry key, the left half of every source id (root ADR-0626 rule 1).
+    #[serde(skip)]
+    pub id: String,
+    /// The catalog-native provider labels (domains) of this provider, attributes of the key.
+    pub domains: Vec<String>,
+}
 
-/// Maps a catalog-native `provider` label to its canonical, engine-portable `providerid`.
+#[derive(Deserialize)]
+struct Registry {
+    providers: BTreeMap<String, Provider>,
+}
+
+fn registry() -> &'static Result<Vec<Provider>, String> {
+    static PROVIDERS: OnceLock<Result<Vec<Provider>, String>> = OnceLock::new();
+    PROVIDERS.get_or_init(|| parse_registry(NAMING_CONTRACT))
+}
+
+fn parse_registry(text: &str) -> Result<Vec<Provider>, String> {
+    let registry: Registry = serde_json::from_str(text).map_err(|error| {
+        format!("config/naming.contract.json does not parse (run declared_definitions.py generate): {error}")
+    })?;
+    Ok(registry
+        .providers
+        .into_iter()
+        .map(|(id, provider)| Provider { id, ..provider })
+        .collect())
+}
+
+/// The registered providers, in id order; empty when the registry cannot be read
+/// ([`provider_registry_error`] says why, and this crate's tests refuse it).
+#[must_use]
+pub fn providers() -> &'static [Provider] {
+    registry().as_ref().map_or(&[], Vec::as_slice)
+}
+
+/// Why the provider registry could not be read, or `None`.
+#[must_use]
+pub fn provider_registry_error() -> Option<&'static str> {
+    registry().as_ref().err().map(String::as_str)
+}
+
+/// Maps a catalog-native `provider` label (a domain) to its registered `providerid`.
 ///
-/// Returns `None` for any provider outside [`APPROVED_PROVIDER_DOMAINS`]. An unknown provider is a
-/// hard error for the slug generator. Every returned id is derived from its domain by removing only
-/// `.` (ADR 0032), never by consulting a second mapping table.
+/// Returns `None` for any label no registered provider names. An unknown provider is a hard error
+/// for the slug generator. The id is the registry's key, never computed from the label.
 #[must_use]
 pub fn provider_id(provider: &str) -> Option<String> {
-    APPROVED_PROVIDER_DOMAINS
-        .contains(&provider)
-        .then(|| provider.replace('.', ""))
+    providers()
+        .iter()
+        .find(|entry| entry.domains.iter().any(|domain| domain == provider))
+        .map(|entry| entry.id.clone())
 }
 
 /// Produces the canonical Bronze `source_slug` for `(provider, dataset_slug)`.
 ///
 /// # Errors
-/// - the `provider` is not in [`APPROVED_PROVIDER_DOMAINS`] (see [`provider_id`]);
+/// - no registered provider names the `provider` label (see [`provider_id`]);
 /// - the `dataset_slug` is empty, or does not match `^[a-z0-9][a-z0-9_]*$` (lowercase ASCII,
 ///   `snake_case`, no `-`, and no leading/trailing `_`).
 ///
@@ -103,9 +134,8 @@ fn is_canonical_dataset_slug(dataset_slug: &str) -> bool {
     bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-/// Returns `true` iff `slug` is exactly `"{providerid}__{dataset_slug}"` where `providerid` is
-/// derived from one of [`APPROVED_PROVIDER_DOMAINS`] and `dataset_slug` matches
-/// `^[a-z0-9][a-z0-9_]*$`.
+/// Returns `true` iff `slug` is exactly `"{providerid}__{dataset_slug}"` where `providerid` is a
+/// key of the naming registry and `dataset_slug` matches `^[a-z0-9][a-z0-9_]*$`.
 ///
 /// This is the canonical Bronze `source_slug` shape (ADR 0014). It is the backstop the Bronze write
 /// boundary uses so a non-canonical slug (old hyphenated names, single-underscore variants, unknown
@@ -115,11 +145,7 @@ pub fn is_canonical_source_slug(slug: &str) -> bool {
     let Some((provider, dataset_slug)) = slug.split_once("__") else {
         return false;
     };
-    APPROVED_PROVIDER_DOMAINS
-        .iter()
-        .filter_map(|domain| provider_id(domain))
-        .any(|id| id == provider)
-        && is_canonical_dataset_slug(dataset_slug)
+    providers().iter().any(|entry| entry.id == provider) && is_canonical_dataset_slug(dataset_slug)
 }
 
 /// Asserts that `slug` is a canonical Bronze `source_slug` (see [`is_canonical_source_slug`]).
@@ -139,8 +165,8 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{
-        assert_canonical_source_slug, is_canonical_source_slug, provider_id, source_slug,
-        APPROVED_PROVIDER_DOMAINS,
+        assert_canonical_source_slug, is_canonical_source_slug, parse_registry, provider_id,
+        provider_registry_error, providers, source_slug,
     };
     use crate::bronze::{build_bronze_object_key, BronzeObjectKeyParts};
 
@@ -253,37 +279,46 @@ mod tests {
         assert_eq!(provider_id(""), None);
     }
 
+    /// The owner kept today's values as fixed keys (root ADR-0626 rule 1, option K, 2026-11-28): a
+    /// key once written never changes, so the set is frozen here and a change must edit this test.
     #[test]
-    fn approved_provider_domains_are_domain_shaped_and_derive_unique_ids() {
-        assert_valid_provider_domains(&APPROVED_PROVIDER_DOMAINS);
+    fn the_registry_holds_the_owners_eleven_fixed_provider_ids() {
+        assert_eq!(provider_registry_error(), None);
+        let ids: Vec<&str> = providers().iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "codegokr",
+                "courtauctiongokr",
+                "datagokr",
+                "factoryongokr",
+                "hubgokr",
+                "industrylandorkr",
+                "jusogokr",
+                "kicoxorkr",
+                "moisgokr",
+                "rtmolitgokr",
+                "vworldkr",
+            ]
+        );
     }
 
     #[test]
-    fn domain_shape_rejects_non_domains_and_accepts_or_kr_boundary() {
-        // The first four fail on label count or an empty label. `VWorld.kr` and
-        // `mixed_public.source` reach the per-byte charset check and are the only cases that
-        // exercise it: without them, replacing that predicate with `true` keeps every assertion
-        // green.
-        for invalid in [
-            "juso",
-            "VWorld",
-            "mixed_public_source",
-            "rt.molit.go.kr.",
-            "VWorld.kr",
-            "mixed_public.source",
-        ] {
-            assert!(
-                !is_domain_shaped(invalid),
-                "expected invalid domain: {invalid:?}"
-            );
+    fn every_domain_names_one_provider() {
+        let mut seen = HashSet::new();
+        for entry in providers() {
+            assert!(!entry.domains.is_empty(), "{} has no domain", entry.id);
+            for domain in &entry.domains {
+                assert!(seen.insert(domain.as_str()), "{domain} names two providers");
+                assert_eq!(provider_id(domain).as_deref(), Some(entry.id.as_str()));
+            }
         }
-        assert!(is_domain_shaped("industryland.or.kr"));
     }
 
     #[test]
-    #[should_panic(expected = "duplicate derived providerid")]
-    fn derived_provider_ids_reject_collisions() {
-        assert_valid_provider_domains(&["a.bc.kr", "ab.c.kr"]);
+    fn an_unreadable_registry_is_an_error_not_an_empty_list() {
+        assert!(parse_registry("{}").is_err());
+        assert!(parse_registry(r#"{"providers": {"x": {}}}"#).is_err());
     }
 
     #[test]
@@ -340,36 +375,5 @@ mod tests {
             key.as_str()
         );
         Ok(())
-    }
-
-    fn is_domain_shaped(provider: &str) -> bool {
-        let labels: Vec<&str> = provider.split('.').collect();
-        labels.len() >= 2
-            && labels.iter().all(|label| {
-                !label.is_empty()
-                    && label.bytes().all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
-                    })
-            })
-    }
-
-    fn assert_valid_provider_domains(domains: &[&str]) {
-        let mut ids = HashSet::with_capacity(domains.len());
-        for domain in domains {
-            assert!(
-                is_domain_shaped(domain),
-                "invalid provider domain: {domain:?}"
-            );
-            let id = domain.replace('.', "");
-            assert!(
-                id.bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-                "derived providerid must contain only lowercase ASCII letters and digits: {id:?}"
-            );
-            assert!(
-                ids.insert(id.clone()),
-                "duplicate derived providerid {id:?} from provider domain {domain:?}"
-            );
-        }
     }
 }

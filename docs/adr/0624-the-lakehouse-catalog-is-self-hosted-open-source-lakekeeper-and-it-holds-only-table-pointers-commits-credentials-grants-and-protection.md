@@ -285,3 +285,5 @@ Single-AZ 와 Multi-AZ 의 차는 월 39.85 USD 다. Single-AZ 동안 RDS 장애
 한 스택이고 입력은 `environment` 하나, 차이는 두 계약(`config/lakekeeper-dev.contract.json`·`config/lakekeeper-prod.contract.json`)에 있다. A1 의 운영
 카탈로그를 그 스택의 prod 로 적용했다(제 RDS db.t4g.small Single-AZ·자동 백업 7 일·PITR, Lakekeeper 둘·OpenFGA 둘, Cognito, 경보 다섯, 창고 R2 자격의
 빈 칸). 조정기는 `reconcile-lakehouse-catalog` 이고, prod 의 창고는 사장이 새 토큰 `perfectory-lakekeeper-prod` 를 넣은 뒤에 만든다.
+
+2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §5, §9): 조정기의 표 목록(`reconciler.tables`)은 손 목록이 아니라 전환한 구성 요소의 표 계약에서 생성한다. 네임스페이스는 `silver`·`gold` 둘이고, `reference`·`intelligence` 표는 `silver` 에 든다. 표 이름은 그 ADR 의 지도대로 전환 PR 에서 선다.

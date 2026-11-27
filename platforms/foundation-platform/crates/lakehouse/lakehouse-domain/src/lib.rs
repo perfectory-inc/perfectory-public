@@ -66,6 +66,8 @@ pub mod lakehouse_registry;
 
 /// Spark batch run summary handoff contracts.
 pub mod lakehouse_run_summary;
+/// The table-name rules of the naming registry (root ADR-0626).
+pub mod naming;
 
 pub use building_energy_monthly::{
     SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY, SILVER_BUILDING_ENERGY_MONTHLY_GAS,

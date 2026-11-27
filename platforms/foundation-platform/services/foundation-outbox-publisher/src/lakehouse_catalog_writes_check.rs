@@ -88,6 +88,7 @@ const COLUMNS: &[LakehouseColumn] = &[
 ];
 
 /// The check's own table shape: synthetic rows only, created under the `_smoke` name it is given.
+// names-are-declared-once: the dev rig's smoke table (T8), the one place root ADR-0626 rule 7 lets it live.
 const SMOKE: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.catalog_writes_check_smoke",
     layer: LakehouseLayer::Silver,

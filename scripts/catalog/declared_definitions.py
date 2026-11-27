@@ -48,6 +48,7 @@ ENDPOINTS = "platforms/foundation-platform/docs/catalog/public-source-endpoint-c
 EXAMPLE = "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
 DEFINITIONS = "platforms/foundation-platform/definitions"
 LANE_INDEX = "platforms/foundation-platform/config/by-pnu-lane-index.v1.json"
+NAMING = "platforms/foundation-platform/config/naming.contract.json"
 # HUB family files (root ADR-0551): each entry is a Silver refresh lane whose definition is derived
 # here, as its table and source contracts are in Rust (lakehouse-domain `hub_lane_family`).
 FAMILY_CONTRACTS = "platforms/foundation-platform/infra/lakehouse/contracts"
@@ -72,6 +73,9 @@ SOURCE_ARTIFACTS = tuple(dict.fromkeys(slot[0] for slot in SLOTS.values()))
 # Artifacts that were generated before this ADR: rendered from the generated sources by their own
 # renderers, never a second implementation, and held to the committed bytes.
 DERIVED_ARTIFACTS = (EXAMPLE, DEPENDENCIES, MAP, LANE_INDEX)
+# Artifacts no definition section fills: the platform definition holds them whole. The naming registry
+# is the one home of every kind of data name (root ADR-0626 §1).
+PLATFORM_ARTIFACTS = (NAMING,)
 
 
 class DefinitionError(Exception):
@@ -249,6 +253,7 @@ def generate(platform, definitions, ordered=True):
         else:
             put(documents[path], where, {i: items[name][i] for i in ids})
     job_memory(documents)
+    naming_registry(documents[NAMING])
     return documents
 
 
@@ -315,6 +320,67 @@ def job_memory(documents):
                 instances[service] = entry
     section["unit_files"] = dict(sorted(declared.items()))
     section["instances"] = dict(sorted(instances.items()))
+
+
+DOMAIN = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
+
+
+def naming_registry(naming):
+    """G1 (root ADR-0626 §7): the naming registry holds one key per provider and one provider per domain.
+
+    A provider id is a fixed key in the identifier grammar, at most `provider_id_max_length` characters
+    and without `__` (it is the left half of a source id). Prevents what root ADR-0032 recorded:
+    `rtmolitkr` was written in code alone, without a decision, and left 98 orphan objects (W106)."""
+    grammar = re.compile(naming["identifier"]["pattern"])
+    longest = naming["identifier"]["provider_id_max_length"]
+    owner = {}
+    for provider, entry in naming["providers"].items():
+        if not grammar.fullmatch(provider) or "__" in provider or len(provider) > longest:
+            raise DefinitionError(f"{NAMING}: provider id {provider!r} is outside the identifier grammar "
+                                  f"{grammar.pattern}, longer than {longest}, or holds `__` (root ADR-0626 rule 1)")
+        if not entry.get("domains") or not entry.get("display_name") or not entry.get("title_ko"):
+            raise DefinitionError(f"{NAMING}: provider {provider} states its domains, display_name and title_ko")
+        for domain in entry["domains"]:
+            if not DOMAIN.fullmatch(domain):
+                raise DefinitionError(f"{NAMING}: provider {provider}: {domain!r} is not a domain")
+            if domain in owner:
+                raise DefinitionError(f"{NAMING}: domain {domain} belongs to {owner[domain]} and {provider}")
+            owner[domain] = provider
+    namespaces = set(naming["namespaces"])
+    for old, new in naming["renames"]["tables"].items():
+        if new.split(".", 1)[0] not in namespaces:
+            raise DefinitionError(f"{NAMING}: renames.tables {old} -> {new}: {new} is outside the namespaces {sorted(namespaces)}")
+    if set(naming["renames"]["tables"]) & set(naming["renames"]["not_recreated"]):
+        raise DefinitionError(f"{NAMING}: a table is both renamed and not recreated")
+    return owner
+
+
+def naming_problems(root, documents):
+    """G1 against the committed catalogs: every Bronze source id is `<provider>__<dataset>` of a declared
+    provider whose domains name the endpoint's provider label, and every pipeline-graph table name is in
+    a declared namespace or still on the rename work list (root ADR-0626 §1, §7)."""
+    naming = documents[NAMING]
+    grammar = re.compile(naming["identifier"]["pattern"])
+    owner = naming_registry(naming)
+    problems = []
+    for endpoint in read_json(root / ENDPOINTS)["endpoints"]:
+        slug = (endpoint.get("bronze") or {}).get("source_slug")
+        if slug is None:
+            continue
+        provider, sep, dataset = slug.partition("__")
+        if not sep or provider not in naming["providers"] or not grammar.fullmatch(dataset):
+            problems.append(f"{ENDPOINTS}: {endpoint['endpoint_slug']}: source id {slug} is not "
+                            f"<declared provider>__<dataset> ({NAMING}, root ADR-0626 rule 2)")
+        elif owner.get(endpoint["provider"]) != provider:
+            problems.append(f"{ENDPOINTS}: {endpoint['endpoint_slug']}: provider label {endpoint['provider']} is not a "
+                            f"domain of {provider} in {NAMING}")
+    pending = set(naming["renames"]["tables"]) | set(naming["renames"]["not_recreated"])
+    for node in documents[GRAPH]["nodes"]:
+        table = node.get("table_name")
+        if table and table not in pending and table.split(".", 1)[0] not in naming["namespaces"]:
+            problems.append(f"{GRAPH}: {node['id']}: table {table} is outside the namespaces {naming['namespaces']} "
+                            "and not on the rename work list (root ADR-0626 rule 6)")
+    return problems
 
 
 def own_checks(group, definition):
@@ -563,7 +629,7 @@ def committed(root):
     return {path: read_json(root / path) for path in SOURCE_ARTIFACTS}
 
 
-GENERATED = (*SOURCE_ARTIFACTS, *DERIVED_ARTIFACTS)
+GENERATED = (*SOURCE_ARTIFACTS, *PLATFORM_ARTIFACTS, *DERIVED_ARTIFACTS)
 
 
 def artifacts(root, renderers_root=None):
@@ -607,6 +673,7 @@ def check(root):
     files = artifacts(root)
     problems = [f"{path}: generated from {DEFINITIONS} (root ADR-0418); remove it from git: git rm --cached {path}"
                 for path in tracked(root, GENERATED)]
+    problems += naming_problems(root, {path: json.loads(text) for path, text in files.items() if path in (NAMING, GRAPH)})
     for path, text in files.items():
         target = root / path
         if target.exists() and target.read_bytes() != text.encode("utf-8"):

@@ -122,3 +122,5 @@ runtime이며 `catalog.bronze_object`와 `catalog.outbox_event` DB row만 남음
   [root ADR-0007](../../../../docs/adr/0007-public-code-private-operations-boundary.md).
 
 개정 각주(2026-10-28, 경로 이동): `crates/catalog/catalog-domain/src/bronze.rs` → `crates/collection/collection-domain/src/bronze.rs`.
+
+2026-11-28: [root ADR-0626](../../../../docs/adr/0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) 가 D4 의 키 꼴을 그대로 두고(그 ADR 규칙 3 의 예외) 잎의 실행 도장을 금한다. 제공기관 id 는 그 ADR 의 등록부 키다. D6 의 식별자는 범위 밖 그대로다.

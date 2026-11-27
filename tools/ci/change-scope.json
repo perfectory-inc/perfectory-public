@@ -1042,6 +1042,25 @@
         ]
       },
       {
+        "name": "names-are-declared-once-self-test",
+        "paths": []
+      },
+      {
+        "name": "names-are-declared-once",
+        "paths": [
+          "**/*.rs",
+          "**/*.py",
+          "**/*.sql",
+          "**/*.ts",
+          "**/*.tsx",
+          "platforms/foundation-platform/definitions/platform.definition.json",
+          "platforms/foundation-platform/config/naming.contract.json",
+          "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+          "scripts/catalog/declared_definitions.py",
+          "platforms/foundation-platform/infra/aws-lakekeeper/probes/**"
+        ]
+      },
+      {
         "name": "identity-endpoints-match-the-contract-self-test",
         "paths": [
           "platforms/identity-platform/**",

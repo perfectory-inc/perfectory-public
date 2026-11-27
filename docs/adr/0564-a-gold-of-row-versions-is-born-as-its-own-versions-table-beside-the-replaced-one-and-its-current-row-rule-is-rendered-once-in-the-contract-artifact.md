@@ -706,3 +706,5 @@ non-null 수가 같았다. 빌드는 20 초, 메모리 최고점 153 MB, 단계�
 
 **확인하지 못한 것.** 정본 적재가 제 작업으로 도는 첫 회차와, 엣지 내보내기가 이 표에서 읽는 첫 회차는 운영에서 아직 돌지 않았다. 두 판정이 같았으므로 첫 적재는
 `unchanged` 여야 하고(넣거나 고친 행 0), 첫 내보내기는 프로필을 다시 쓰지 않아야 한다(내용 해시가 그대로).
+
+2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §5): 구성 요소의 A1 전환에서 판을 쌓는 표가 실체 이름을 갖고(`gold.<t>_versions` → `gold.<t>`), `Replaced` 짝은 Lakekeeper 에 다시 만들지 않는다. "이름이 날 질의자에게 경고한다"는 이유는 독자 가드(`current_rows`)가 맡는다.

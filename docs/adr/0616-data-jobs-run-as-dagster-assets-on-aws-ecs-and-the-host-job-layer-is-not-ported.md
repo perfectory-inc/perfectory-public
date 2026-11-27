@@ -563,3 +563,5 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 §10 에서 값이 없는 줄(A4~A6 의 비용).
 
 2026-11-27 (W109c): 카탈로그는 AWS 의 자체 호스팅 Lakekeeper 이고 데이터는 R2 에 그대로이며, 표 정비는 상류 정비 컨테이너 하나다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §1·§5.
+
+2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §4, §9): §3-1 의 "Bronze 키 모양은 레인별 그대로"는 남되, 잎의 실행 도장(24 원천 3,969 행)과 데이터셋 id 고침은 장부의 RDS 이전 전에 Bronze 시기 한 번에 없앤다.

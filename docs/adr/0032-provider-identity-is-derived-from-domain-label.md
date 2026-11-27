@@ -7,7 +7,7 @@ last_reviewed: 2026-08-15
 
 # ADR 0032: 제공기관 ID는 도메인 라벨에서 파생한다
 
-- Status: Accepted
+- Status: Superseded by ADR-0626 (2026-11-28: 제공기관 id 는 등록부의 키다. 값은 그대로다)
 - Date: 2026-08-15
 - 대체: [FP-ADR-0014](../../platforms/foundation-platform/docs/adr/0014-bronze-source-slug-canonical-naming.md)의 D2와 D6 중 제공기관 유예
 - 유지: FP-ADR-0014의 D1, D3, D4, D5와 D6의 식별자별 예외
@@ -120,3 +120,7 @@ Rust 구문과 의미를 셸에서 다시 해석하고 세 번째 지식 사본�
   미등록 라벨은 조용히 skip되지 않는다.
 - 제공기관 label 변경은 카탈로그와 런타임의 join key를 함께 바꾸므로 코드와 정본 JSON을 한
   커밋에서 원자적으로 전환한다.
+
+---
+
+2026-11-28: [ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) 가 이 ADR 을 대체한다. 제공기관 id 는 도메인 라벨에서 파생하지 않고 `naming.providers` 등록부의 고정 키다. 값 열한 개는 그대로다(사장 옵션 K). 결정 5~7 은 그대로 남는다.

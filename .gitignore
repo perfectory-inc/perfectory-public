@@ -45,6 +45,7 @@ docs/superpowers/
 /platforms/foundation-platform/orchestration/jobs.v1.json
 /platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json
 /platforms/foundation-platform/config/r2-connections.contract.json
+/platforms/foundation-platform/config/naming.contract.json
 /tools/host-memory-budget.contract.json
 /platforms/foundation-platform/contracts/schema-registry/registry.json
 /platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json
