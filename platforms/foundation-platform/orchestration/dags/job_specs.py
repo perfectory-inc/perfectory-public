@@ -22,6 +22,8 @@ from dataclasses import dataclass
 PLATFORM_ROOT = pathlib.Path(__file__).resolve().parents[2]
 JOBS = PLATFORM_ROOT / "orchestration" / "jobs.v1.json"
 GRAPH = PLATFORM_ROOT / "docs" / "catalog" / "pipeline-graph.v1.json"
+# The AWS platform's lanes (root ADR-0616 §7): a collector of this list that also runs on AWS.
+AWS_CONTRACT = PLATFORM_ROOT / "config" / "aws-platform.contract.json"
 # What each job reads and writes and which jobs feed it, rendered from the two files above by
 # dependency_document() for readers that are not Python (foundation-api, root ADR-0188).
 DEPENDENCIES = PLATFORM_ROOT / "orchestration" / "job-dependencies.v1.json"
@@ -957,6 +959,25 @@ def runs_on_host(jobs, graph=None):
     """
     kept = kept_on_host(jobs, graph)
     return {job["id"] for job in jobs["jobs"] if job["enabled"] and job["id"] in kept}
+
+
+def on_aws(jobs, contract=None):
+    """The ids of the jobs that moved to AWS: a lane of the AWS contract (collect.lanes) whose job is off in this
+    list (root ADR-0616 §7, W101c). The AWS location holds them now, their reads and outcomes too: a host that
+    still held them would page for a collector that is running, only elsewhere. A job that is off and is no lane
+    stays held here (root ADR-0614: a switched-off collector of a source that drops what ended is still judged)."""
+    if contract is None:
+        contract = json.loads(AWS_CONTRACT.read_text(encoding="utf-8")) if AWS_CONTRACT.is_file() else {}
+    lanes = (contract.get("collect") or {}).get("lanes") or {}
+    return {job["id"] for job in jobs["jobs"] if job["id"] in lanes and not job["enabled"]}
+
+
+def held_on_host(jobs, contract=None):
+    """The job list without the jobs that moved to AWS (on_aws): what this host's outcome and read checks judge."""
+    moved = on_aws(jobs, contract)
+    view = dict(jobs)
+    view["jobs"] = [job for job in jobs["jobs"] if job["id"] not in moved]
+    return view
 
 
 def kept_on_host(jobs, graph=None):

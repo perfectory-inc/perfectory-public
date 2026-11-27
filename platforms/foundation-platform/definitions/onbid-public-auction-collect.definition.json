@@ -61,14 +61,15 @@
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-detail",
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-info"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-20T01:26:10Z",
-      "dagster_stage": "dagster",
+      "enabled": false,
+      "enabled_since": null,
+      "dagster_stage": "airflow",
+      "disabled_reason": "On AWS since the hand-over of 2026-11-27 (root ADR-0616 \u00a77 handoff, W101c): the AWS lane of this job (config/aws-platform.contract.json collect.lanes) runs while this job is off here, so this one switch moves it both ways; its first AWS run starts from the last state this host wrote (collector-state/<job>/host/). Turning this job on again turns the AWS lane off in the same release.",
       "expected_outcome": {
         "changes_within_hours": 6,
         "basis": "onbid lists change continuously (expected_cadence continuous, 6..24 h); measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed in all 437 runs. Six hourly runs that wrote nothing are a collector that stopped collecting.",
-        "landed_within_hours": 12,
-        "landed_basis": "Onbid lists only what is on sale now (endpoint catalog provider_retention, group onbid_open_api); how soon an ended item leaves the list is not measured. The job runs hourly; measured 2026-11-24 from the outcome ledger, 7 days (read-only): 157 complete reads, longest gap 8.4 h (the 11-23 scheduler outage). 12 h is that gap and room: half a day unread is a collector that stopped (root ADR-0614)."
+        "landed_within_hours": 30,
+        "landed_basis": "Onbid lists only what is on sale now (endpoint catalog provider_retention, group onbid_open_api). On AWS the lane reads once a day (owner decision 2026-11-27, data-go-kr-onbid.contract.json beat): 30 h is one daily turn, its run and room for a late start; a day unread is a collector that stopped (root ADR-0614). On the host it ran hourly and the bound was 12 h (the 11-23 scheduler outage left an 8.4 h gap)."
       }
     }
   ],

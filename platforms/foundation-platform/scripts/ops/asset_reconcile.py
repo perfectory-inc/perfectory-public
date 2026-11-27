@@ -1204,7 +1204,7 @@ def main() -> int:
                                            lambda job_id: (switches / job_id).exists(), running)
         owed += [line for line in changed_owed if line.split()[1] not in {held.split()[1] for held in owed}]
         write_replacing(metrics_file.with_name(job_outcomes.METRICS_NAME),
-                        job_outcomes.textfile(jobs["jobs"], summary, job_specs.service_unit_text))
+                        job_outcomes.textfile(job_specs.held_on_host(jobs)["jobs"], summary, job_specs.service_unit_text))
         write_replacing(state_dir / job_outcomes.SUMMARY_FILE, json.dumps(summary, sort_keys=True) + "\n")
     except (OSError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not read the job outcomes: {error}", file=sys.stderr)
