@@ -2,48 +2,40 @@
 # from inside the VPC as that principal. A principal's client secret is injected by its own execution role only,
 # so a probe can act as no one but itself: the shape a lane's run would have. The probe's task has no role: it
 # calls nothing of AWS. probe.sh runs one step and prints its result lines (they never hold a token or a secret).
-# Probes and their names live only in dev.
+# Probes and their names live only where the contract says so (probes: dev).
 #
 # The rust probe (T8, and a step of the upgrade canary) is the release's own publisher: the AWS code-location
 # image, by digest, given at apply time from the commit's verified record (scripts/deploy/aws-release-images.py
 # writes it as dagster_image). It runs check-lakehouse-catalog-writes as the operator, with no storage key: the
 # writer path of that very binary against this catalog. With no image given there is no rust probe.
 
-variable "code_location_image" {
-  description = "The release's AWS code-location image by digest (aws-release-images.py's dagster_image), whose publisher the rust probe runs; null: no rust probe."
-  type        = string
-  default     = null
-  validation {
-    condition     = var.code_location_image == null || (startswith(coalesce(var.code_location_image, "-"), "${local.platform.images.repository}@") && can(regex("^sha256:[0-9a-f]{64}$", trimprefix(coalesce(var.code_location_image, "-"), "${local.platform.images.repository}@"))))
-    error_message = "The image is the platform contract's release repository (images.repository) by digest: never a tag, never another repository."
-  }
-}
 
 locals {
   probe_image = replace("public.ecr.aws/docker/library/python:3.14.10-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b", "/:[^:/@]+@/", "@")
   # A probe acts as one principal. anonymous has no client at all (T6: a call with no token). warehouse is the
   # operator with the warehouse's R2 credential too: the one task that hands it to Lakekeeper (warehouse.tf).
-  probes = merge(
-    { for name, principal in local.dev.identity.principals : name => {
+  probes = !local.env.probes ? {} : merge(
+    { for name, principal in local.env.identity.principals : name => {
       principal = name, secret = aws_secretsmanager_secret.principal[name].arn, declared = principal.declared, r2 = false
     } },
     { anonymous = { principal = "anonymous", secret = null, declared = false, r2 = false } },
-    { warehouse = { principal = "bootstrap", secret = aws_secretsmanager_secret.principal["bootstrap"].arn, declared = true, r2 = true } },
+    { warehouse = { principal = local.operator, secret = aws_secretsmanager_secret.principal[local.operator].arn, declared = true, r2 = true } },
     { for name in var.code_location_image == null ? [] : ["rust"] : name => {
-      principal = "bootstrap", secret = aws_secretsmanager_secret.principal["bootstrap"].arn, declared = true, r2 = false
+      principal = local.operator, secret = aws_secretsmanager_secret.principal[local.operator].arn, declared = true, r2 = false
     } },
   )
   probe_environment = {
     CATALOG_URL = local.catalog_url
     TOKEN_URL   = local.token_url
     SCOPE       = local.catalog_scope
-    OTHER_SCOPE = "${aws_cognito_resource_server.catalog.identifier}/${local.dev.identity.other_scope}"
+    OTHER_SCOPE = local.env.identity.other_scope == null ? "" : "${aws_cognito_resource_server.catalog.identifier}/${local.env.identity.other_scope}"
     PRINCIPALS  = jsonencode({ for name, client in aws_cognito_user_pool_client.principal : name => client.id })
-    WAREHOUSE   = jsonencode(local.dev.warehouse)
+    WAREHOUSE   = jsonencode(local.env.warehouse)
   }
 }
 
 resource "aws_security_group" "probe" {
+  count       = local.env.probes ? 1 : 0
   name        = "${local.name}-probe"
   description = "Lakekeeper dev rig probes: no inbound"
   vpc_id      = data.aws_vpc.platform.id
@@ -52,12 +44,12 @@ resource "aws_security_group" "probe" {
 # Out: the token endpoint, image pulls, PyPI and R2 over TLS; DuckDB's extension repository, which DuckDB fetches
 # over plain HTTP (dev probes only: prod ships the extensions in the image, root ADR-0559 §6); the catalog's port.
 resource "aws_vpc_security_group_egress_rule" "probe" {
-  for_each = {
+  for_each = !local.env.probes ? {} : {
     https   = { port = 443, cidr = "0.0.0.0/0", group = null }
     http    = { port = 80, cidr = "0.0.0.0/0", group = null }
     catalog = { port = local.catalog.port, cidr = null, group = aws_security_group.catalog.id }
   }
-  security_group_id            = aws_security_group.probe.id
+  security_group_id            = aws_security_group.probe[0].id
   ip_protocol                  = "tcp"
   from_port                    = each.value.port
   to_port                      = each.value.port
@@ -76,7 +68,7 @@ data "aws_iam_policy_document" "probe_execution" {
   statement {
     sid       = "WriteItsLogs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.dev.arn}:log-stream:probe/${each.key}/*"]
+    resources = ["${aws_cloudwatch_log_group.lakekeeper.arn}:log-stream:probe/${each.key}/*"]
   }
   dynamic "statement" {
     for_each = each.value.secret == null ? [] : [each.value.secret]
@@ -163,7 +155,7 @@ resource "aws_ecs_task_definition" "rust_probe" {
     command    = ["check-lakehouse-catalog-writes"]
     environment = [for key, value in {
       LAKEHOUSE_CHECK_CATALOG_URI = "${local.catalog_url}/catalog"
-      LAKEHOUSE_CHECK_WAREHOUSE   = local.dev.warehouse.bucket
+      LAKEHOUSE_CHECK_WAREHOUSE   = local.env.warehouse.bucket
       LAKEHOUSE_CHECK_TOKEN_URI   = local.token_url
       LAKEHOUSE_CHECK_SCOPE       = local.catalog_scope
       LAKEHOUSE_CHECK_TABLE       = "silver.w109_rust_smoke"
@@ -178,6 +170,11 @@ resource "aws_ecs_task_definition" "rust_probe" {
   depends_on = [aws_secretsmanager_secret_version.principal]
 }
 
+moved {
+  from = aws_security_group.probe
+  to   = aws_security_group.probe[0]
+}
+
 output "probe_security_group" {
-  value = aws_security_group.probe.id
+  value = one(aws_security_group.probe[*].id)
 }

@@ -1,6 +1,6 @@
 //! `check-lakehouse-catalog-writes`: this binary's writer path against an Iceberg REST catalog that
 //! vends storage credentials, holding no storage key of its own (root ADR-0624; test T8 of the
-//! Lakekeeper dev rig, `infra/aws-lakekeeper-dev`, and a step of its upgrade canary).
+//! Lakekeeper dev rig, `infra/aws-lakekeeper` with environment dev, and a step of its upgrade canary).
 //!
 //! iceberg-rust's own OAuth2 client takes a token with the principal's client credentials, the
 //! catalog's `load-table` answer carries a credential for that one table, and `OpenDAL` writes with

@@ -52,36 +52,40 @@ locals {
 }
 
 resource "aws_iam_role" "maintenance_execution" {
+  count              = local.env.probes ? 1 : 0
   name               = "${local.name}-probe-maintenance-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
 data "aws_iam_policy_document" "maintenance_execution" {
+  count = local.env.probes ? 1 : 0
   statement {
     sid       = "WriteItsLogs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.dev.arn}:log-stream:probe/maintenance/*"]
+    resources = ["${aws_cloudwatch_log_group.lakekeeper.arn}:log-stream:probe/maintenance/*"]
   }
   statement {
     sid       = "InjectTheOperatorsClientSecret"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.principal["bootstrap"].arn]
+    resources = [aws_secretsmanager_secret.principal[local.operator].arn]
   }
 }
 
 resource "aws_iam_role_policy" "maintenance_execution" {
+  count  = local.env.probes ? 1 : 0
   name   = "maintenance"
-  role   = aws_iam_role.maintenance_execution.id
-  policy = data.aws_iam_policy_document.maintenance_execution.json
+  role   = aws_iam_role.maintenance_execution[0].id
+  policy = data.aws_iam_policy_document.maintenance_execution[0].json
 }
 
 resource "aws_ecs_task_definition" "maintenance" {
+  count                    = local.env.probes ? 1 : 0
   family                   = "${local.name}-probe-maintenance"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 1024
   memory                   = 4096
-  execution_role_arn       = aws_iam_role.maintenance_execution.arn
+  execution_role_arn       = aws_iam_role.maintenance_execution[0].arn
   runtime_platform {
     cpu_architecture        = "ARM64"
     operating_system_family = "LINUX"
@@ -100,14 +104,29 @@ resource "aws_ecs_task_definition" "maintenance" {
       { name = "CATALOG_URL", value = local.catalog_url },
       { name = "TOKEN_URL", value = local.token_url },
       { name = "SCOPE", value = local.catalog_scope },
-      { name = "WAREHOUSE_NAME", value = local.dev.warehouse.bucket },
+      { name = "WAREHOUSE_NAME", value = local.env.warehouse.bucket },
       { name = "MAINTENANCE_SOURCE", value = file("${path.module}/probes/maintenance.py") },
     ]
     secrets = [
-      { name = "CLIENT_ID", valueFrom = "${aws_secretsmanager_secret.principal["bootstrap"].arn}:client_id::" },
-      { name = "CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.principal["bootstrap"].arn}:client_secret::" },
+      { name = "CLIENT_ID", valueFrom = "${aws_secretsmanager_secret.principal[local.operator].arn}:client_id::" },
+      { name = "CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.principal[local.operator].arn}:client_secret::" },
     ]
     mountPoints      = [{ sourceVolume = "work", containerPath = "/work", readOnly = false }]
     logConfiguration = local.logs["probe"]
   }])
+}
+
+moved {
+  from = aws_iam_role.maintenance_execution
+  to   = aws_iam_role.maintenance_execution[0]
+}
+
+moved {
+  from = aws_iam_role_policy.maintenance_execution
+  to   = aws_iam_role_policy.maintenance_execution[0]
+}
+
+moved {
+  from = aws_ecs_task_definition.maintenance
+  to   = aws_ecs_task_definition.maintenance[0]
 }

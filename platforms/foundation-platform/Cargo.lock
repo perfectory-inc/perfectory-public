@@ -2762,6 +2762,7 @@ dependencies = [
  "foundation-workspace-hack",
  "futures-util",
  "http-body",
+ "iceberg",
  "image",
  "jsonschema",
  "lakehouse-application",

@@ -39,6 +39,7 @@ foundation-shared-kernel = { workspace = true }
 foundation-shapefile = { workspace = true }
 foundation-media-renditions = { workspace = true }
 lakehouse-application = { workspace = true }
+iceberg = { workspace = true }
 lakehouse-domain = { workspace = true }
 lakehouse-infrastructure = { workspace = true }
 foundation-normalization-domain = { workspace = true }

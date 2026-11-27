@@ -712,8 +712,13 @@ fn decimal_type(logical_type: &str) -> Option<(u32, u32)> {
     Some((precision.trim().parse().ok()?, scale.trim().parse().ok()?))
 }
 
-/// A contract's schema (field ids in column order), partition spec and sort order.
-fn contract_layout(
+/// A contract's schema (field ids in column order), partition spec and sort order: the shape
+/// [`LakehouseDataCommitter::create_table_if_absent`] creates, and the one the catalog's reconciler
+/// holds a declared table to (root ADR-0624 A6).
+///
+/// # Errors
+/// Refuses a column type or partition entry this has no Iceberg form for.
+pub fn contract_layout(
     contract: &LakehouseTableContract,
 ) -> anyhow::Result<(Schema, UnboundPartitionSpec, SortOrder)> {
     let mut fields = Vec::with_capacity(contract.columns.len());

@@ -1402,3 +1402,12 @@ fn check_lakehouse_catalog_writes_command_is_explicit() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn reconcile_lakehouse_catalog_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "reconcile-lakehouse-catalog"])?,
+        Command::ReconcileLakehouseCatalog
+    );
+    Ok(())
+}

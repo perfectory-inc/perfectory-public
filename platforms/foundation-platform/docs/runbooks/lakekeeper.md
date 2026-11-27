@@ -5,17 +5,21 @@ doc_type: runbook
 last_reviewed: 2026-11-27
 ---
 
-# Lakekeeper dev 리그 — 카탈로그 전환 관문 시험을 AWS 의 dev 에서 돌린다
+# Lakekeeper — 레이크하우스 카탈로그의 dev 리그와 운영(prod)을 한 스택에서 적용한다
 
-W109(코디네이터 2026-11-27). 사장은 카탈로그의 끝 상태를 자체 호스팅 오픈소스 Lakekeeper 로 정했다(옵션 C, dev 시험이 통과하면).
-이 리그는 그 시험을 돌리는 곳이고 dev 에만 있다. 카탈로그의 결정은 루트 ADR-0624 다. 리그는 T8·T17 이 끝날 때까지 남고(T17 은 A1 의 운영 리그에서 돈다), 그동안
+카탈로그의 결정은 루트 ADR-0624 다(사장 승인 2026-11-27). 스택 `infra/aws-lakekeeper` 하나가 두 환경을 짓는다: 입력은 `environment`
+(`dev`·`prod`) 하나이고, 그것이 계약 `config/lakekeeper-<환경>.contract.json` 을 고르며 이름·크기·차이(상태 키까지)는 모두 그 계약에 있다.
+dev 는 관문 시험을 돌린 리그(W109)이고 탐침이 있다. prod 는 Silver·Gold 가 커밋할 카탈로그(A1, W109c)이고 제 DB 인스턴스·경보·조정기가 있다.
+
+**dev 리그.** W109(코디네이터 2026-11-27). 리그는 T8·T17 이 끝날 때까지 남고(T17 은 A1 의 운영 리그에서 돈다), 그동안
 업그레이드 카나리아다(코디네이터 결정 6, 아래 "업그레이드 카나리아"): Lakekeeper·OpenFGA 의 새 버전은 여기서 먼저 카나리아를 통과한다.
 
 ## 결론
 
 | 무엇 | 어디 | 누가 만드나 |
 | --- | --- | --- |
-| ECS 클러스터 `perfectory-lakekeeper-dev` | 플랫폼 계정(서울), 플랫폼 VPC 의 공개 서브넷(들어오는 규칙은 아래 보안 그룹뿐) | `infra/aws-lakekeeper-dev`(상태는 플랫폼 상태 버킷의 `lakekeeper-dev/terraform.tfstate`) |
+| prod: ECS 클러스터 `perfectory-lakekeeper-prod`, Lakekeeper 둘·OpenFGA 둘, 제 RDS `perfectory-lakekeeper-prod`, Cognito 풀, 조정기, 경보, 창고의 빈 R2 비밀 칸 | 같은 계정·VPC. `catalog.perfectory-lakekeeper-prod.internal:8181`, 부르는 것은 조정기뿐(레인은 제 구성 요소와 함께) | `infra/aws-lakekeeper`, `environment=prod`(상태 키 `lakekeeper-prod/terraform.tfstate`). 2026-11-27 W109c 적용 |
+| ECS 클러스터 `perfectory-lakekeeper-dev` | 플랫폼 계정(서울), 플랫폼 VPC 의 공개 서브넷(들어오는 규칙은 아래 보안 그룹뿐) | `infra/aws-lakekeeper`, `environment=dev`(상태는 플랫폼 상태 버킷의 `lakekeeper-dev/terraform.tfstate`) |
 | 카탈로그: Lakekeeper(버전 계약의 `quay.io/lakekeeper/catalog`) 태스크 둘, `catalog.perfectory-lakekeeper-dev.internal:8181` | Fargate ARM 0.25 vCPU / 0.5 GB. 그 포트는 탐침의 보안 그룹에서만 | 같은 스택(`catalog.tf`). `lakekeeper migrate` 는 서비스가 옮기기 전의 일회성 태스크 |
 | 권한: OpenFGA(버전 계약의 `ghcr.io/openfga/openfga`) 태스크 하나, `authz.perfectory-lakekeeper-dev.internal:8081`(gRPC, 사전 공유 키) | 같은 클러스터. 그 포트는 카탈로그에서만 | 같은 스택(`authz.tf`). `openfga migrate` 가 먼저, 그다음 Lakekeeper 의 migrate 가 모델을 쓴다 |
 | 데이터베이스 `lakekeeper_dev`·`openfga_dev`, 로그인도 저마다 | 플랫폼의 RDS 인스턴스(Dagster·원장과 다른 데이터베이스와 로그인, 연결 수 제한) | 같은 스택의 부트스트랩 태스크(`database-bootstrap.sql`, master 로) |
@@ -27,14 +31,19 @@ W109(코디네이터 2026-11-27). 사장은 카탈로그의 끝 상태를 자체
 ## 적용 (노트북)
 
 ```bash
-cd platforms/foundation-platform/infra/aws-lakekeeper-dev
+cd platforms/foundation-platform/infra/aws-lakekeeper
+env=dev                                   # 또는 prod
 export AWS_PROFILE=perfectory-platform-prod-admin
-export TF_DATA_DIR="$HOME/.cache/perfectory/tofu/lakekeeper-dev"
-tofu init -input=false
-tofu plan -input=false -out="$TF_DATA_DIR/plan"   # 플랫폼 스택의 자원은 바뀌지 않는다: 데이터베이스 보안 그룹에 들어오는 규칙 셋만 더한다
+export TF_DATA_DIR="$HOME/.cache/perfectory/tofu/lakekeeper-$env"   # Git Bash 에서는 C:/Users/... 꼴로(MSYS 가 /c/... 를 바꾸지 않을 때 tofu.exe 가 못 읽는다)
+tofu init -input=false -var environment=$env
+tofu plan -input=false -var environment=$env -out="$TF_DATA_DIR/plan"   # dev: 플랫폼 스택에는 데이터베이스 보안 그룹의 들어오는 규칙만 더한다
 tofu apply "$TF_DATA_DIR/plan"
 rm -f "$TF_DATA_DIR/plan"
 ```
+
+계약이 다르게 하는 것: dev 는 플랫폼의 공유 RDS 에 데이터베이스 둘(`databases.instance` 없음)과 탐침(`probes`), 드리프트는 보고만(`reconciler.drift`
+`report`), 경보 없음. prod 는 제 RDS 인스턴스 `perfectory-lakekeeper-prod`(db.t4g.small, 지금 Single-AZ, 자동 백업 7 일과 시점 복원),
+OpenFGA 둘, 드리프트는 실패(`fail`), 경보 다섯(아래), 비밀의 복구 기간 7 일, 로그 보존 365 일, Cognito 풀의 삭제 보호.
 
 rust 탐침(T8)까지 두려면 그 릴리스 커밋의 검증된 이미지를 변수로 준다: `scripts/deploy/aws-release-images.py <커밋> --out <파일>` 이
 서명을 확인하고 적은 `dagster_image` 값을 `tofu plan -var code_location_image=<그 값>` 으로 넘긴다(스택은 계약의 릴리스 저장소 밖 이미지와
@@ -50,12 +59,14 @@ rust 탐침(T8)까지 두려면 그 릴리스 커밋의 검증된 이미지를 �
 ./probe.sh bootstrap info           # bootstrapped true, authz-backend openfga
 ```
 
-## 사장이 한 번 하는 것: dev 창고의 R2 토큰을 넣기
+## 사장이 한 번 하는 것: 창고의 R2 토큰을 넣기
 
-사장 결정 2026-11-27(A): 이 리그만 쓰는 **새** Cloudflare 계정 API 토큰이다. 기존 `CLOUDFLARE_API_TOKEN` 은 쓰지 않는다.
+사장 결정 2026-11-27(A): 환경마다 그 카탈로그만 쓰는 **새** Cloudflare 계정 API 토큰이다. 기존 `CLOUDFLARE_API_TOKEN` 은 쓰지 않는다.
+dev 는 `perfectory-lakekeeper-dev`(넣었다, 2026-11-27), prod 는 `perfectory-lakekeeper-prod` 다. 아래는 prod 의 것이고, dev 는 이름의 `prod` 를
+`dev` 로 읽는다.
 
 1. Cloudflare 대시보드 → R2 Object Storage → Overview → `{} API` 의 **Manage API tokens** → **Create Account API token**.
-   이름은 `perfectory-lakekeeper-dev`, 권한은 **Admin Read & Write**(Lakekeeper 문서: R2 의 임시 자격 끝점이 이것만 받는다).
+   이름은 `perfectory-lakekeeper-prod`, 권한은 **Admin Read & Write**(Lakekeeper 문서: R2 의 임시 자격 끝점이 이것만 받는다).
    만든 화면의 **Token value**·**Access Key ID**·**Secret Access Key** 셋과 계정 ID(R2 Overview 오른쪽의 Account ID)를 넣는다.
 2. 새 PowerShell 창에서(값은 화면·명령 기록·디스크에 남지 않는다):
 
@@ -66,25 +77,55 @@ $secretKey = Read-Host 'Secret Access Key' -AsSecureString
 $token = Read-Host 'Token value' -AsSecureString
 $plain = { param($s) [System.Net.NetworkCredential]::new('', $s).Password }
 $value = $account + ':' + (& $plain $keyId) + ':' + (& $plain $secretKey) + ':' + (& $plain $token)
-aws secretsmanager put-secret-value --profile perfectory-platform-prod-admin --region ap-northeast-2 --secret-id perfectory-lakekeeper-dev/r2-warehouse-credential --secret-string $value --query VersionId --output text
+aws secretsmanager put-secret-value --profile perfectory-platform-prod-admin --region ap-northeast-2 --secret-id perfectory-lakekeeper-prod/r2-warehouse-credential --secret-string $value --query VersionId --output text
 Remove-Variable value, token, secretKey, keyId, account, plain
 ```
 
 비밀은 `<계정 ID>:<Access Key ID>:<Secret Access Key>:<Token value>` 한 줄이다. 따옴표가 없어 PowerShell 5.1 이 그대로 넘긴다.
-그 비밀은 창고 태스크(`perfectory-lakekeeper-dev-probe-warehouse` 의 실행 역할)만 읽는다. 비밀 자체의 정책이 다른 모든 주체의 읽기를
+그 비밀은 조정기(`<이름>-reconciler-execution`, dev 는 창고 탐침 `perfectory-lakekeeper-dev-probe-warehouse-execution` 도)의 실행 역할만 읽는다. 비밀 자체의 정책이 다른 모든 주체의 읽기를
 거부한다(적용하는 관리자도 `AccessDeniedException`). Lakekeeper 는 AWS 의 비밀을 읽지 않는다. 창고 태스크가 창고를 만들 때 한 번 넘기고,
 Lakekeeper 는 그것을 제 데이터베이스에 암호화해 둔다(`catalog-encryption-key`).
 
-넣은 뒤 창고를 만든다(한 번, 다시 돌려도 있으면 그대로 둔다):
+넣은 뒤 창고를 만든다. prod 는 조정기가(아래), dev 는 처음에 창고 탐침이 만들었다(`./probe.sh warehouse warehouse-create`).
+값이 들기 전에는 그 비밀을 넣는 태스크가 시작하지 못한다: 사장이 넣기 전에 운영 R2 에는 아무것도 쓰이지 않는다.
+
+## 조정기 (reconcile-lakehouse-catalog)
+
+퍼블리셔의 `reconcile-lakehouse-catalog`(`services/foundation-outbox-publisher/src/lakehouse_catalog_reconcile.rs`)가 운영자 주체로
+Lakekeeper 를 한 번 부트스트랩하고, 창고(R2 자격을 넘겨)·네임스페이스 `silver`·`gold`·선언된 표(Rust 표 계약에서)·레인의 권한을 만들고,
+선언 밖의 네임스페이스·표·권한과 계약과 다른 표 모양·창고 프로필을 드리프트로 센다(prod 는 실패, dev 는 보고). 지우는 것은 없다.
+선언은 계약의 `warehouse`·`reconciler` 다. A1 에는 표도 레인도 선언하지 않는다(코디네이터 2026-11-27): 구성 요소의 전환 PR 이 제 표와 레인의
+권한을 더한다.
+
+조정기는 릴리스의 코드 위치 이미지(digest)이므로, 적용에 `code_location_image` 를 줄 때만 태스크가 있고, 그 적용이 새 정의마다 한 번 돌린다
+(실패하면 적용이 실패한다):
 
 ```bash
-./probe.sh warehouse warehouse-create     # 창고 foundation-platform-lakehouse-dev, 네임스페이스는 그다음
+scripts/deploy/aws-release-images.py <커밋> --out "$TF_DATA_DIR/release.json"   # 서명 확인, dagster_image 를 적는다
+tofu plan -input=false -var environment=$env -var code_location_image="<dagster_image 값>" -out="$TF_DATA_DIR/plan"
 ```
+
+prod 에는 사장이 토큰을 넣은 뒤에만 이미지를 준다(그 전에는 태스크가 시작하지 못하고 적용이 실패한다).
+
+## 경보 (prod)
+
+`alarms.tf`, 플랫폼의 경보 주제(Slack)로 ALARM 만 간다(OK 는 플랫폼 스택의 규칙이 이 스택의 경보를 모른다). 루트 ADR-0624 §7.
+
+| 경보 | 무엇 |
+| --- | --- |
+| `perfectory-lakekeeper-prod-pool-timeouts` | Lakekeeper 의 풀이 연결을 기다리다 시간을 넘김(`pool timed out while waiting for an open connection`), 하나라도 |
+| `perfectory-lakekeeper-prod-authorization-errors` | `internal_authorization_error`·`AuthorizationBackendError`(OpenFGA 를 못 써 503), 하나라도 |
+| `perfectory-lakekeeper-prod-check-latency` | OpenFGA 확인(`grpc_req_complete`, `Check`·`BatchCheck`)의 p95 가 1.5 초 이상 5 분 |
+| `perfectory-lakekeeper-prod-database-connections` | DB 연결이 `max_connections` 150 의 80 % 를 넘음 5 분 |
+| `perfectory-lakekeeper-prod-database-memory` | DB 여유 메모리가 256 MB 아래 5 분 |
+
+지표는 로그의 지표 필터이고 두 환경 모두에 있다(이름공간 `Perfectory/<이름>`). 2026-11-27 dev 에서 확인: OpenFGA 의 `query_duration_ms` 는
+문자열이지만 필터가 숫자로 싣고 p95 가 나온다(동시 10 의 T13 묶음에서 1 분 112 건, p95 616 ms).
 
 ## 탐침
 
 ```bash
-./probe.sh <주체> <걸음> [인자...]   # 주체: bootstrap, lane-a, lane-b, outsider, anonymous, warehouse, logscan, maintenance
+./probe.sh <주체> <걸음> [인자...]   # dev 만. 주체: bootstrap, lane-a, lane-b, outsider, anonymous, warehouse, logscan, maintenance
 ```
 
 - 주체 `rust`: 퍼블리셔의 `check-lakehouse-catalog-writes`(T8, `services/foundation-outbox-publisher/src/lakehouse_catalog_writes_check.rs`).

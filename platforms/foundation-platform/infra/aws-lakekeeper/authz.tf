@@ -5,13 +5,13 @@
 # gRPC at authz.<namespace> with a pre-shared key; nothing else can reach it.
 
 locals {
-  authz = local.dev.authz
+  authz = local.env.authz
   # The version contract's pin, as compose files spell it; the task runs it by the index digest.
   authz_image = replace("ghcr.io/openfga/openfga:v1.14.2@sha256:38857bdc425316ebe6dabd1cde52e05c48e6e8bff781713b7c36da8d5ed68205", "/:[^:/@]+@/", "@")
   authz_database_environment = [
     { name = "OPENFGA_DATASTORE_ENGINE", value = "postgres" },
     # Host and database only; the login and its password come apart (they overwrite the URI's).
-    { name = "OPENFGA_DATASTORE_URI", value = "postgres://${data.aws_db_instance.platform.address}:${data.aws_db_instance.platform.port}/${local.databases.authz.name}?sslmode=require" },
+    { name = "OPENFGA_DATASTORE_URI", value = "postgres://${local.database.address}:${local.database.port}/${local.databases.authz.name}?sslmode=require" },
     { name = "OPENFGA_DATASTORE_USERNAME", value = local.databases.authz.username },
     { name = "OPENFGA_LOG_FORMAT", value = "json" },
   ]
@@ -22,8 +22,8 @@ locals {
 
 resource "aws_secretsmanager_secret" "authz_key" {
   name                    = "${local.name}/authz-preshared-key"
-  description             = "The pre-shared key Lakekeeper (dev rig) presents to OpenFGA."
-  recovery_window_in_days = 0
+  description             = "The pre-shared key the ${local.env.title} catalog presents to OpenFGA."
+  recovery_window_in_days = local.env.secret_recovery_days
 }
 
 ephemeral "aws_secretsmanager_random_password" "authz_key" {
@@ -39,7 +39,7 @@ resource "aws_secretsmanager_secret_version" "authz_key" {
 
 resource "aws_security_group" "authz" {
   name        = "${local.name}-authz"
-  description = "Lakekeeper dev rig OpenFGA: gRPC from the catalog only"
+  description = "${local.env.title} OpenFGA: gRPC from the catalog only"
   vpc_id      = data.aws_vpc.platform.id
 }
 
@@ -54,7 +54,7 @@ resource "aws_vpc_security_group_ingress_rule" "authz_from_catalog" {
 resource "aws_vpc_security_group_egress_rule" "authz" {
   for_each = {
     https    = { port = 443, cidr = "0.0.0.0/0", group = null }
-    database = { port = 5432, cidr = null, group = data.aws_security_group.database.id }
+    database = { port = 5432, cidr = null, group = local.database.security_group }
   }
   security_group_id            = aws_security_group.authz.id
   ip_protocol                  = "tcp"
@@ -73,7 +73,7 @@ data "aws_iam_policy_document" "authz_execution" {
   statement {
     sid       = "WriteItsLogs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.dev.arn}:log-stream:authz*"]
+    resources = ["${aws_cloudwatch_log_group.lakekeeper.arn}:log-stream:authz*"]
   }
   statement {
     sid       = "InjectItsSecrets"
@@ -120,7 +120,7 @@ resource "terraform_data" "authz_migrate" {
     command     = local.one_off_script
     environment = {
       REGION          = local.region
-      CLUSTER         = aws_ecs_cluster.dev.name
+      CLUSTER         = aws_ecs_cluster.lakekeeper.name
       SUBNETS         = join(",", local.subnets)
       SECURITY_GROUP  = aws_security_group.authz.id
       TASK_DEFINITION = "${aws_ecs_task_definition.authz_migrate.family}:${aws_ecs_task_definition.authz_migrate.revision}"
@@ -182,7 +182,7 @@ resource "aws_ecs_task_definition" "authz" {
 resource "aws_service_discovery_service" "authz" {
   name = "authz"
   dns_config {
-    namespace_id   = aws_service_discovery_private_dns_namespace.dev.id
+    namespace_id   = aws_service_discovery_private_dns_namespace.lakekeeper.id
     routing_policy = "MULTIVALUE"
     dns_records {
       type = "A"
@@ -193,7 +193,7 @@ resource "aws_service_discovery_service" "authz" {
 
 resource "aws_ecs_service" "authz" {
   name                               = "${local.name}-authz"
-  cluster                            = aws_ecs_cluster.dev.id
+  cluster                            = aws_ecs_cluster.lakekeeper.id
   task_definition                    = aws_ecs_task_definition.authz.arn
   desired_count                      = local.authz.desired_count
   launch_type                        = "FARGATE"

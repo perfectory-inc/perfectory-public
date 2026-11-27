@@ -16,15 +16,17 @@ locals {
 }
 
 resource "aws_iam_role" "logscan_execution" {
+  count              = local.env.probes ? 1 : 0
   name               = "${local.name}-probe-logscan-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
 data "aws_iam_policy_document" "logscan_execution" {
+  count = local.env.probes ? 1 : 0
   statement {
     sid       = "WriteItsLogs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.dev.arn}:log-stream:probe/logscan/*"]
+    resources = ["${aws_cloudwatch_log_group.lakekeeper.arn}:log-stream:probe/logscan/*"]
   }
   statement {
     sid       = "InjectTheSecretsItLooksFor"
@@ -34,38 +36,43 @@ data "aws_iam_policy_document" "logscan_execution" {
 }
 
 resource "aws_iam_role_policy" "logscan_execution" {
+  count  = local.env.probes ? 1 : 0
   name   = "logscan"
-  role   = aws_iam_role.logscan_execution.id
-  policy = data.aws_iam_policy_document.logscan_execution.json
+  role   = aws_iam_role.logscan_execution[0].id
+  policy = data.aws_iam_policy_document.logscan_execution[0].json
 }
 
 resource "aws_iam_role" "logscan" {
+  count              = local.env.probes ? 1 : 0
   name               = "${local.name}-probe-logscan"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
 data "aws_iam_policy_document" "logscan" {
+  count = local.env.probes ? 1 : 0
   statement {
     sid       = "ReadTheRigsLogs"
     actions   = ["logs:FilterLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.dev.arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.lakekeeper.arn}:*"]
   }
 }
 
 resource "aws_iam_role_policy" "logscan" {
+  count  = local.env.probes ? 1 : 0
   name   = "logscan"
-  role   = aws_iam_role.logscan.id
-  policy = data.aws_iam_policy_document.logscan.json
+  role   = aws_iam_role.logscan[0].id
+  policy = data.aws_iam_policy_document.logscan[0].json
 }
 
 resource "aws_ecs_task_definition" "logscan" {
+  count                    = local.env.probes ? 1 : 0
   family                   = "${local.name}-probe-logscan"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.logscan_execution.arn
-  task_role_arn            = aws_iam_role.logscan.arn
+  execution_role_arn       = aws_iam_role.logscan_execution[0].arn
+  task_role_arn            = aws_iam_role.logscan[0].arn
   runtime_platform {
     cpu_architecture        = "ARM64"
     operating_system_family = "LINUX"
@@ -76,8 +83,33 @@ resource "aws_ecs_task_definition" "logscan" {
     essential        = true
     entryPoint       = ["bash", "-c", file("${path.module}/probes/log-scan.sh"), "log-scan"]
     command          = ["180"]
-    environment      = [{ name = "LOG_GROUP", value = aws_cloudwatch_log_group.dev.name }, { name = "AWS_REGION", value = local.region }]
+    environment      = [{ name = "LOG_GROUP", value = aws_cloudwatch_log_group.lakekeeper.name }, { name = "AWS_REGION", value = local.region }]
     secrets          = [for name in sort(keys(local.logscan_secrets)) : { name = name, valueFrom = local.logscan_secrets[name] }]
     logConfiguration = local.logs["probe"]
   }])
+}
+
+moved {
+  from = aws_iam_role.logscan_execution
+  to   = aws_iam_role.logscan_execution[0]
+}
+
+moved {
+  from = aws_iam_role_policy.logscan_execution
+  to   = aws_iam_role_policy.logscan_execution[0]
+}
+
+moved {
+  from = aws_iam_role.logscan
+  to   = aws_iam_role.logscan[0]
+}
+
+moved {
+  from = aws_iam_role_policy.logscan
+  to   = aws_iam_role_policy.logscan[0]
+}
+
+moved {
+  from = aws_ecs_task_definition.logscan
+  to   = aws_ecs_task_definition.logscan[0]
 }
