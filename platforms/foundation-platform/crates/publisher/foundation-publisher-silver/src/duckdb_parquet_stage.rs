@@ -300,7 +300,7 @@ pub enum LakehouseReadAccess {
         /// Its secret.
         s3_secret_access_key: String,
     },
-    /// The Lakekeeper catalog (root ADR-0624 P7): the lane's OAuth2 client, and each table's data
+    /// The Lakekeeper catalog (root ADR-0624 P7): the lane's `OAuth2` client, and each table's data
     /// files through the read credential the catalog vends for it on load. No storage key.
     Client(lakehouse_infrastructure::LakehouseCatalogClient),
 }

@@ -9,10 +9,12 @@ use lakehouse_domain::LakehouseError;
 use super::{IcebergRestCatalog, LoadTableResponse};
 use crate::lakehouse_config::LakehouseCatalogConfig;
 
-/// Where a table's load-table answer comes from when not from this client's own HTTP call: the
-/// Lakekeeper catalog, opened through iceberg-catalog-rest with the lane's OAuth2 client (root
-/// ADR-0624 P6: the transport is iceberg-catalog-rest's, the surface stays this client's). The publisher
-/// implements it (`foundation_publisher_core::lakehouse_catalog`); this crate stays free of iceberg-rust.
+/// Where a table's load-table answer comes from when not from this client's own HTTP call.
+///
+/// It is the Lakekeeper catalog, opened through iceberg-catalog-rest with the lane's `OAuth2` client
+/// (root ADR-0624 P6: the transport is iceberg-catalog-rest's, the surface stays this client's). The
+/// publisher implements it (`foundation_publisher_core::lakehouse_catalog`); this crate stays free of
+/// iceberg-rust.
 #[async_trait]
 pub trait TableMetadataSource: std::fmt::Debug + Send + Sync {
     /// The table's load-table answer as the REST specification writes it (an object with

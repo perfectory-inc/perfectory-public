@@ -171,14 +171,16 @@ const CLIENT_ENVS: [&str; 4] = [
     CLIENT_SCOPE_ENV,
 ];
 
-/// The lane's machine identity at the Lakekeeper catalog (root ADR-0624 §2): an OAuth2 client of the
-/// client-credentials flow, whose secret only that lane's role reads. A run that holds one is in
+/// The lane's machine identity at the Lakekeeper catalog (root ADR-0624 §2).
+///
+/// It is an `OAuth2` client of the client-credentials flow, whose secret only that lane's role reads.
+/// A run that holds one is in
 /// Lakekeeper mode: the catalog is opened through iceberg-catalog-rest with it, table files are read
 /// and written with the credentials the catalog vends on load, and no catalog token or static R2 key
 /// may stand beside it (ADR-0624 P6, P7).
 #[derive(Clone, Eq, PartialEq)]
 pub struct LakehouseCatalogClient {
-    /// The OAuth2 client id (an identifier, not a secret).
+    /// The `OAuth2` client id (an identifier, not a secret).
     pub client_id: String,
     /// The client's secret.
     pub client_secret: String,
