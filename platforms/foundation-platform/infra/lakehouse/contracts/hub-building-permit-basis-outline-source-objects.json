@@ -34,7 +34,7 @@
     "permit_date": {"index": 38, "meaning": "건축허가일 YYYYMMDD 또는 빈칸"},
     "use_approval_date": {"index": 39, "meaning": "사용승인일 YYYYMMDD 또는 빈칸"}
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_permit_basis_outline",
+  "handoff_prefix": "work/hubgokr__building_permit_basis_outline",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

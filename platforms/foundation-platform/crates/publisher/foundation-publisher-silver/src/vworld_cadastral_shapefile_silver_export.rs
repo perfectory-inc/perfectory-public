@@ -598,8 +598,8 @@ mod tests {
     /// by the thing that is supposed to read it.
     #[test]
     fn the_name_is_what_says_the_handoff_is_compressed() {
-        let plain = OutputSink::R2Object("silver-handoff/x/30563-1.jsonl".to_owned());
-        let zipped = OutputSink::R2Object("silver-handoff/x/30563-1.jsonl.gz".to_owned());
+        let plain = OutputSink::R2Object("work/x/30563-1.jsonl".to_owned());
+        let zipped = OutputSink::R2Object("work/x/30563-1.jsonl.gz".to_owned());
 
         assert!(!plain.is_compressed());
         assert!(zipped.is_compressed());
@@ -675,7 +675,7 @@ mod tests {
         let key = "bronze/source=vworldkr__parcel/20991231DS99990-1.zip";
         let streamed = ExportConfig {
             input: InputSource::R2Object(key.to_owned()),
-            output: OutputSink::R2Object("silver-handoff/x.jsonl.gz".to_owned()),
+            output: OutputSink::R2Object("work/x.jsonl.gz".to_owned()),
             summary_path: None,
             source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
             valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?
@@ -705,7 +705,7 @@ mod tests {
         let summary_path = root.join("parcel.summary.json");
         let config = ExportConfig {
             input: InputSource::R2Object("bronze/parcel.zip".to_owned()),
-            output: OutputSink::R2Object("silver-handoff/parcel.jsonl.gz".to_owned()),
+            output: OutputSink::R2Object("work/parcel.jsonl.gz".to_owned()),
             summary_path: Some(summary_path.clone()),
             source_snapshot_id: "vworldkr__parcel:202606".to_owned(),
             valid_from_utc: DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")?

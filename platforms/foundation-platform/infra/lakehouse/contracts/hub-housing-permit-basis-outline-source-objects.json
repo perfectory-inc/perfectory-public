@@ -88,7 +88,7 @@
       "meaning": "사용검사일(실제) YYYYMMDD 또는 빈칸"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__housing_permit_basis_outline",
+  "handoff_prefix": "work/hubgokr__housing_permit_basis_outline",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

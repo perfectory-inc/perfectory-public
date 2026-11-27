@@ -12,7 +12,7 @@ test_root="$(mktemp -d)"
 trap 'rm -rf "$test_root"' EXIT
 failures=0
 
-PREFIX='silver-handoff/somewhere'
+PREFIX='work/somewhere'
 
 # Builds a tree shaped like the real one: a contract, plus whatever extra files the case needs.
 fixture() {
@@ -106,12 +106,12 @@ cat >"$root/platforms/foundation-platform/infra/lakehouse/contracts/vworld-parce
   "schema_version": 2,
   "editions": {
     "209906": {"handoff_prefix": "$PREFIX"},
-    "209909": {"handoff_prefix": "silver-handoff/elsewhere/edition=209909"}
+    "209909": {"handoff_prefix": "work/elsewhere/edition=209909"}
   }
 }
 JSON
 mkdir -p "$root/platforms/foundation-platform/scripts/load"
-printf '#!/usr/bin/env bash\nPREFIX="%s"\n' "silver-handoff/elsewhere/edition=209909" \
+printf '#!/usr/bin/env bash\nPREFIX="%s"\n' "work/elsewhere/edition=209909" \
   >"$root/platforms/foundation-platform/scripts/load/some-load.sh"
 expect a-second-edition reject "$root" "some-load.sh"
 

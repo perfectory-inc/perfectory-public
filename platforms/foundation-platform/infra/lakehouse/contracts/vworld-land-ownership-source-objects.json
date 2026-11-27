@@ -6,7 +6,7 @@
   "dataset_series": "AL_D161",
   "field_layout_authority": "Provider CSV headers, EUC-KR, comma-delimited, 29 columns (measured 2026-10-30 from AL_D161_36_20250831.csv): 고유번호,법정동코드,법정동명,대장구분코드,대장구분명,지번,집합건물일련번호,건물동명,건물층명,건물호명,건물실명,공유인일련번호,기준연월,지목코드,지목,토지면적,공시지가,소유구분코드,소유구분,거주지구분코드,거주지구분,국가기관구분코드,국가기관구분,소유권변동원인코드,소유권변동원인,소유권변동일자,공유인수,데이터기준일자,원천시도시군구코드. No person's name, address or birth date. 지목·토지면적·공시지가 are dropped: 토지특성 and 개별공시지가 own those facts.",
   "why_this_file_exists": "Harvest vintages of the same sido pile up beside the D160 shapefiles; loading two would double every owner row, and all but one 시도 would look complete while one is missing.",
-  "handoff_prefix": "silver-handoff/vworldkr__land_ownership",
+  "handoff_prefix": "work/vworldkr__land_ownership",
   "handoff_suffix": ".jsonl.gz",
   "silver_refresh": {
     "$comment": "foundation-silver-refresh@land-ownership.service 의 실행 값(root ADR-0169 §3 ③, ADR-0360). 판은 load branch 에 통째로 올린 뒤(첫 묶음 overwrite, 나머지 append, ADR-0183) main 에 발행하지 않고, compare 가 시도(PNU 앞 두 자리)마다 따로 main 의 현재 행과 키(PNU)마다 비교해 바뀐 필지의 행 전부와 사라진 필지의 삭제 표시만 changes branch 에 시도 하나씩 커밋하고, 시도가 다 끝나면 그 브랜치를 main 으로 한 번에 발행한다(ADR-0275, ADR-0318). content_columns 는 판마다 바뀌는 열(base_year_month·data_reference_date, 적재 열)을 넣지 않는다. source_snapshot_id 는 source 의 slug 를 하이픈으로 쓴 것, ':' 와 판이다.",

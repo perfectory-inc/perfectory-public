@@ -24,7 +24,7 @@
     "price_won": {"index": 23, "meaning": "공시가격 원 단위 원문"},
     "notice_date": {"index": 24, "meaning": "공시일 원문 YYYYMMDD"}
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_register_apartment_price",
+  "handoff_prefix": "work/hubgokr__building_register_apartment_price",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

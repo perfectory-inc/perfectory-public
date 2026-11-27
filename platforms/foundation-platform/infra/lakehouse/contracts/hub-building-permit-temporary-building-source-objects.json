@@ -85,7 +85,7 @@
       "meaning": "지상층수 원문"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_permit_temporary_building",
+  "handoff_prefix": "work/hubgokr__building_permit_temporary_building",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bounded guard: the handoff prefix is declared once, in the contract that names the objects.
 #
-# What failing this prevents: measured 2026-09-02, the string "silver-handoff/vworldkr__parcel"
+# What failing this prevents: measured 2026-09-02, the string "work/vworldkr__parcel"
 # was a default in three separate callers — the exporter script, the batch loader, and the
 # projection load command — and the contract that lists the objects did not mention it at all.
 # Moving the objects would have meant editing three files, and any one missed would have read

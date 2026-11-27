@@ -53,7 +53,7 @@
       "meaning": "관련지번명 원문(예: 본번-부번) 또는 빈칸"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_permit_annex_parking",
+  "handoff_prefix": "work/hubgokr__building_permit_annex_parking",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

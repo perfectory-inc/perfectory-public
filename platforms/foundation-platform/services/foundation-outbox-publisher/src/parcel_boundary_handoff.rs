@@ -356,14 +356,14 @@ mod tests {
                     shard_id: "silver-parcel-boundaries-vworld-0001".to_owned(),
                     status: "succeeded".to_owned(),
                     output_storage_driver: "r2".to_owned(),
-                    output_object_key: "silver-handoff/a/part-0001.jsonl".to_owned(),
+                    output_object_key: "work/a/part-0001.jsonl".to_owned(),
                     output_row_count: 1,
                 },
                 RawShardResult {
                     shard_id: "silver-parcel-boundaries-vworld-0002".to_owned(),
                     status: "succeeded".to_owned(),
                     output_storage_driver: "r2".to_owned(),
-                    output_object_key: "silver-handoff/a/part-0002.jsonl".to_owned(),
+                    output_object_key: "work/a/part-0002.jsonl".to_owned(),
                     output_row_count: 2,
                 },
             ],
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(evidence.expected_row_count, 3);
         assert_eq!(
             evidence.objects[1].object_key,
-            "silver-handoff/a/part-0002.jsonl"
+            "work/a/part-0002.jsonl"
         );
         Ok(())
     }
@@ -421,7 +421,7 @@ mod tests {
                     "shard_id": "silver-parcel-boundaries-vworld-0001",
                     "status": "succeeded",
                     "output_storage_driver": "r2",
-                    "output_object_key": "silver-handoff/a/part-0001.jsonl",
+                    "output_object_key": "work/a/part-0001.jsonl",
                     "output_row_count": 1
                 }]
             }))?
@@ -439,7 +439,7 @@ mod tests {
     fn silver_handoff_line_becomes_stage_row_with_trace_properties() -> anyhow::Result<()> {
         let line = br#"{"boundary_id":"vworld-cadastral:parcel-boundary:pnu:9999900101100010001","pnu":"9999900101100010001","jibun":"1-1","bonbun":"0001","bubun":"0001","geometry_wkb_hex":"010600000000000000","geometry_wkb_encoding":"hex","geometry_srid":4326,"bbox_min_x":127.12347023440,"bbox_min_y":36.123450,"bbox_max_x":127.12347023441,"bbox_max_y":36.123451,"geometry_checksum_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_record_id":"national-promotion:vworld-shard-0001","source_snapshot_id":"national-promotion:vworld-shard-0001","valid_from_utc":"2026-05-24T00:00:00Z","valid_to_utc":null,"ingested_at_utc":"2026-05-24T00:00:01Z"}"#;
 
-        let row = parse_stage_row(line, "silver-handoff/a/part-0001.jsonl", 1)?;
+        let row = parse_stage_row(line, "work/a/part-0001.jsonl", 1)?;
         let properties: JsonValue = serde_json::from_str(&row.properties_json)?;
 
         assert_eq!(row.pnu, "9999900101100010001");
@@ -449,7 +449,7 @@ mod tests {
         );
         assert_eq!(
             properties["source_object_key"],
-            "silver-handoff/a/part-0001.jsonl"
+            "work/a/part-0001.jsonl"
         );
         assert_eq!(properties["bbox"]["min_x"], 127.123_470_234_40);
         Ok(())
@@ -467,11 +467,11 @@ mod tests {
         };
         let mut buffer = Vec::new();
 
-        push_copy_csv_row(&mut buffer, &row, "silver-handoff/a/part-0001.jsonl");
+        push_copy_csv_row(&mut buffer, &row, "work/a/part-0001.jsonl");
         let rendered = String::from_utf8(buffer).unwrap_or_default();
 
         assert!(rendered.contains("\"boundary\"\"id\""));
-        assert!(rendered.contains("\"silver-handoff/a/part-0001.jsonl\""));
+        assert!(rendered.contains("\"work/a/part-0001.jsonl\""));
     }
 
     #[test]

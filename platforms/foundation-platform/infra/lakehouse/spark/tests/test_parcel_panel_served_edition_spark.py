@@ -27,7 +27,7 @@ def source_contract(served):
     def edition(name):
         return {"provider_base_month": f"{name[:4]}-{name[4:]}",
                 "extracted_on": {"earliest": f"{name[:4]}-{name[4:]}-10", "latest": f"{name[:4]}-{name[4:]}-10"},
-                "handoff_prefix": f"silver-handoff/synthetic/edition={name}",
+                "handoff_prefix": f"work/synthetic/edition={name}",
                 "granularity_counts": {"sido": 0, "sigungu": 1},
                 "objects": [{"object_key": f"bronze/source=vworldkr__parcel/{name}-97110.zip", "bytes": 1,
                              "dataset_name": f"LSMD_CONT_LDREG_97110_{name}", "region_code": "97110",

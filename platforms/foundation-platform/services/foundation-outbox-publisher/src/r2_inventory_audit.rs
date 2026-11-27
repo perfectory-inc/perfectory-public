@@ -508,7 +508,7 @@ fn classify_key(key: &str) -> Classification {
             reason: "Legacy Gold layout must be checked against Catalog pointers before migration or deletion.",
         };
     }
-    if key.starts_with("silver-handoff/") {
+    if key.starts_with("work/") {
         return Classification {
             name: "silver_handoff_artifact",
             action: "keep",

@@ -47,7 +47,7 @@ def edition_entry(name: str, extracted: str, latest: str | None = None) -> dict:
     ]
     return {"provider_base_month": f"{name[:4]}-{name[4:]}",
             "extracted_on": {"earliest": extracted, "latest": latest or extracted},
-            "handoff_prefix": f"silver-handoff/synthetic/edition={name}",
+            "handoff_prefix": f"work/synthetic/edition={name}",
             "granularity_counts": {"sido": 2, "sigungu": 2}, "objects": objects}
 
 
@@ -176,8 +176,8 @@ class EditionContractTest(unittest.TestCase):
                 self.assertEqual(editions.main(["handoff-keys", "--edition", "209906", "--contract", str(path)]), 0)
             printed = "".join(call.args[0] for call in out.write.call_args_list)
             self.assertEqual(printed.split(), [
-                "silver-handoff/synthetic/edition=209906/209906-97110.jsonl.gz",
-                "silver-handoff/synthetic/edition=209906/209906-98110.jsonl.gz"])
+                "work/synthetic/edition=209906/209906-97110.jsonl.gz",
+                "work/synthetic/edition=209906/209906-98110.jsonl.gz"])
             with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
                 self.assertEqual(editions.main(["snapshot-id", "--edition", "209910", "--contract", str(path)]), 2)
                 self.assertEqual(editions.main(["snapshot-id", "--contract", str(path)]), 2)
@@ -226,7 +226,7 @@ class ANewProviderEditionTest(unittest.TestCase):
     def test_a_proposal_is_the_contract_entry_or_nothing(self):
         source = contract("209902", "209906")
         rows = [measured("209910", "97"), measured("209910", "97110", "2099-10-13"), measured("209910", "98110")]
-        entry = editions.propose(source, "209910", rows, "silver-handoff/synthetic/edition=209910")
+        entry = editions.propose(source, "209910", rows, "work/synthetic/edition=209910")
         self.assertEqual(entry["granularity_counts"], {"sido": 1, "sigungu": 2})
         self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-13", "latest": "2099-10-14"})
         self.assertEqual([o["region_code"] for o in entry["objects"]], ["97", "97110", "98110"])
@@ -240,7 +240,7 @@ class ANewProviderEditionTest(unittest.TestCase):
         }
         for message, bad in planted.items():
             with self.subTest(message), self.assertRaisesRegex(editions.EditionError, message):
-                editions.propose(source, "209910", bad, "silver-handoff/synthetic/edition=209910")
+                editions.propose(source, "209910", bad, "work/synthetic/edition=209910")
 
     def test_a_half_updated_listing_is_refused_as_a_partial_edition(self):
         # 심은 결함: 제공자 목록이 반쯤 바뀐 날. 98 의 시군구는 아직 옛 판이라 새 판에는 97 만 있다.
@@ -253,7 +253,7 @@ class ANewProviderEditionTest(unittest.TestCase):
         merged["editions"]["209910"]["granularity_counts"] = {"sido": 0, "sigungu": 1}
         editions.validate(merged)  # the contract alone would take it
         with self.assertRaisesRegex(editions.EditionError, "partial collection"):
-            editions.propose(source, "209910", half, "silver-handoff/synthetic/edition=209910")
+            editions.propose(source, "209910", half, "work/synthetic/edition=209910")
 
     def test_the_bound_counts_districts_and_lets_a_merger_through(self):
         def districts(*codes):
@@ -278,7 +278,7 @@ class ANewProviderEditionTest(unittest.TestCase):
         # 심은 함정: 한 파일의 멤버가 10-12 와 10-14 에 걸쳐 쓰였다. 10-13 의 변경 뒤에 다 뽑힌 판이 아니다.
         source = contract("209902", "209906")
         rows = [measured("209910", "97"), measured("209910", "97110", first="2099-10-12"), measured("209910", "98110")]
-        entry = editions.propose(source, "209910", rows, "silver-handoff/synthetic/edition=209910")
+        entry = editions.propose(source, "209910", rows, "work/synthetic/edition=209910")
         self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-12", "latest": "2099-10-14"})
         source["editions"]["209910"] = entry
         self.assertEqual(editions.bracketing(source, "20991013"), ("209906", None))

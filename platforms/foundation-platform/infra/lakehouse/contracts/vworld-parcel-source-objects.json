@@ -45,7 +45,7 @@
         "earliest": "2026-06-12",
         "latest": "2026-06-12"
       },
-      "handoff_prefix": "silver-handoff/vworldkr__parcel",
+      "handoff_prefix": "work/vworldkr__parcel",
       "measured_at_utc": "2026-08-31",
       "how_measured": "Each object's ZIP central directory was read by ranged request — a few kilobytes out of 12.1 GB — and the region code taken from the .shp member name (LSMD_CONT_LDREG_<code>_<yyyymm>). Extraction dates are the newest member timestamp in each ZIP's central directory, read the same way on 2026-10-05.",
       "granularity_counts": {
@@ -1965,7 +1965,7 @@
         "earliest": "2026-09-13",
         "latest": "2026-09-16"
       },
-      "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=202609",
+      "handoff_prefix": "work/vworldkr__parcel/edition=202609",
       "measured_at_utc": "2026-10-05",
       "how_measured": "The 272 objects under the same prefix whose keys end in --sha256-<content hash>.zip, collected 2026-09-27. Each ZIP's central directory was read by ranged request with the reader key (no download) for the .shp member name (LSMD_CONT_LDREG_<code>_<yyyymm>) and member timestamps; the content hash in each key equals the checksum catalog.bronze_object holds for it (272 of 272). The provider page listed the same edition then: 기준일 2026-09, 갱신일 2026-09-15 (2026-09-16 for one file). extracted_on spans every member's date, 2026-09-13 to 2026-09-16 (root ADR-0148 context): earliest was first written as the oldest file's newest member (2026-09-14), which would call an edition wholly after a change some of its members predate.",
       "granularity_counts": {
@@ -3885,7 +3885,7 @@
         "earliest": "2026-10-01",
         "latest": "2026-10-13"
       },
-      "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=202610",
+      "handoff_prefix": "work/vworldkr__parcel/edition=202610",
       "granularity_counts": {
         "sido": 10,
         "sigungu": 256

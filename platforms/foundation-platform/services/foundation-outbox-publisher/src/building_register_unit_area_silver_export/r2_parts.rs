@@ -2,7 +2,7 @@
 //! part lanes load part by part and resume (root ADR-0391 addendum; ADR-0092, ADR-0357).
 //!
 //! The manifest is the one `silver_refresh::validate_manifest` checks: every part full but the
-//! last, named `part-NNNN.jsonl.gz` under one `attempt=`, rows that add up, published after the
+//! last, named `part-NNNN.jsonl.gz` under one `run=`, rows that add up, published after the
 //! last part so a reader never sees an incomplete release.
 
 use std::io::Write as _;
@@ -47,7 +47,7 @@ pub(super) struct Layout {
     pub source_snapshot_id: String,
     pub vintage: String,
     pub rows_per_part: u64,
-    /// `attempt=<id>`: the parts of one export, never mixed with another's.
+    /// `run=<id>`: the parts of one export, never mixed with another's.
     pub attempt: String,
 }
 
@@ -89,8 +89,8 @@ impl<O: FnMut(&OutputSink) -> anyhow::Result<HandoffSink>> PartWriter<O> {
     pub fn new(layout: Layout, open: O) -> anyhow::Result<Self> {
         ensure!(layout.rows_per_part > 0, "a part holds at least one row");
         ensure!(
-            layout.prefix.starts_with("silver-handoff/") && !layout.prefix.ends_with('/'),
-            "the handoff prefix must be a silver-handoff/ key prefix"
+            layout.prefix.starts_with("work/") && !layout.prefix.ends_with('/'),
+            "the handoff prefix must be a work/ key prefix"
         );
         layout.stem()?;
         Ok(Self {

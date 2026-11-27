@@ -81,7 +81,7 @@
       "meaning": "구조명 원문(철근콘크리트구조 등)"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_permit_demolition_loss",
+  "handoff_prefix": "work/hubgokr__building_permit_demolition_loss",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,
