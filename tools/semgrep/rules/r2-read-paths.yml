@@ -46,9 +46,14 @@ rules:
       # An AWS collector lane's state (W101c, root ADR-0616 §8 C): one LIST, one GET and one conditional PUT per
       # run under the lane's own collector-state/<lane>/ prefix, with the lane's vended credential. It is no lake
       # read: the lane's data goes through the publisher.
+      # The root ADR-0626 area mover (scripts/ops/r2_move.py) is an operator's tool, not a lane: it lists an area,
+      # copies its objects server-side by key (CopyObject, create-only), HEADs the copies and sets lifecycle
+      # rules; the only bytes it reads are the industrial complex index it rewrites and the hash samples of its
+      # verify. Its evidence lands in control/evidence/r2_move/.
       exclude:
         - /platforms/foundation-platform/infra/aws-lakekeeper/probes/
         - /platforms/foundation-platform/orchestration/dagster/aws/collect_lane.py
+        - /platforms/foundation-platform/scripts/ops/r2_move.py
     pattern-either:
       - pattern: boto3.client("s3", ...)
       - pattern: boto3.resource("s3", ...)
