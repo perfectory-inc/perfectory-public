@@ -286,7 +286,9 @@ def summary_path(manifest: pathlib.Path) -> pathlib.Path:
     return manifest.with_name(manifest.name.replace(".jsonl.gz", "") + ".summary.json")
 
 
-def cmd_manifest(plan: Plan, out: pathlib.Path, stamp: str, upload: bool, threads: int) -> dict:
+def cmd_manifest(plan: Plan, out: pathlib.Path, stamp: str, upload: bool, threads: int,
+                 since: dt.datetime | None = None) -> dict:
+    """`since`: only keys written after it (the delta a writer added after an earlier manifest)."""
     check_plan(plan)
     name = bucket()
     work = [shard for prefix in plan.prefixes for shard in shards(name, prefix)]
@@ -297,6 +299,8 @@ def cmd_manifest(plan: Plan, out: pathlib.Path, stamp: str, upload: bool, thread
         def run(shard):
             batch = []
             for item in list_shard(name, shard):
+                if since is not None and item["LastModified"] <= since:
+                    continue
                 line = manifest_line(plan, item)
                 if line is None:
                     continue
@@ -326,6 +330,7 @@ def cmd_manifest(plan: Plan, out: pathlib.Path, stamp: str, upload: bool, thread
                "newest_last_modified": totals["newest"] or None,
                "old_prefixes": sorted(totals["expire"]) if plan.expire_prefix else list(plan.prefixes),
                "manifest": evidence_key(plan, stamp, ".jsonl.gz"),
+               "since": since.isoformat().replace("+00:00", "Z") if since else None,
                "listed_at_utc": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")}
     summary_path(out).write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     if upload:
@@ -499,10 +504,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--threads", type=int, default=64)
     parser.add_argument("--sample", type=int, default=200)
     parser.add_argument("--remove-empty-rules", action="store_true")
+    parser.add_argument("--since", type=dt.datetime.fromisoformat,
+                        help="manifest: only keys last modified after this UTC instant (a delta)")
     args = parser.parse_args(argv)
     plan = PLANS[args.plan]
     if args.command == "manifest":
-        result = cmd_manifest(plan, args.manifest, args.stamp, not args.no_upload, args.threads)
+        result = cmd_manifest(plan, args.manifest, args.stamp, not args.no_upload, args.threads, args.since)
     elif args.command == "copy":
         result = cmd_copy(read_manifest(args.manifest), args.threads)
     elif args.command == "rewrite":
