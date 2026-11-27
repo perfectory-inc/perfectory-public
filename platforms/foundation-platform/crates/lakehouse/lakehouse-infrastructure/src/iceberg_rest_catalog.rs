@@ -5,6 +5,9 @@
 //! neutral `LakehouseCatalog` port.
 
 mod columns;
+mod table_source;
+
+pub use table_source::TableMetadataSource;
 
 pub use columns::IcebergColumn;
 
@@ -178,6 +181,7 @@ pub struct IcebergRestCatalog {
     catalog_prefix: Arc<OnceLock<String>>,
     circuit_breaker: RequestCircuitBreaker,
     audit: ResilienceAudit,
+    source: Option<Arc<dyn TableMetadataSource>>,
 }
 
 impl IcebergRestCatalog {
@@ -195,6 +199,7 @@ impl IcebergRestCatalog {
             catalog_prefix: Arc::new(OnceLock::new()),
             circuit_breaker: RequestCircuitBreaker::new(PROVIDER, ICEBERG.circuit_breaker),
             audit: ResilienceAudit::new(PROVIDER),
+            source: None,
         })
     }
 
@@ -1081,6 +1086,9 @@ impl IcebergRestCatalog {
         &self,
         table_name: &str,
     ) -> Result<Option<LoadTableResponse>, LakehouseError> {
+        if let Some(source) = &self.source {
+            return table_source::load_from(source.as_ref(), table_name).await;
+        }
         let catalog_prefix = self.catalog_prefix().await?;
         let url = self.load_table_url(&catalog_prefix, table_name)?;
         execute_retryable(&self.resilience_ctx(), || self.load_table_once(&url))

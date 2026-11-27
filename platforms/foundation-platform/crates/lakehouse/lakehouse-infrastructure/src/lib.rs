@@ -30,11 +30,12 @@ pub use gold_publication::{
 pub use iceberg_rest_catalog::{
     IcebergColumn, IcebergRegisteredSnapshot, IcebergRestCatalog, IcebergSnapshotManifestList,
     IcebergSnapshotRef, IcebergSnapshotRefs, IcebergSnapshotRegistry, IcebergSnapshotSummary,
-    IngestCommitLog,
+    IngestCommitLog, TableMetadataSource,
 };
 pub use lakehouse_batch_audit::{PgLakehouseBatchRunAudit, PgLakehouseBatchRunRepository};
 pub use lakehouse_config::{
-    live_lakehouse_smoke_enabled, validate_lakehouse_smoke_table_name, LakehouseCatalogConfig,
-    LakehouseCatalogConfigError, LakehouseCatalogProvider, DEFAULT_LAKEHOUSE_SMOKE_TABLE,
+    live_lakehouse_smoke_enabled, validate_lakehouse_smoke_table_name, LakehouseCatalogClient,
+    LakehouseCatalogConfig, LakehouseCatalogConfigError, LakehouseCatalogProvider,
+    DEFAULT_LAKEHOUSE_SMOKE_TABLE,
 };
 pub use lakehouse_registry::{PgLakehouseRegistryRepository, PgLakehouseRegistryUnitOfWork};

@@ -160,12 +160,109 @@ impl std::fmt::Debug for LakehouseCatalogConfig {
     }
 }
 
+const CLIENT_ID_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_ID";
+const CLIENT_SECRET_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_SECRET";
+const CLIENT_TOKEN_URI_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_TOKEN_URI";
+const CLIENT_SCOPE_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_SCOPE";
+const CLIENT_ENVS: [&str; 4] = [
+    CLIENT_ID_ENV,
+    CLIENT_SECRET_ENV,
+    CLIENT_TOKEN_URI_ENV,
+    CLIENT_SCOPE_ENV,
+];
+
+/// The lane's machine identity at the Lakekeeper catalog (root ADR-0624 §2).
+///
+/// It is an `OAuth2` client of the client-credentials flow, whose secret only that lane's role reads.
+/// A run that holds one is in
+/// Lakekeeper mode: the catalog is opened through iceberg-catalog-rest with it, table files are read
+/// and written with the credentials the catalog vends on load, and no catalog token or static R2 key
+/// may stand beside it (ADR-0624 P6, P7).
+#[derive(Clone, Eq, PartialEq)]
+pub struct LakehouseCatalogClient {
+    /// The `OAuth2` client id (an identifier, not a secret).
+    pub client_id: String,
+    /// The client's secret.
+    pub client_secret: String,
+    /// The issuer's token endpoint.
+    pub token_uri: String,
+    /// The scope the catalog admits (`<resource server>/catalog`).
+    pub scope: String,
+}
+
+impl LakehouseCatalogClient {
+    /// What [`Self::from_env`] reads: all four or none.
+    pub const REQUIREMENTS: &'static [Requirement] = &[
+        Requirement::Optional(CLIENT_ID_ENV),
+        Requirement::Optional(CLIENT_SECRET_ENV),
+        Requirement::Optional(CLIENT_TOKEN_URI_ENV),
+        Requirement::Optional(CLIENT_SCOPE_ENV),
+    ];
+
+    /// The client secret's variable, for a task definition that injects it from its secret store.
+    pub const SECRET_ENV: &'static str = CLIENT_SECRET_ENV;
+
+    /// Reads the lane's catalog client from the process environment; `None` when the run holds
+    /// none (a run on the current catalog).
+    ///
+    /// # Errors
+    /// Returns `LakehouseCatalogConfigError::PartialClient` when some of the four are set and not all.
+    pub fn from_env() -> Result<Option<Self>, LakehouseCatalogConfigError> {
+        let vars = std::env::vars().collect::<BTreeMap<_, _>>();
+        Self::from_vars(&vars)
+    }
+
+    /// [`Self::from_env`] over a provided key-value map.
+    ///
+    /// # Errors
+    /// Returns `LakehouseCatalogConfigError::PartialClient` when some of the four are set and not all.
+    pub fn from_vars(
+        vars: &BTreeMap<String, String>,
+    ) -> Result<Option<Self>, LakehouseCatalogConfigError> {
+        let set: Vec<&'static str> = CLIENT_ENVS
+            .into_iter()
+            .filter(|key| optional_env(vars, key).is_some())
+            .collect();
+        if set.is_empty() {
+            return Ok(None);
+        }
+        if set.len() != CLIENT_ENVS.len() {
+            let missing = CLIENT_ENVS
+                .into_iter()
+                .find(|key| !set.contains(key))
+                .unwrap_or(CLIENT_ID_ENV);
+            return Err(LakehouseCatalogConfigError::PartialClient(missing));
+        }
+        Ok(Some(Self {
+            client_id: required_env(vars, CLIENT_ID_ENV)?.to_owned(),
+            client_secret: required_env(vars, CLIENT_SECRET_ENV)?.to_owned(),
+            token_uri: required_env(vars, CLIENT_TOKEN_URI_ENV)?.to_owned(),
+            scope: required_env(vars, CLIENT_SCOPE_ENV)?.to_owned(),
+        }))
+    }
+}
+
+impl std::fmt::Debug for LakehouseCatalogClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LakehouseCatalogClient")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"<redacted>")
+            .field("token_uri", &self.token_uri)
+            .field("scope", &self.scope)
+            .finish()
+    }
+}
+
 /// Lakehouse catalog configuration error.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum LakehouseCatalogConfigError {
     /// A required environment variable is missing or empty.
     #[error("missing required lakehouse catalog environment variable: {0}")]
     MissingEnv(&'static str),
+
+    /// Some of the catalog client's four variables are set and not all.
+    #[error("the lakehouse catalog client is set in part: {0} is missing")]
+    PartialClient(&'static str),
 
     /// The selected catalog provider is unsupported.
     #[error("unknown lakehouse catalog provider: {0}")]

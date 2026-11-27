@@ -4,7 +4,9 @@
 use foundation_shared_kernel::env_source::Requirement;
 use lakehouse_infrastructure::LakehouseCatalogConfig;
 
-use super::super::{attach_lakehouse, LakehouseRead, LAKEHOUSE_ACCESS, LAKEHOUSE_CATALOG};
+use super::super::{
+    attach_lakehouse, attach_lakehouse_vended, LakehouseRead, LAKEHOUSE_ACCESS, LAKEHOUSE_CATALOG,
+};
 
 #[test]
 fn the_lakehouse_is_attached_read_only() {
@@ -13,6 +15,22 @@ fn the_lakehouse_is_attached_read_only() {
     assert!(
         statement.ends_with(&format!(", {LAKEHOUSE_ACCESS})")),
         "the lakehouse must be attached read-only: {statement}"
+    );
+}
+
+#[test]
+fn the_lakekeeper_catalog_is_attached_read_only_with_its_vended_credentials() {
+    // Root ADR-0624 P7: no access delegation 'none' and no storage key; the table's own read
+    // credential comes from load-table (T9).
+    let statement = attach_lakehouse_vended("warehouse", "http://catalog.invalid:8181/catalog");
+    assert!(
+        statement.ends_with(&format!(", {LAKEHOUSE_ACCESS})")),
+        "the lakehouse must be attached read-only: {statement}"
+    );
+    assert!(!statement.contains("ACCESS_DELEGATION_MODE"), "{statement}");
+    assert!(
+        statement.contains("SECRET lakehouse_catalog"),
+        "{statement}"
     );
 }
 

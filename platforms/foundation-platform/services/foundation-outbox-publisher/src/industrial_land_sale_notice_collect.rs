@@ -532,6 +532,14 @@ async fn last_reads_from_lakehouse(
         contract.read_from,
         SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ.table_name
     );
+    // On the Lakekeeper catalog the last reads are a DuckDB read through the lane's client and the
+    // credential the catalog vends (root ADR-0624 P2, P7): no key, no hand-written scan.
+    if foundation_publisher_core::lakehouse_catalog::CatalogSettings::reader_from_env()?
+        .client
+        .is_some()
+    {
+        return last_reads_through_duckdb(contract, source).await;
+    }
     // The unit holds only operations-map.env's read-only token (root ADR-0247), as the ILIS notice
     // collector.
     let catalog = IcebergRestCatalog::new(
@@ -558,6 +566,68 @@ async fn last_reads_from_lakehouse(
         source,
         contract.attachments.max_file_bytes_since,
     ))
+}
+
+/// The columns [`last_reads`] reads, as one JSON object per row of `read_from`.
+const LAST_READ_COLUMNS: &str = "notice_source, notice_id, list_fingerprint, source_snapshot_id, \
+     source_line_number, read_outcome, file_count, files_stored";
+
+/// [`last_reads_from_lakehouse`] on the Lakekeeper catalog: `read_from`'s rows of `source` at the
+/// table's head, read by `DuckDB` attached with the lane's client (`LakehouseRead::from_env`); none
+/// when the table holds no snapshot yet.
+async fn last_reads_through_duckdb(
+    contract: &LaneContract,
+    source: Source,
+) -> anyhow::Result<HashMap<String, LastRead>> {
+    use foundation_publisher_silver::duckdb_parquet_stage::{
+        table_at, DuckDbParquetStage, LakehouseRead,
+    };
+    let catalog = foundation_publisher_core::lakehouse_catalog::CatalogSettings::reader_from_env()?
+        .rest_catalog()
+        .await?;
+    let Some(head) = catalog
+        .load_current_snapshot_manifest_list(&contract.read_from)
+        .await
+        .with_context(|| format!("failed to resolve {}", contract.read_from))?
+    else {
+        return Ok(HashMap::new());
+    };
+    let stage = DuckDbParquetStage::open_reading_lakehouse(
+        &std::env::temp_dir(),
+        &LakehouseRead::from_env()?,
+    )?;
+    let rows = last_read_rows(
+        &stage,
+        &table_at(&contract.read_from, head.snapshot_id),
+        source,
+    )?;
+    Ok(last_reads(
+        rows.iter(),
+        source,
+        contract.attachments.max_file_bytes_since,
+    ))
+}
+
+/// `source`'s rows of `relation` (a table, or [`table_at`]'s pinned read) as [`last_reads`] reads
+/// them: one JSON object per row, with the columns' own JSON types.
+pub(crate) fn last_read_rows(
+    stage: &foundation_publisher_silver::duckdb_parquet_stage::DuckDbParquetStage,
+    relation: &str,
+    source: Source,
+) -> anyhow::Result<Vec<serde_json::Map<String, JsonValue>>> {
+    let sql = format!(
+        "SELECT to_json(r)::VARCHAR FROM (SELECT {LAST_READ_COLUMNS} FROM {relation} WHERE notice_source = ?) r"
+    );
+    let mut statement = stage.connection().prepare(&sql)?;
+    let rows = statement
+        .query_map([source.name()], |row| row.get::<_, String>(0))?
+        .map(
+            |row| -> anyhow::Result<serde_json::Map<String, JsonValue>> {
+                Ok(serde_json::from_str(&row?)?)
+            },
+        )
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(rows)
 }
 
 /// What a run needs to ask: the source's client, the pace and the count of requests sent.
