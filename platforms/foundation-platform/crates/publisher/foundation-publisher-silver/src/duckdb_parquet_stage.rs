@@ -230,6 +230,16 @@ fn attach_lakehouse(warehouse: &str, catalog_uri: &str) -> String {
     )
 }
 
+/// The statement that attaches the Lakekeeper `warehouse` at `catalog_uri` as [`LAKEHOUSE_CATALOG`]:
+/// access delegation is duckdb-iceberg's default, the credential the catalog vends per table on load
+/// (root ADR-0624 P7, T9), so the stage holds no storage key.
+fn attach_lakehouse_vended(warehouse: &str, catalog_uri: &str) -> String {
+    format!(
+        "ATTACH '{warehouse}' AS {LAKEHOUSE_CATALOG} \
+         (TYPE iceberg, ENDPOINT '{catalog_uri}', SECRET lakehouse_catalog, {LAKEHOUSE_ACCESS})"
+    )
+}
+
 mod line_parts;
 pub use line_parts::text_bytes;
 
@@ -272,14 +282,27 @@ pub struct LakehouseRead {
     pub catalog_uri: String,
     /// The warehouse name.
     pub warehouse: String,
-    /// The catalog token.
-    pub catalog_token: String,
-    /// The R2 endpoint of the lakehouse bucket.
-    pub s3_endpoint: String,
-    /// The access key id the data files are read with.
-    pub s3_access_key_id: String,
-    /// Its secret.
-    pub s3_secret_access_key: String,
+    /// How the catalog and its data files are reached.
+    pub access: LakehouseReadAccess,
+}
+
+/// How a stage reaches the catalog and its tables' data files.
+pub enum LakehouseReadAccess {
+    /// The current catalog: its read-only token, and the read-only key pair the data files are read
+    /// with (access delegation off).
+    Keys {
+        /// The catalog token.
+        catalog_token: String,
+        /// The R2 endpoint of the lakehouse bucket.
+        s3_endpoint: String,
+        /// The access key id the data files are read with.
+        s3_access_key_id: String,
+        /// Its secret.
+        s3_secret_access_key: String,
+    },
+    /// The Lakekeeper catalog (root ADR-0624 P7): the lane's OAuth2 client, and each table's data
+    /// files through the read credential the catalog vends for it on load. No storage key.
+    Client(lakehouse_infrastructure::LakehouseCatalogClient),
 }
 
 impl LakehouseRead {
@@ -306,6 +329,17 @@ impl LakehouseRead {
     /// # Errors
     /// Returns an error when a setting is missing; the error never carries a credential.
     pub fn from_env() -> anyhow::Result<Self> {
+        let settings =
+            foundation_publisher_core::lakehouse_catalog::CatalogSettings::reader_from_env()
+                .context("failed to configure the lakehouse catalog for a DuckDB read")?;
+        if let Some(client) = settings.client {
+            return Ok(Self {
+                extensions: crate::duckdb_extensions::release_directory()?,
+                catalog_uri: settings.config.catalog_uri,
+                warehouse: settings.config.warehouse,
+                access: LakehouseReadAccess::Client(client),
+            });
+        }
         Self::with_catalog(&read_catalog_config()?)
     }
 
@@ -326,13 +360,15 @@ impl LakehouseRead {
             extensions: crate::duckdb_extensions::release_directory()?,
             catalog_uri: catalog.catalog_uri.clone(),
             warehouse: catalog.warehouse.clone(),
-            catalog_token: catalog
-                .catalog_token
-                .clone()
-                .context("the lakehouse catalog token is required")?,
-            s3_endpoint: storage.endpoint,
-            s3_access_key_id: storage.access_key_id,
-            s3_secret_access_key: storage.secret_access_key,
+            access: LakehouseReadAccess::Keys {
+                catalog_token: catalog
+                    .catalog_token
+                    .clone()
+                    .context("the lakehouse catalog token is required")?,
+                s3_endpoint: storage.endpoint,
+                s3_access_key_id: storage.access_key_id,
+                s3_secret_access_key: storage.secret_access_key,
+            },
         })
     }
 }
@@ -436,35 +472,73 @@ impl DuckDbParquetStage {
         )?;
         crate::duckdb_extensions::load(&connection, &read.extensions)?;
         connection.execute_batch(&r2_read_settings()?)?;
-        for value in [
-            &read.catalog_uri,
-            &read.warehouse,
-            &read.catalog_token,
-            &read.s3_endpoint,
-            &read.s3_access_key_id,
-            &read.s3_secret_access_key,
-        ] {
+        for value in [&read.catalog_uri, &read.warehouse] {
             ensure!(
                 !value.is_empty() && !value.contains(QUOTE),
                 "a lakehouse read setting is empty or holds a quote"
             );
         }
-        let endpoint = read
-            .s3_endpoint
-            .trim_start_matches("https://")
-            .trim_end_matches('/');
         // DuckDB's message for a failed statement repeats the statement: drop it.
-        connection
-            .execute_batch(&format!(
-                "CREATE SECRET lakehouse_catalog (TYPE iceberg, TOKEN '{}'); \
-                 CREATE SECRET lakehouse_objects (TYPE s3, KEY_ID '{}', SECRET '{}', ENDPOINT '{endpoint}', \
-                 URL_STYLE 'path', REGION 'auto')",
-                read.catalog_token, read.s3_access_key_id, read.s3_secret_access_key
-            ))
-            .map_err(|_| anyhow::anyhow!("DuckDB refused the lakehouse credentials"))?;
-        connection
-            .execute_batch(&attach_lakehouse(&read.warehouse, &read.catalog_uri))
-            .map_err(|_| anyhow::anyhow!("DuckDB could not attach the lakehouse catalog"))?;
+        match &read.access {
+            LakehouseReadAccess::Keys {
+                catalog_token,
+                s3_endpoint,
+                s3_access_key_id,
+                s3_secret_access_key,
+            } => {
+                for value in [
+                    catalog_token,
+                    s3_endpoint,
+                    s3_access_key_id,
+                    s3_secret_access_key,
+                ] {
+                    ensure!(
+                        !value.is_empty() && !value.contains(QUOTE),
+                        "a lakehouse read setting is empty or holds a quote"
+                    );
+                }
+                let endpoint = s3_endpoint
+                    .trim_start_matches("https://")
+                    .trim_end_matches('/');
+                connection
+                    .execute_batch(&format!(
+                        "CREATE SECRET lakehouse_catalog (TYPE iceberg, TOKEN '{catalog_token}'); \
+                         CREATE SECRET lakehouse_objects (TYPE s3, KEY_ID '{s3_access_key_id}', \
+                         SECRET '{s3_secret_access_key}', ENDPOINT '{endpoint}', URL_STYLE 'path', REGION 'auto')"
+                    ))
+                    .map_err(|_| anyhow::anyhow!("DuckDB refused the lakehouse credentials"))?;
+                connection
+                    .execute_batch(&attach_lakehouse(&read.warehouse, &read.catalog_uri))
+                    .map_err(|_| {
+                        anyhow::anyhow!("DuckDB could not attach the lakehouse catalog")
+                    })?;
+            }
+            LakehouseReadAccess::Client(client) => {
+                for value in [
+                    &client.client_id,
+                    &client.client_secret,
+                    &client.token_uri,
+                    &client.scope,
+                ] {
+                    ensure!(
+                        !value.is_empty() && !value.contains(QUOTE),
+                        "a lakehouse read setting is empty or holds a quote"
+                    );
+                }
+                connection
+                    .execute_batch(&format!(
+                        "CREATE SECRET lakehouse_catalog (TYPE iceberg, CLIENT_ID '{}', CLIENT_SECRET '{}', \
+                         OAUTH2_SERVER_URI '{}', OAUTH2_SCOPE '{}')",
+                        client.client_id, client.client_secret, client.token_uri, client.scope
+                    ))
+                    .map_err(|_| anyhow::anyhow!("DuckDB refused the lakehouse credentials"))?;
+                connection
+                    .execute_batch(&attach_lakehouse_vended(&read.warehouse, &read.catalog_uri))
+                    .map_err(|_| {
+                        anyhow::anyhow!("DuckDB could not attach the lakehouse catalog")
+                    })?;
+            }
+        }
         Ok(Self {
             connection,
             directory,
