@@ -199,6 +199,10 @@ use foundation_publisher_tiles::vector_tile_runtime_promote;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
 const TOKIO_WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
+/// `1` makes the command end with its `foundation-run-usage` line (`run_usage_line`). Opt-in: a command that
+/// succeeds otherwise writes nothing to stderr, and callers may hold it to that. The lane runners set it on
+/// both sides (scripts/ops/collector-state-publish.sh, orchestration/dagster/aws/collect_lane.py).
+const RUN_USAGE_ENV: &str = "FOUNDATION_PLATFORM_RUN_USAGE";
 
 type CommandFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 
@@ -416,22 +420,26 @@ fn main() -> anyhow::Result<()> {
     let started = std::time::Instant::now();
     let result = run_command_runtime(command);
     // Before an error's lines, so a failed run still ends on its error.
-    eprintln!(
-        "{}",
-        run_usage_line(
-            started.elapsed(),
-            &fs::read_to_string("/proc/self/status").unwrap_or_default(),
-            foundation_outbox::object_storage::r2_bytes_written(),
-        )
-    );
+    if env::var(RUN_USAGE_ENV).is_ok_and(|value| value == "1") {
+        eprintln!(
+            "{}",
+            run_usage_line(
+                started.elapsed(),
+                &fs::read_to_string("/proc/self/status").unwrap_or_default(),
+                foundation_outbox::object_storage::r2_bytes_written(),
+            )
+        );
+    }
     result
         .map_err(exit_if_refused)
         .map_err(exit_if_provider_side)
 }
 
-/// One line every command ends with, the same on the host and on AWS (W101c overlap, root ADR-0616 §7):
-/// its wall time, the process's peak resident set as the kernel keeps it (`VmHWM`: no page cache, unlike a
-/// cgroup's peak), and the bytes it landed in R2 (`r2_bytes_written`). Off Linux the peak is `unknown`.
+/// The line a command ends with when `RUN_USAGE_ENV` asks.
+///
+/// The same on the host and on AWS (W101c overlap, root ADR-0616 §7): its wall time, the process's peak
+/// resident set as the kernel keeps it (`VmHWM`: no page cache, unlike a cgroup's peak), and the bytes it
+/// landed in R2 (`r2_bytes_written`). Off Linux the peak is `unknown`.
 fn run_usage_line(elapsed: std::time::Duration, proc_status: &str, r2_bytes: u64) -> String {
     let peak = proc_status
         .lines()

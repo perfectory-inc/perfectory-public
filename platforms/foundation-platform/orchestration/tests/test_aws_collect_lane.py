@@ -244,6 +244,7 @@ class TheLaneAsDeclared(unittest.TestCase):
         env = collect_lane.environment(lane, Vendor().answer, "postgres://x", {"DATA_GO_KR_SERVICE_KEY": "k"}, work)
         self.assertEqual(env["FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SESSION_TOKEN"], "t")
         self.assertEqual(env[f"{lane['env_prefix']}_LIVE_WRITE"], "1")
+        self.assertEqual(env["FOUNDATION_PLATFORM_RUN_USAGE"], "1", "measured as the host copy is measured")
         self.assertEqual(env[f"{lane['env_prefix']}_METRICS_DIR"], str(work / "metrics_dir"))
         self.assertFalse([value for value in env.values() if value.startswith(("/var/lib", "/etc/foundation", "/data/"))])
 
