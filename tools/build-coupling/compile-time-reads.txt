@@ -5,6 +5,7 @@ platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/indust
 platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/parcel_complex_membership.rs:1
 platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/spatial_tile_publication.rs:1
 platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/vector_tile_runtime_manifest_promote.rs:1
+platforms/foundation-platform/crates/collection/collection-domain/src/source_slug.rs:1
 platforms/foundation-platform/crates/collection/collection-domain/tests/court_auction_contract.rs:1
 platforms/foundation-platform/crates/collection/collection-domain/tests/package_boundary.rs:1
 platforms/foundation-platform/crates/collection/collection-domain/tests/source_slug_catalog_parity.rs:1
@@ -17,6 +18,7 @@ platforms/foundation-platform/crates/foundation-outbox/tests/live_kafka_outbox_r
 platforms/foundation-platform/crates/foundation-outbox/tests/postgres_jobbus.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/by_pnu_kind.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/hub_lane_family.rs:2
+platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/naming.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/tests/lakehouse_contract_artifact.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/tests/lakehouse_lineage_event.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/tests/lakehouse_quality_rules.rs:1
