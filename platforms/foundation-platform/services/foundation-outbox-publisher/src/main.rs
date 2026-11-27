@@ -413,9 +413,42 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let command = parse_command(env::args())?;
-    run_command_runtime(command)
+    let started = std::time::Instant::now();
+    let result = run_command_runtime(command);
+    // Before an error's lines, so a failed run still ends on its error.
+    eprintln!(
+        "{}",
+        run_usage_line(
+            started.elapsed(),
+            &fs::read_to_string("/proc/self/status").unwrap_or_default(),
+            foundation_outbox::object_storage::r2_bytes_written(),
+        )
+    );
+    result
         .map_err(exit_if_refused)
         .map_err(exit_if_provider_side)
+}
+
+/// One line every command ends with, the same on the host and on AWS (W101c overlap, root ADR-0616 §7):
+/// its wall time, the process's peak resident set as the kernel keeps it (`VmHWM`: no page cache, unlike a
+/// cgroup's peak), and the bytes it landed in R2 (`r2_bytes_written`). Off Linux the peak is `unknown`.
+fn run_usage_line(elapsed: std::time::Duration, proc_status: &str, r2_bytes: u64) -> String {
+    let peak = proc_status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))
+        .and_then(|value| {
+            value
+                .trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
+        .map_or_else(|| "unknown".to_owned(), |kib| kib.to_string());
+    format!(
+        "foundation-run-usage seconds={:.1} peak_rss_kib={peak} r2_bytes_written={r2_bytes}",
+        elapsed.as_secs_f64()
+    )
 }
 
 /// A provider that did not serve or refuses the account exits with its own code and one outcome

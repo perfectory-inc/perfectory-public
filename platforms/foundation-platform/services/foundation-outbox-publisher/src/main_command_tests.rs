@@ -1,4 +1,4 @@
-use super::{parse_command, Command};
+use super::{parse_command, run_usage_line, Command};
 
 mod gold_versions;
 
@@ -1410,4 +1410,21 @@ fn reconcile_lakehouse_catalog_command_is_explicit() -> anyhow::Result<()> {
         Command::ReconcileLakehouseCatalog
     );
     Ok(())
+}
+
+#[test]
+fn every_run_ends_with_its_time_peak_memory_and_landed_bytes() {
+    let status = "Name:\tfoundation-outb\nVmPeak:\t 9000000 kB\nVmHWM:\t  469120 kB\nVmRSS:\t  12000 kB\n";
+    assert_eq!(
+        run_usage_line(
+            std::time::Duration::from_millis(544_300),
+            status,
+            2_045_538_826
+        ),
+        "foundation-run-usage seconds=544.3 peak_rss_kib=469120 r2_bytes_written=2045538826"
+    );
+    assert_eq!(
+        run_usage_line(std::time::Duration::ZERO, "", 0),
+        "foundation-run-usage seconds=0.0 peak_rss_kib=unknown r2_bytes_written=0"
+    );
 }

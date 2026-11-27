@@ -7,6 +7,7 @@ mod namespace;
 mod read_retry;
 mod streaming;
 mod write_retry;
+mod written;
 
 pub use conditional::ConditionalWrite;
 pub use lakehouse_settings::{LAKEHOUSE_READER_REQUIREMENTS, LAKEHOUSE_WRITER_REQUIREMENTS};
@@ -16,6 +17,7 @@ pub use namespace::{
 pub use streaming::{
     R2MultipartUploadReport, R2MultipartUploadWriter, R2ReadRequestMetrics, R2SeekableObjectReader,
 };
+pub use written::r2_bytes_written;
 
 use std::env;
 use std::time::Duration;
@@ -298,6 +300,8 @@ impl R2ObjectStorage {
                 config.namespace,
                 config.bucket_name.clone(),
             ))
+            // The bytes it landed, printed by the publisher when it exits (written.rs).
+            .interceptor(written::R2WrittenBytesInterceptor)
             .build();
 
         Self {
