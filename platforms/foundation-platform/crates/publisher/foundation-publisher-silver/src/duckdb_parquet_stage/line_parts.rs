@@ -50,13 +50,20 @@ impl DuckDbParquetStage {
     /// # Errors
     /// Returns an error when `DuckDB` reports it in a form this does not read.
     pub fn memory_limit_bytes(&self) -> anyhow::Result<u64> {
-        let text: String =
-            self.connection
-                .query_row("SELECT current_setting('memory_limit')", [], |row| {
-                    row.get(0)
-                })?;
-        human_bytes(&text).with_context(|| format!("DuckDB reports its memory limit as {text:?}"))
+        reported_memory_limit(&self.connection)
     }
+}
+
+/// The memory the `DuckDB` of `connection` may hold before it spills, as it reports it.
+///
+/// # Errors
+/// Returns an error when `DuckDB` reports it in a form this does not read.
+pub(super) fn reported_memory_limit(connection: &duckdb::Connection) -> anyhow::Result<u64> {
+    let text: String =
+        connection.query_row("SELECT current_setting('memory_limit')", [], |row| {
+            row.get(0)
+        })?;
+    human_bytes(&text).with_context(|| format!("DuckDB reports its memory limit as {text:?}"))
 }
 
 /// The bytes of text in the gzip or plain file at `path`, uncompressed (counted as it streams).

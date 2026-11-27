@@ -1,7 +1,11 @@
 //! Every `DuckDB` the publisher opens holds the one share of what its process may still take,
-//! spills at most the one share of what its disk has free, and counts its threads itself.
+//! spills at most the one share of what its disk has free, and counts its threads itself, no more
+//! than its memory holds at `DuckDB`'s own sizing.
 
-use super::super::{disk_share, memory_limit, DuckDbParquetStage, DISK_SHARE, MEMORY_SHARE};
+use super::super::{
+    disk_share, held_threads, memory_limit, DuckDbParquetStage, DISK_SHARE, MEMORY_PER_THREAD,
+    MEMORY_SHARE,
+};
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -14,7 +18,20 @@ fn the_limit_is_the_share_of_what_the_process_may_still_take() {
 }
 
 #[test]
-fn a_stage_holds_the_share_and_takes_duckdbs_own_thread_count() -> anyhow::Result<()> {
+fn a_stage_runs_at_most_one_thread_per_gigabyte_of_its_limit() {
+    assert_eq!(MEMORY_PER_THREAD, 1_000_000_000);
+    // 2026-11-26 21:35Z: 1.4 GiB under a unit with no CPU quota on a host of 20 threads.
+    assert_eq!(held_threads(1_503_238_553, 20), 1);
+    // The CPUs bound it where the memory holds more.
+    assert_eq!(held_threads(16 * GIB, 4), 4);
+    assert_eq!(held_threads(8 * GIB, 20), 8);
+    // Never none: a limit below one gigabyte still runs one thread.
+    assert_eq!(held_threads(256 << 20, 8), 1);
+    assert_eq!(held_threads(0, 0), 1);
+}
+
+#[test]
+fn a_stage_holds_the_share_and_takes_duckdbs_own_thread_count_within_it() -> anyhow::Result<()> {
     let before = crate::process_memory::available_bytes();
     let directory = tempfile::tempdir()?;
     let stage = DuckDbParquetStage::open(directory.path())?;
@@ -39,8 +56,8 @@ fn a_stage_holds_the_share_and_takes_duckdbs_own_thread_count() -> anyhow::Resul
     };
     assert_eq!(
         threads(stage.connection())?,
-        threads(&duckdb::Connection::open_in_memory()?)?,
-        "a stage takes the thread count DuckDB reads from the cgroup, not one of its own"
+        held_threads(limit, threads(&duckdb::Connection::open_in_memory()?)?),
+        "a stage takes the thread count DuckDB reads from the cgroup, at most one per gigabyte"
     );
     Ok(())
 }
