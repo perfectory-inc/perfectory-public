@@ -287,3 +287,9 @@ Single-AZ 와 Multi-AZ 의 차는 월 39.85 USD 다. Single-AZ 동안 RDS 장애
 빈 칸). 조정기는 `reconcile-lakehouse-catalog` 이고, prod 의 창고는 사장이 새 토큰 `perfectory-lakekeeper-prod` 를 넣은 뒤에 만든다.
 
 2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §5, §9): 조정기의 표 목록(`reconciler.tables`)은 손 목록이 아니라 전환한 구성 요소의 표 계약에서 생성한다. 네임스페이스는 `silver`·`gold` 둘이고, `reference`·`intelligence` 표는 `silver` 에 든다. 표 이름은 그 ADR 의 지도대로 전환 PR 에서 선다.
+
+2026-11-28 (W109d): A1 의 운영 적용. 사장이 `perfectory-lakekeeper-prod` 토큰을 넣었고(2026-11-28 03:14 KST), 릴리스 1128cf47 의 이미지로 조정기가
+부트스트랩·창고(키 접두 `tables`)·네임스페이스 `silver`·`gold` 를 만들었다(드리프트 0). T17 과 동시 50 의 T13 이 운영에서 통과했다(런북
+`docs/runbooks/lakekeeper.md` 의 시험 기록). T17 의 Basin 읽기 길(코디네이터 2026-11-28, (b)): 일회성 인수 태스크(`acceptance.tf`)가 조정기와 같은
+실행 역할·같은 비밀 정책으로 돌며 창고 R2 자격(이 계정의 Admin Read & Write 토큰, Basin 도 받는다)으로 Basin 을 `READ_ONLY` 로 붙인다. 새 읽는 주체도
+새 비밀도 없고, 이 길은 A9 에서 Basin 과 함께 지운다. 첫 구성 요소는 산업용지 분양공고(루트 ADR-0603)이고 그 표의 마지막 이름은 ADR-0626 의 것이다.

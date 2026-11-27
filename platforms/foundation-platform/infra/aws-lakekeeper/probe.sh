@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Run one probe step as one principal of the Lakekeeper dev rig and print its result lines (probes/probe.py: JSON
-# checks, never a token or a secret), then exit with the probe's own exit code.
+# Run one probe step as one principal of the Lakekeeper dev rig, or prod's acceptance task, and print its result
+# lines (probes/probe.py: JSON checks, never a token or a secret), then exit with the probe's own exit code.
 #
 #   probe.sh <principal> <step> [args...]      principal: a contract principal, or anonymous
+#   LAKEKEEPER_ENVIRONMENT=prod probe.sh operator <step> [args...]      prod's acceptance task (acceptance.tf)
 #
 # The task runs in the rig's cluster from the platform's public subnets in the probe security group; everything is
 # found by the names the contract gives it. AWS_PROFILE is the operator's SSO profile (the rig's account only).
@@ -13,7 +14,9 @@ export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 here="$(cd "$(dirname "$0")" && pwd -P)"
 # Git Bash on Windows: python3 there is Windows' own and reads C:/ paths, not /c/ ones.
 if command -v cygpath >/dev/null; then here="$(cygpath -m "$here")"; fi
-contract="$here/../../config/lakekeeper-dev.contract.json"
+environment="${LAKEKEEPER_ENVIRONMENT:-dev}"
+case "$environment" in dev | prod) ;; *) echo "LAKEKEEPER_ENVIRONMENT is dev or prod" >&2; exit 2 ;; esac
+contract="$here/../../config/lakekeeper-$environment.contract.json"
 platform="$here/../../config/aws-platform.contract.json"
 name="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["name"])' "$contract")"
 region="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["region"])' "$platform")"

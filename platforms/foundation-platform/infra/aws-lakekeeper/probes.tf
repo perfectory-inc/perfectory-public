@@ -24,31 +24,49 @@ locals {
       principal = local.operator, secret = aws_secretsmanager_secret.principal[local.operator].arn, declared = true, r2 = false
     } },
   )
+  # A probe's program comes in its environment, gzip-compressed and base64-encoded (OpenTofu's base64gzip): the shared
+  # part PROBE_COMMON (probes/common.py), made the module `common`, and the task's steps PROBE_STEPS (dev:
+  # probes/probe.py, prod: probes/acceptance.py), which import from it and run. One ECS container definition holds
+  # at most 64 KiB: dev's steps inline already took 63 KB of it, and with prod's steps added 77 KB was refused
+  # (RegisterTaskDefinition, 2026-11-28).
+  probe_loader = join("\n", [
+    "import base64, gzip, os, sys, types",
+    "def source(name): return gzip.decompress(base64.b64decode(os.environ.pop(name))).decode()",
+    "common = types.ModuleType('common')",
+    "exec(compile(source('PROBE_COMMON'), 'common.py', 'exec'), common.__dict__)",
+    "sys.modules['common'] = common",
+    "exec(compile(source('PROBE_STEPS'), 'steps.py', 'exec'), {'__name__': '__main__'})",
+  ])
   probe_environment = {
-    CATALOG_URL = local.catalog_url
-    TOKEN_URL   = local.token_url
-    SCOPE       = local.catalog_scope
-    OTHER_SCOPE = local.env.identity.other_scope == null ? "" : "${aws_cognito_resource_server.catalog.identifier}/${local.env.identity.other_scope}"
-    PRINCIPALS  = jsonencode({ for name, client in aws_cognito_user_pool_client.principal : name => client.id })
-    WAREHOUSE   = jsonencode(local.env.warehouse)
+    PROBE_COMMON = base64gzip(file("${path.module}/probes/common.py"))
+    CATALOG_URL  = local.catalog_url
+    TOKEN_URL    = local.token_url
+    SCOPE        = local.catalog_scope
+    OTHER_SCOPE  = local.env.identity.other_scope == null ? "" : "${aws_cognito_resource_server.catalog.identifier}/${local.env.identity.other_scope}"
+    PRINCIPALS   = jsonencode({ for name, client in aws_cognito_user_pool_client.principal : name => client.id })
+    WAREHOUSE    = jsonencode(local.env.warehouse)
   }
 }
 
+# dev's probes, or prod's acceptance task: the group the catalog lets in besides the reconciler.
 resource "aws_security_group" "probe" {
-  count       = local.env.probes ? 1 : 0
+  count       = local.env.probes || local.acceptance ? 1 : 0
   name        = "${local.name}-probe"
-  description = "Lakekeeper dev rig probes: no inbound"
+  description = local.env.probes ? "Lakekeeper dev rig probes: no inbound" : "${local.env.title} acceptance task: no inbound"
   vpc_id      = data.aws_vpc.platform.id
 }
 
-# Out: the token endpoint, image pulls, PyPI and R2 over TLS; DuckDB's extension repository, which DuckDB fetches
-# over plain HTTP (dev probes only: prod ships the extensions in the image, root ADR-0559 §6); the catalog's port.
+# Out: the token endpoint, image pulls, PyPI, Basin and R2 over TLS; the catalog's port. DuckDB's extension
+# repository, which DuckDB fetches over plain HTTP, only for dev's probes: prod's acceptance task loads the
+# extension files its image carries (root ADR-0559 §6).
 resource "aws_vpc_security_group_egress_rule" "probe" {
-  for_each = !local.env.probes ? {} : {
-    https   = { port = 443, cidr = "0.0.0.0/0", group = null }
-    http    = { port = 80, cidr = "0.0.0.0/0", group = null }
-    catalog = { port = local.catalog.port, cidr = null, group = aws_security_group.catalog.id }
-  }
+  for_each = !(local.env.probes || local.acceptance) ? {} : merge(
+    {
+      https   = { port = 443, cidr = "0.0.0.0/0", group = null }
+      catalog = { port = local.catalog.port, cidr = null, group = aws_security_group.catalog.id }
+    },
+    local.env.probes ? { http = { port = 80, cidr = "0.0.0.0/0", group = null } } : {},
+  )
   security_group_id            = aws_security_group.probe[0].id
   ip_protocol                  = "tcp"
   from_port                    = each.value.port
@@ -115,11 +133,12 @@ resource "aws_ecs_task_definition" "probe" {
     name       = each.key
     image      = local.probe_image
     essential  = true
-    entryPoint = ["python", "-I", "-c", file("${path.module}/probes/probe.py")]
+    entryPoint = ["python", "-I", "-c", local.probe_loader]
     command    = ["health"]
     environment = [for key, value in merge(local.probe_environment, {
-      PRINCIPAL = each.value.principal
-      DECLARED  = tostring(each.value.declared)
+      PROBE_STEPS = base64gzip(file("${path.module}/probes/probe.py"))
+      PRINCIPAL   = each.value.principal
+      DECLARED    = tostring(each.value.declared)
     }) : { name = key, value = value }]
     secrets = concat(each.value.secret == null ? [] : [
       { name = "CLIENT_ID", valueFrom = "${each.value.secret}:client_id::" },

@@ -7,7 +7,13 @@
   "tags": { "purpose": "lakehouse-catalog" },
   "probes": false,
   "secret_recovery_days": 7,
-  "environment_reason": "No probes: the tests run in dev, and T13 at 50 concurrent and T17 run here at A1 as one-off tasks of their own. A deleted secret can be restored for 7 days (Secrets Manager's minimum recovery window).",
+  "environment_reason": "No probes: the tests run in dev, and T13 at 50 concurrent and T17 run here at A1 as one-off tasks of their own (acceptance). A deleted secret can be restored for 7 days (Secrets Manager's minimum recovery window).",
+  "acceptance": {
+    "namespace": "probe",
+    "cpu": 512,
+    "memory": 1024,
+    "reason": "The A1 tests that need prod (root ADR-0624 decision 4-4, 4-7; coordinator 2026-11-28): T13 (lake-mints at 50 concurrent, on prod's own database) and T17 (the migration method: DuckDB attaches Basin READ_ONLY and this catalog, INSERT ... SELECT, equal counts, unique keys, equal per-column hashes). One task definition, made only when an apply gives the release image: probes/probe.py in that image, whose Python takes the pinned duckdb wheel by hash and loads the image's own DuckDB extension files by path (nothing downloaded at run time, root ADR-0559 section 6). It runs under the reconciler's execution role, which alone reads the warehouse credential: no new reader, no new secret (coordinator 2026-11-28, option b). That credential is an Admin Read & Write token of this account, which Basin also accepts; T17 attaches Basin READ_ONLY with it, and this read path goes with Basin at A9. Its tables live only in the namespace probe, which the drop step removes with every table and file in it right after (recursive, force, purge), so the reconciler finds no drift. 0.5 vCPU / 1 GB: Python, DuckDB and its iceberg extension, one small table."
+  },
   "log_retention_days": 365,
   "log_retention_reason": "The catalog's log is its audit record (root ADR-0624 decision 10-3: Lakekeeper's log and snapshot summaries go to CloudWatch), kept one year.",
   "catalog": {
