@@ -5,7 +5,7 @@
   "jobs": [
     {
       "id": "bronze_epoch",
-      "dagster_group": "operations",
+      "dagster_group": "collect",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
@@ -34,15 +34,77 @@
       },
       "pool": "default_pool",
       "retries": 0,
-      "pipeline_graph_edges": [],
-      "reads_data_contracts": true,
+      "pipeline_graph_edges": [
+        "serving-bronze-object-to-source-code-go-kr",
+        "serving-bronze-object-to-source-courtauction-go-kr",
+        "serving-bronze-object-to-source-data-go-kr-onbid",
+        "serving-bronze-object-to-source-ilis",
+        "serving-bronze-object-to-source-industrial-land-sale-notice"
+      ],
       "enabled": true,
       "enabled_since": "2026-11-28T00:00:00Z",
-      "dagster_stage": "proxied",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "A one-time move, not a data producer: once every move is verified and every old key deleted, `unchanged` is its normal outcome until it is turned off. That it keeps finishing is the done bound."
       }
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "serving-bronze-object",
+      "to": "source-code-go-kr",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "serving-bronze-object",
+      "to": "source-courtauction-go-kr",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "serving-bronze-object",
+      "to": "source-data-go-kr-onbid",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "serving-bronze-object",
+      "to": "source-ilis",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "serving-bronze-object",
+      "to": "source-industrial-land-sale-notice",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
     }
   ]
 }

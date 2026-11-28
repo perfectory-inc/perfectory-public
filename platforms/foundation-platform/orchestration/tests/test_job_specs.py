@@ -179,6 +179,12 @@ class TheHostScope(unittest.TestCase):
         self.assertEqual(self.classes["gold_panel_rebuild"], "derived")
         self.assertEqual(self.classes["silver_refresh_land_ownership"], "derived")
 
+    def test_the_bronze_epoch_runs_here(self):
+        # Root ADR-0626 §8 N2: the epoch moves Bronze and the host ledger's rows, which only this host reaches.
+        # In the operations group it was derived and never started (2026-11-28 02:15Z); it writes Bronze, so collect.
+        collection = dict(self.jobs, host_scope="collection")
+        self.assertIn("bronze_epoch", job_specs.runs_on_host(collection, self.graph))
+
     def test_the_scope_decides_which_enabled_jobs_run_here(self):
         enabled = {job["id"] for job in self.jobs["jobs"] if job["enabled"]}
         everywhere = dict(self.jobs, host_scope="all")
