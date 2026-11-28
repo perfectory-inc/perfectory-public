@@ -51,6 +51,8 @@ KIND_TAG = "perfectory-platform/kind"
 LANE_TAG = "perfectory-platform/lane"
 HANDOFF = "handoff"
 OVERLAP = "overlap"
+# A source with no host copy (owner 2026-11-28, the data.go.kr RTMS lane): AWS only, from empty state at first.
+NONE = "none"
 # The publisher's SDK runs `<this file> credential-process <job> <run> writer` for fresh keys (AWS credential_process)
 # and again before they expire: one platform time limit for every lane, however long its run (root ADR-0623 §1,
 # owner 2026-11-26; W101c 2026-11-27: onbid's first AWS run took 2 h 12 min and outlived its 1 h key).
@@ -69,6 +71,11 @@ def jobs():
 def job(job_id, job_list=None):
     """The job list's entry for `job_id`."""
     return next(entry for entry in (job_list or jobs())["jobs"] if entry["id"] == job_id)
+
+
+def description(job_id, lane, job_list=None):
+    """What the lane collects: its job's description, or the lane's own when it has no host job (`none`)."""
+    return lane["description"] if lane["handover"] == NONE else job(job_id, job_list)["description"]
 
 
 def _job_specs():
@@ -94,7 +101,7 @@ def lanes_here(platform=None, job_list=None):
     platform = platform or contract()
     hosted = on_host(job_list)
     return {job_id: lane for job_id, lane in platform["collect"]["lanes"].items()
-            if not lane.get("paused") and (lane["handover"] == OVERLAP or job_id not in hosted)}
+            if not lane.get("paused") and (lane["handover"] in (OVERLAP, NONE) or job_id not in hosted)}
 
 
 def resolve(document, pointer):
@@ -253,13 +260,16 @@ def digest(directory):
     return hasher.hexdigest()
 
 
-def restore(store, bucket, prefix, into):
+def restore(store, bucket, prefix, into, handover=OVERLAP):
     """Loads the lane's newest state into `into`: (key read, "aws" | "host"). NotReady with no state at all."""
     for side in ("aws", "host"):
         key = newest(store, bucket, f"{prefix}{side}/")
         if key:
             unpack(store.get_object(Bucket=bucket, Key=key)["Body"].read(), into)
             return key, side
+    if handover == NONE:
+        # No host copy to wait for: a new source starts from nothing, and its whole history is what it asks.
+        return None, "empty"
     raise NotReady(f"no state under {prefix} yet: the host copy writes one after its next run")
 
 
@@ -269,6 +279,16 @@ def save(store, bucket, prefix, run_id, directory, now=None):
     key = f"{prefix}aws/{stamp}-{run_id}.tar.gz"
     store.put_object(Bucket=bucket, Key=key, Body=pack(directory), ContentType="application/gzip", IfNoneMatch="*")
     return key
+
+
+def reader_environment(reader):
+    """The read-only keys of a lane with read prefixes (the RTMS lane's 법정동 table). Read once at the start of a
+    run, so the first vend's keys serve; a lane without read prefixes gets none."""
+    if not reader:
+        return {}
+    return {"FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID": reader["access_key_id"],
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY": reader["secret_access_key"],
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SESSION_TOKEN": reader["session_token"]}
 
 
 def environment(lane, credentials, url, keys, work, refresh):
@@ -287,6 +307,7 @@ def environment(lane, credentials, url, keys, work, refresh):
         "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID": writer["access_key_id"],
         "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY": writer["secret_access_key"],
         "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SESSION_TOKEN": writer["session_token"],
+        **reader_environment(credentials.get("reader")),
         CREDENTIAL_PROCESS_ENV: refresh,
         "DATABASE_URL": url,
         f"{prefix}_OUTPUT_DIR": str(work / "output"),
@@ -341,7 +362,7 @@ def collect(job_id, run_id, secrets_client, lambda_client, log, program=None, st
         work = pathlib.Path(scratch)
         for name in ("output", "state", *(name.lower() for name in lane["work_dirs"])):
             (work / name).mkdir()
-        read_key, side = restore(store, bucket, prefix, work / "state")
+        read_key, side = restore(store, bucket, prefix, work / "state", lane["handover"])
         log(f"{job_id}: state from {read_key} ({side})")
         before = digest(work / "state")
         started = datetime.datetime.now(datetime.timezone.utc)

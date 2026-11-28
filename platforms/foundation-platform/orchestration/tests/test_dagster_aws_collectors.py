@@ -70,7 +70,8 @@ class OneAssetAndOneSensorPerLane(unittest.TestCase):
         lanes = collect_lane.contract()["collect"]["lanes"]
         keys = {key.to_user_string() for key in module.defs.get_repository_def().asset_graph.get_all_asset_keys()}
         for job_id, lane in lanes.items():
-            self.assertEqual(f"collect/{job_id}" in keys, lane["handover"] == "overlap", job_id)
+            # An overlap lane always runs, and so does a lane with no host copy (`none`, the RTMS lane).
+            self.assertEqual(f"collect/{job_id}" in keys, lane["handover"] in ("overlap", "none"), job_id)
         module, _ = load(hosted=set())
         keys = {key.to_user_string() for key in module.defs.get_repository_def().asset_graph.get_all_asset_keys()}
         self.assertTrue({f"collect/{job_id}" for job_id in lanes} <= keys)

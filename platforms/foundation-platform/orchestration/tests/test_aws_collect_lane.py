@@ -168,6 +168,34 @@ class Run(unittest.TestCase):
         result, _ = self.collect(store)
         self.assertEqual(result["state_read"], f"{self.prefix}aws/20261127T000000Z-r0.tar.gz")
 
+    def test_a_lane_with_no_host_copy_runs_here_and_starts_from_nothing(self):
+        lane = LANES["data_go_kr_rtms_collect"]
+        self.assertEqual(lane["handover"], collect_lane.NONE)
+        unpaused = {**CONTRACT, "collect": {**CONTRACT["collect"], "lanes": {
+            **LANES, "data_go_kr_rtms_collect": {**lane, "paused": False}}}}
+        self.assertIn("data_go_kr_rtms_collect", collect_lane.lanes_here(unpaused, collect_lane.jobs()))
+        prefix = collect_lane.state_prefix(CONTRACT, "data_go_kr_rtms_collect")
+        with tempfile.TemporaryDirectory() as into:
+            self.assertEqual(collect_lane.restore(Store(), "b", prefix, pathlib.Path(into), collect_lane.NONE),
+                             (None, "empty"))
+        with self.assertRaises(collect_lane.NotReady), tempfile.TemporaryDirectory() as into:
+            collect_lane.restore(Store(), "b", prefix, pathlib.Path(into), collect_lane.OVERLAP)
+        self.assertTrue(collect_lane.description("data_go_kr_rtms_collect", lane))
+
+    def test_the_rtms_lane_writes_its_contract_s_kinds_and_reads_the_legal_dong_table(self):
+        rtms = json.loads((collect_lane.LAKEHOUSE_CONTRACTS / "data-go-kr-rtms.contract.json").read_text(encoding="utf-8"))
+        lane = LANES["data_go_kr_rtms_collect"]
+        self.assertEqual(sorted(lane["write_prefixes"]),
+                         sorted(f"bronze/source=datagokr__{name}/" for name in rtms["kinds"]))
+        self.assertEqual(lane["read_prefixes"], [rtms["districts"]["source_prefix"]])
+        self.assertEqual(lane["secrets"], ["DATA_GO_KR_SERVICE_KEY"])
+
+    def test_a_lane_with_read_prefixes_gets_the_read_keys_and_others_none(self):
+        reader = {"access_key_id": "rk", "secret_access_key": "rs", "session_token": "rt"}
+        self.assertEqual(collect_lane.reader_environment(reader)["FOUNDATION_PLATFORM_LAKEHOUSE_READER_SESSION_TOKEN"],
+                         "rt")
+        self.assertEqual(collect_lane.reader_environment(None), {})
+
     def test_a_run_longer_than_its_keys_saves_its_state_with_fresh_ones(self):
         # 2026-11-27 onbid ran 2 h 12 min on a 1 h key (W101c): the state goes back with keys asked after the run.
         store = Store({f"{self.prefix}host/20261127T000000Z.tar.gz": tarball({"state.json": b"host"})})
