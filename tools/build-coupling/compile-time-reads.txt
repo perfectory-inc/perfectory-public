@@ -160,6 +160,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/industria
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect/tests.rs:4
 platforms/foundation-platform/services/foundation-outbox-publisher/src/juso_electronic_map_collect.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/media_index_delta.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/media_renditions.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/onbid_silver_load.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_matching_gate.rs:1
