@@ -31,7 +31,7 @@ fn complete(state: &mut State, dataset: &str, month: &str, when: &str) {
 fn the_contract_names_the_twelve_datasets_by_their_codes() {
     let contract = source_contract().unwrap();
     assert_eq!(contract.datasets.len(), 12);
-    for name in &contract.priority {
+    for name in &contract.plan.priority {
         assert!(contract.datasets.contains_key(name), "{name}");
     }
     // ADR-0283: the User-Agent names us; it never pretends to be a browser.
@@ -100,7 +100,7 @@ fn the_history_older_than_the_recent_months_goes_by_priority_each_newest_month_f
         ("real_transaction_apartment_trade", "2026-03"),
         ("real_transaction_industrial_trade", "2026-03"),
     ]);
-    contract.recent_history_months = 4;
+    contract.plan.recent_history_months = 4;
     let history: Vec<(Stage, String, String)> =
         plan_work(&contract, &State::default(), at("2026-10-30T17:00:00Z"))
             .unwrap()
@@ -174,7 +174,7 @@ fn the_history_older_than_the_recent_months_goes_by_priority_each_newest_month_f
 fn the_recent_history_reaches_the_deepest_window_the_document_computes_from() {
     // Root ADR-0479: the lane's first publish waits for these months, and the 공장창고 comparables
     // read 36 months (COMPARABLE_MONTHS, real_transaction_silver_to_gold.py).
-    assert!(source_contract().unwrap().recent_history_months >= 36);
+    assert!(source_contract().unwrap().plan.recent_history_months >= 36);
 }
 
 #[test]
@@ -210,12 +210,12 @@ fn a_completed_month_is_asked_again_on_its_tiers_schedule_and_never_after_the_la
 fn the_last_tier_reaches_the_latest_measured_cancellation() {
     // Root ADR-0348 §3: cancellations measured up to 442 days after the contract.
     let contract = source_contract().unwrap();
-    let last = contract.refresh_tiers.last().unwrap();
+    let last = contract.plan.refresh_tiers.last().unwrap();
     assert!(i64::from(last.max_age_months) * 30 >= 442);
     assert_eq!(
         (
-            contract.refresh_tiers[0].max_age_months,
-            contract.refresh_tiers[0].every_days
+            contract.plan.refresh_tiers[0].max_age_months,
+            contract.plan.refresh_tiers[0].every_days
         ),
         (2, 1)
     );

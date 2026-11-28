@@ -94,20 +94,47 @@ pub struct SourceContract {
     pub manners: Manners,
     /// Words of the provider's count-check error that mean its daily download limit is spent.
     pub daily_limit_messages: Vec<String>,
+    #[serde(flatten)]
+    pub plan: MonthPlan,
+    pub datasets: BTreeMap<String, Dataset>,
+}
+
+/// Which months a real-transaction collector owes and in what order (root ADR-0348 §4, ADR-0479):
+/// one plan for every channel, so the data.go.kr RTMS lane asks months as this export did.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MonthPlan {
     pub refresh_tiers: Vec<Tier>,
     /// How many whole months before the current one every dataset fills first, month by month
     /// across them all, before the older history goes by `priority` (root ADR-0479).
     pub recent_history_months: u32,
     pub priority: Vec<String>,
-    pub datasets: BTreeMap<String, Dataset>,
 }
 
-impl SourceContract {
+impl MonthPlan {
     fn priority_of(&self, name: &str) -> usize {
         self.priority
             .iter()
             .position(|p| p == name)
             .unwrap_or(self.priority.len())
+    }
+
+    fn tier_of(&self, age: i32) -> Option<usize> {
+        let age = u32::try_from(age).unwrap_or(0);
+        self.refresh_tiers
+            .iter()
+            .position(|tier| age <= tier.max_age_months)
+    }
+
+    /// # Errors
+    /// When the tiers do not grow in age.
+    pub fn check(&self) -> anyhow::Result<()> {
+        ensure!(
+            self.refresh_tiers
+                .windows(2)
+                .all(|w| w[0].max_age_months < w[1].max_age_months),
+            "refresh_tiers must grow in max_age_months"
+        );
+        Ok(())
     }
 }
 
@@ -129,13 +156,7 @@ pub fn source_contract() -> anyhow::Result<SourceContract> {
         .filter(|slug| slug == name)
         .with_context(|| format!("{name}: thing/deal codes name another dataset"))?;
     }
-    ensure!(
-        contract
-            .refresh_tiers
-            .windows(2)
-            .all(|w| w[0].max_age_months < w[1].max_age_months),
-        "refresh_tiers must grow in max_age_months"
-    );
+    contract.plan.check()?;
     ensure!(
         (1..=4).contains(&contract.manners.concurrency),
         "manners.concurrency must be 1 to 4 (root ADR-0348 §2)"
@@ -339,14 +360,6 @@ pub struct WorkItem {
     pub month: Month,
 }
 
-fn tier_of(contract: &SourceContract, age: i32) -> Option<usize> {
-    let age = u32::try_from(age).unwrap_or(0);
-    contract
-        .refresh_tiers
-        .iter()
-        .position(|tier| age <= tier.max_age_months)
-}
-
 /// Every month owed now, in asking order.
 ///
 /// # Errors
@@ -356,16 +369,34 @@ pub fn plan_work(
     state: &State,
     now: DateTime<Utc>,
 ) -> anyhow::Result<Vec<WorkItem>> {
+    let first_months = contract
+        .datasets
+        .iter()
+        .map(|(name, dataset)| (name.as_str(), dataset.first_month.as_str()));
+    plan_months(&contract.plan, first_months, &state.months, now)
+}
+
+/// Every month owed now of the datasets `first_months` names (each from its first month), given the
+/// marks of the months read so far, in asking order.
+///
+/// # Errors
+/// When a dataset's first month does not parse.
+pub fn plan_months<'a>(
+    plan: &MonthPlan,
+    first_months: impl IntoIterator<Item = (&'a str, &'a str)>,
+    months: &BTreeMap<String, MonthMark>,
+    now: DateTime<Utc>,
+) -> anyhow::Result<Vec<WorkItem>> {
     let current = kst_month(now);
     let mut work = Vec::new();
-    for (name, dataset) in &contract.datasets {
-        for month in month_index(&dataset.first_month)?..=current {
-            let mark = state.months.get(&month_key(name, month));
+    for (name, first_month) in first_months {
+        for month in month_index(first_month)?..=current {
+            let mark = months.get(&month_key(name, month));
             let completed = mark.and_then(|mark| mark.completed_utc);
-            let tier = tier_of(contract, current - month);
+            let tier = plan.tier_of(current - month);
             let unchecked = completed.is_some() && !mark.is_some_and(|mark| mark.verified);
-            let recent_history = u32::try_from(current - month)
-                .is_ok_and(|age| age <= contract.recent_history_months);
+            let recent_history =
+                u32::try_from(current - month).is_ok_and(|age| age <= plan.recent_history_months);
             let stage = match (completed, tier) {
                 _ if unchecked => Stage::Recheck,
                 (None, Some(0)) => Stage::Recent,
@@ -374,7 +405,7 @@ pub fn plan_work(
                 },
                 (None, _) => Stage::Backfill,
                 (Some(at), Some(tier)) => {
-                    if now - at < chrono::Duration::days(contract.refresh_tiers[tier].every_days) {
+                    if now - at < chrono::Duration::days(plan.refresh_tiers[tier].every_days) {
                         continue;
                     }
                     if tier == 0 {
@@ -387,9 +418,9 @@ pub fn plan_work(
             };
             work.push(WorkItem {
                 stage,
-                priority: contract.priority_of(name),
+                priority: plan.priority_of(name),
                 newest_first: -month,
-                dataset: name.clone(),
+                dataset: name.to_owned(),
                 month,
             });
         }

@@ -1,0 +1,114 @@
+{
+  "$comment": "Root ADR-0348 as amended 2026-11-28 (owner): the 12 kinds of 국토교통부 실거래가 come from the data.go.kr RTMS OpenAPI, the one channel, on AWS. Read by collect-data-go-kr-rtms (services/foundation-outbox-publisher/src/data_go_kr_rtms_collect.rs, compiled in). The unit is one (kind, 계약 달) nationwide: every LAWD_CD and page of that month, written as one Bronze object only when every call answered, so Silver keeps its whole-month rule (root ADR-0349 §3). The months and their order are the export's plan (refresh_tiers, recent_history_months, priority: one MonthPlan for both channels). Values the first live call confirms (after the data.go.kr maintenance that ends 2026-11-30 06:00 KST): the operation paths, result_codes and the JSON answer (result_type).",
+  "version": 1,
+  "beat": {
+    "cron": "40 15 * * *",
+    "timezone": "UTC",
+    "reason": "Once a day on AWS (root ADR-0623 §1), at 00:40 KST: each API's daily traffic counts a KST day, so one run just after the day turns has that day's budget."
+  },
+  "base_url": "https://apis.data.go.kr/1613000",
+  "user_agent": "perfectory-foundation-rtms/1 (+root ADR-0348)",
+  "result_type": "json",
+  "result_codes": {
+    "ok": "000",
+    "no_data": "03"
+  },
+  "page_size": 1000,
+  "page_size_reason": "the largest page the RTMS API serves; one call per 시군구 for most months",
+  "request_spacing_ms": 100,
+  "request_timeout_seconds": 60,
+  "daily_call_limit_per_api": 1000,
+  "daily_call_limit_reason": "data.go.kr's development account: 1,000 calls a KST day per API (land, measured on the portal 2026-11-28). One month of one kind is one call per 시군구 (about 250) and one more per extra page, so about 3 months a kind a day; the daily refresh owes about 1,200 calls a kind (3 recent months daily, 10 weekly, 12 monthly). An operating account raises the limit: that is the owner's application on data.go.kr. The owner applied for the operating account for the 12 APIs on 2026-11-28; this value becomes the approved limit when it is known.",
+  "history_from_month": "2006-01",
+  "history_reason": "The earliest 계약 달 this channel asks (owner 2026-11-28, D1 ii): the whole history again by API, so Silver reads only this source; the export's Bronze stays as frozen raw history (append-only, not read). The collector takes the later of this and a kind's first_month, so each kind starts at its own first month.",
+  "districts": {
+    "source_prefix": "bronze/source=codegokr__legal_dong_code/",
+    "reason": "The 시군구 a month is asked for: the active 5-digit codes of the newest code.go.kr 법정동 table in Bronze, read by the same parser the reference table's load uses (legal_dong_code_snapshot_stage::FullTableContract), until the legal-dong component is on the Lakekeeper catalog. A 시 whose 구 are listed is asked by its 구."
+  },
+  "refresh_tiers": [
+    {
+      "max_age_months": 2,
+      "every_days": 1,
+      "reason": "this month and the two before: reports arrive within 30 days of the contract, and 31% of cancellations within 30 days (810 measured, root ADR-0348)"
+    },
+    {
+      "max_age_months": 12,
+      "every_days": 7,
+      "reason": "cancellations: p99 354 days after the contract"
+    },
+    {
+      "max_age_months": 24,
+      "every_days": 30,
+      "reason": "the latest cancellation measured came 442 days after the contract"
+    }
+  ],
+  "recent_history_months": 36,
+  "recent_history_months_reason": "Root ADR-0479: the history never asked is asked in two parts. First the newest 36 whole months of every dataset, newest month first across all twelve (the priority breaks a tie within a month), so each category a parcel shows fills its recent years before any category's older ones; then the older rest by priority, each newest month first. 36 is the deepest window the served document computes from (the 공장창고 comparables, COMPARABLE_MONTHS in real_transaction_silver_to_gold.py; the region statistics read 12), and the lane's first publish waits for these months of the datasets it computes from (serving_history_readiness.py). Measured 2026-11-11 (read-only Trino, silver.real_transaction): 공장창고 and 토지 whole (251 months each), 상업업무 2024-03 to 2026-11 (33), the other nine 2026-08 to 2026-11 (4); the collector owed 2,138 history months. Computed at 90 a day: every dataset's 36 months in about 6 days, 상업업무 whole in about 12, everything about 2027-01-16 (the order moves no month's total, only which comes first).",
+  "priority": [
+    "real_transaction_industrial_trade",
+    "real_transaction_land_trade",
+    "real_transaction_commercial_trade"
+  ],
+  "kinds": {
+    "real_transaction_industrial_trade": {
+      "service": "RTMSDataSvcInduTrade",
+      "operation": "getRTMSDataSvcInduTrade",
+      "first_month": "2006-01"
+    },
+    "real_transaction_land_trade": {
+      "service": "RTMSDataSvcLandTrade",
+      "operation": "getRTMSDataSvcLandTrade",
+      "first_month": "2006-01"
+    },
+    "real_transaction_commercial_trade": {
+      "service": "RTMSDataSvcNrgTrade",
+      "operation": "getRTMSDataSvcNrgTrade",
+      "first_month": "2006-01"
+    },
+    "real_transaction_apartment_trade": {
+      "service": "RTMSDataSvcAptTradeDev",
+      "operation": "getRTMSDataSvcAptTradeDev",
+      "first_month": "2006-01"
+    },
+    "real_transaction_apartment_rent": {
+      "service": "RTMSDataSvcAptRent",
+      "operation": "getRTMSDataSvcAptRent",
+      "first_month": "2011-01"
+    },
+    "real_transaction_apartment_presale": {
+      "service": "RTMSDataSvcSilvTrade",
+      "operation": "getRTMSDataSvcSilvTrade",
+      "first_month": "2007-06"
+    },
+    "real_transaction_officetel_trade": {
+      "service": "RTMSDataSvcOffiTrade",
+      "operation": "getRTMSDataSvcOffiTrade",
+      "first_month": "2006-01"
+    },
+    "real_transaction_officetel_rent": {
+      "service": "RTMSDataSvcOffiRent",
+      "operation": "getRTMSDataSvcOffiRent",
+      "first_month": "2011-01"
+    },
+    "real_transaction_row_house_trade": {
+      "service": "RTMSDataSvcRHTrade2",
+      "operation": "getRTMSDataSvcRHTrade2",
+      "first_month": "2006-01"
+    },
+    "real_transaction_row_house_rent": {
+      "service": "RTMSDataSvcRHRent",
+      "operation": "getRTMSDataSvcRHRent",
+      "first_month": "2011-01"
+    },
+    "real_transaction_detached_house_trade": {
+      "service": "RTMSDataSvcSHTrade",
+      "operation": "getRTMSDataSvcSHTrade",
+      "first_month": "2006-01"
+    },
+    "real_transaction_detached_house_rent": {
+      "service": "RTMSDataSvcSHRent",
+      "operation": "getRTMSDataSvcSHRent",
+      "first_month": "2011-01"
+    }
+  }
+}
