@@ -314,7 +314,7 @@ def step_lake_compare(old, new):
             return
         rows, distinct, ingested, newest = rows[0]
         profiles[side] = {"rows": rows, "distinct_keys": distinct, "ingested": ingested, "newest": newest,
-                          "columns": dict(zip(compared, per_column[0])),
+                          "columns": dict(zip(compared, per_column[0], strict=True)),
                           "objects": [(count, digest, snapshot) for _, count, digest, snapshot in objects]}
     old_side, new_side = profiles["old"], profiles["new"]
     unmatched = list(new_side["objects"])

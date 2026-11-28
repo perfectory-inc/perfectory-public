@@ -281,7 +281,6 @@ class ATableStateLane(unittest.TestCase):
             self.assertEqual(LANES[job_id].get("state"), collect_lane.TABLE_STATE, job_id)
 
     def test_it_keeps_no_state_object_and_a_command_that_waits_asks_nothing(self):
-        import os
         with tempfile.TemporaryDirectory() as scratch:
             fake = pathlib.Path(scratch) / "fake.py"
             fake.write_text(NOT_READY, encoding="utf-8")
