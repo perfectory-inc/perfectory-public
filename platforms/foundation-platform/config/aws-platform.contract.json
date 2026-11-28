@@ -171,8 +171,6 @@
         "beat": "data-go-kr-onbid.contract.json#/beat",
         "size": "large",
         "handover": "handoff",
-        "paused": true,
-        "paused_reason": "Root ADR-0626 §8 N2 (W114, coordinator 2026-11-28): the Bronze epoch re-keys onbid's run-stamped objects and their ledger rows on the host, and this lane's image (the last AWS apply) still writes stamped keys into the RDS ledger. Its host job stays off as well, so neither side writes. The resume pull request deletes these two lines in the same change as the AWS apply of its commit's images.",
         "secrets": ["DATA_GO_KR_SERVICE_KEY"],
         "environment": {},
         "work_dirs": ["METRICS_DIR"],

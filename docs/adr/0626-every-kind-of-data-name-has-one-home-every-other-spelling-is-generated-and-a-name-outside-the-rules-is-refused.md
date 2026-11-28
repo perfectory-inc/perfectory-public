@@ -387,6 +387,11 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
   않는다. 그 기간 쓰는 쪽과 읽는 쪽 13 작업은 꺼 두고(꺼진 작업의 규칙대로 `dagster_stage` 는 `airflow`), V-World 산업단지 7 엔드포인트는
   원천 훑기에서 뺀다(`daily_collection` 없음: 훑기 작업을 끄면 그것이 먹이는 Silver 33 작업도 꺼야 한다). 온비드의 AWS 레인은
   `paused`(config/aws-platform.contract.json)다. 재개 PR 이 그것들을 되돌리고, 그 커밋의 AWS 이미지를 적용한다.
+- **결과**(2026-11-28 07:00–07:13Z, 세 번째 배포의 첫 실행; 04:50Z 실행은 증거에서 복구된 V-World 산단 14 행의 파일 이름이
+  `request_params` 에 없어 계획 단계에서 멈췄다, 쓴 것 0): 키 바꾸기 4,398(19.66 GB, 원장 줄 4,398 제자리, 버전 줄 4,398), 잔해 삭제 98,
+  옛 키 729 삭제·3,669 잠금 대기. 확인(읽기 전용): 원장의 실행 도장 키 0, 옛 id 원천 줄 0, 같은 id 의 원천 줄 중복 0, 새 키 4,398 모두 R2 에
+  같은 크기·같은 ETag(여러 조각으로 올린 원본 2 개 빼고). 증거 `control/evidence/r2_move/2026-11-28-bronze-epoch.jsonl.gz` 와 `.report.json`.
+  재개는 그 뒤 13 작업·7 엔드포인트·온비드 레인을 되돌린다; `bronze_epoch` 는 잠금이 남은 옛 키를 다 지울 때까지(2026-12-28 무렵) 켜 둔다.
 - **다시 쓰지 않는 것**(그 구성 요소의 Lakekeeper 전환이 Bronze 에서 다시 짓는다, ADR-0624 10-6): 법원경매 Silver 28 표, 온비드 8 표,
   산업용지 분양공고 2 표(`_read`·`_attachment`), ILIS 고시 2 표의 `source_record_id` 와 키에서 나온 줄 출처; `reference.legal_dong_code_snapshot`
   ·`silver.industrial_complexes`·`silver.industrial_complex_boundaries`·`silver.complex_parcel_memberships` 의 `source_record_id`;

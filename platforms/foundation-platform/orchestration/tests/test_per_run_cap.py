@@ -135,17 +135,6 @@ HELD_OFF = {
     "parcel_tile_bake": "off until the publisher's own partition merge (root ADR-0613) is live",
     # Off here for good: its AWS lane runs it (root ADR-0616); bronze_epoch writes the source group it reads.
     "onbid_public_auction_collect": "runs on AWS (root ADR-0616 §7)",
-    # 2026-11-28: the Bronze epoch (root ADR-0626 §8 N2) re-keys the Bronze these read; bronze_epoch writes
-    # their source groups while they are off (the V-World industrial complex datasets, sandan_* to
-    # industrial_complex_*, while the source sweep keeps collecting everything else). The resume pull
-    # request turns them on and deletes these lines.
-    "silver_industrial_complexes": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
-    "complex_boundary_release": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
-    "legal_dong_code_changes": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
-    "court_auction_silver": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
-    "industrial_complex_notice_silver": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
-    "onbid_public_auction_silver": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
-    "industrial_land_sale_notice_silver": "paused for the Bronze epoch (root ADR-0626 §8 N2)",
 }
 
 
