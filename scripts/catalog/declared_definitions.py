@@ -528,11 +528,11 @@ def lakekeeper_declaration(documents, aws):
     graph, jobs = documents[GRAPH], documents[JOBS]["jobs"]
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {edge["id"]: edge for edge in graph["edges"]}
-    held = {node_id: node["table_name"] for node_id, node in nodes.items()
-            if node.get("catalog") == CATALOG_LAKEKEEPER}
-    for node_id in held:
-        if nodes[node_id]["type"] not in ("silver_table", "gold_table"):
-            raise DefinitionError(f"{node_id}: only a Silver or Gold table lives in the Lakekeeper catalog")
+    marked = [node for node in nodes.values() if node.get("catalog") == CATALOG_LAKEKEEPER]
+    for node in marked:
+        if node["type"] not in ("silver_table", "gold_table") or not node.get("table_name"):
+            raise DefinitionError(f"{node['id']}: only a Silver or Gold table lives in the Lakekeeper catalog")
+    held = {node["id"]: node["table_name"] for node in marked}
     lanes_of = (aws.get("collect") or {}).get("lanes") or {}
     lanes, ledger = {}, {}
     for job in jobs:

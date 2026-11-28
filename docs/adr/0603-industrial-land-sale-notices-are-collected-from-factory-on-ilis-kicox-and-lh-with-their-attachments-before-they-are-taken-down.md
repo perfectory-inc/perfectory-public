@@ -162,3 +162,8 @@ K-water·민간 2·남동구청·기장군·LH 입주기준·고양도시관리�
    (ADR-0484)도 같은 저장 함수를 쓴다. 상한이 커지면 그 전에 파일을 담지 못한 읽기(읽은 기록의 `file_count` > `files_stored`)는 끝난
    것이 아니다: 계약의 `max_file_bytes_since` 보다 앞선 그런 읽기는 다음 실행이 한 번 다시 묻는다 — 2026-11-22 공장설립온라인이 옛 256 MiB
    를 넘어 담지 못한 두 파일이 그렇게 다시 받아진다(그날 ILIS·KICOX 는 모든 파일을 담았다).
+
+2026-11-28 (W109e, 루트 ADR-0624 A1): 읽은 기록 표의 마지막 이름은 `silver.industrial_land_sale_notice_fetch_attempt` 이고(ADR-0626 §5), 두 표는
+Lakekeeper 카탈로그에 있다. 수집기 셋(공장설립온라인·ILIS·KICOX)과 Silver 적재는 AWS 레인이고 호스트에서는 꺼졌다(인계). 수집은 다른 모든 수집기처럼
+하루 한 번이다(사장 결정 2026-11-26, ADR-0623 §1): 공장설립온라인은 호스트와 같은 03:10 KST, ILIS·KICOX 는 `full_walk_hour_utc` 에 돌아 그 한 번이
+목록 전체를 걷는다. 그래서 ILIS·KICOX 의 `landed_within_hours` 는 24 에서 30 이다. AWS 주소에서 원천이 막으면 그 레인은 멈추고 우회하지 않는다.

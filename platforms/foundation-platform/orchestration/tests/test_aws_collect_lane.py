@@ -28,6 +28,8 @@ import collect_lane  # noqa: E402
 
 CONTRACT = collect_lane.contract()
 LANES = CONTRACT["collect"]["lanes"]
+# The lanes that start at a beat (collectors); a load starts on its inputs (eager).
+BEATS = {job_id: lane for job_id, lane in LANES.items() if not collect_lane.started_by_inputs(lane)}
 
 
 class Store:
@@ -237,6 +239,95 @@ class Run(unittest.TestCase):
             self.collect(Store(), vendor=Vendor({"refused": "no write prefix"}))
 
 
+SALE = "industrial_land_sale_notice_kicox_collect"
+DECLARATION = {"tables": ["silver.t"], "lanes": {SALE: {"select": ["silver.t"]}}}
+CATALOG = {"name": "perfectory-lakekeeper-prod"}
+CLIENT = {"client_id": "c", "client_secret": "s", "token_uri": "https://issuer/oauth2/token",
+          "scope": "lakekeeper-prod/catalog", "catalog_uri": "http://catalog.internal:8181/catalog",
+          "warehouse": "foundation-platform-lakehouse-prod"}
+
+NOT_READY = """
+import os
+print("foundation-job-not-ready silver.t holds no snapshot yet: its load's first commit comes first")
+print("foundation-job-outcome waiting")
+"""
+
+
+class ATableStateLane(unittest.TestCase):
+    """W109e (the first Lakekeeper switch): a collector whose state is its table in the catalog."""
+
+    def test_its_catalog_client_comes_from_its_own_slot_with_the_catalog_s_address(self):
+        slot = f"{CATALOG['name']}/principal-{SALE}"
+        env = collect_lane.catalog_client(Secrets({slot: json.dumps(CLIENT)}), SALE, DECLARATION, CATALOG)
+        self.assertEqual(env["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER"], "iceberg_rest")
+        self.assertEqual(env["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"], CLIENT["catalog_uri"])
+        self.assertEqual(env["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_SCOPE"], CLIENT["scope"])
+        # A lane the declaration grants nothing holds no client, so the publisher stays on its own catalog.
+        self.assertEqual(collect_lane.catalog_client(Secrets({}), "pension_workplace_collect", DECLARATION, CATALOG), {})
+        # A slot that lacks a field (an apply that has not written it) asks nothing and names it.
+        with self.assertRaises(collect_lane.NotReady):
+            collect_lane.catalog_client(Secrets({slot: json.dumps({"client_id": "c"})}), SALE, DECLARATION, CATALOG)
+
+    def test_the_generated_declaration_grants_the_sale_notice_lanes_as_decided(self):
+        # Coordinator 2026-11-28: collectors select on fetch_attempt, the load writes both tables.
+        declared = collect_lane.lakekeeper_declaration()
+        attempt = "silver.industrial_land_sale_notice_fetch_attempt"
+        both = sorted([attempt, "silver.industrial_land_sale_notice_attachment"])
+        self.assertEqual(declared["tables"], both)
+        for source in ("factoryon", "ilis", "kicox"):
+            self.assertEqual(declared["lanes"][f"industrial_land_sale_notice_{source}_collect"], {"select": [attempt]})
+        self.assertEqual(declared["lanes"]["industrial_land_sale_notice_silver"], {"write": both})
+        for job_id in declared["lanes"]:
+            self.assertEqual(LANES[job_id].get("state"), collect_lane.TABLE_STATE, job_id)
+
+    def test_it_keeps_no_state_object_and_a_command_that_waits_asks_nothing(self):
+        import os
+        with tempfile.TemporaryDirectory() as scratch:
+            fake = pathlib.Path(scratch) / "fake.py"
+            fake.write_text(NOT_READY, encoding="utf-8")
+            store = Store()
+            old = collect_lane.catalog_client
+            collect_lane.catalog_client = lambda client, job_id, *rest: {}
+            try:
+                with self.assertRaises(collect_lane.NotReady) as raised:
+                    collect_lane.collect(SALE, "run-1", secrets_for(), Vendor(), [].append,
+                                         program=[sys.executable, str(fake)], store_factory=lambda credentials: store)
+            finally:
+                collect_lane.catalog_client = old
+            self.assertIn("silver.t holds no snapshot yet", str(raised.exception))
+            self.assertEqual(store.puts, [], "no state object is read or written for a table-state lane")
+        self.assertIsNone(collect_lane.not_ready(["foundation-job-outcome changed"]))
+
+
+FAKE_IMPORT = """
+import os, sys
+with open(SEEN, "a", encoding="utf-8") as seen:
+    seen.write(" ".join([sys.argv[1], os.environ["FOUNDATION_PLATFORM_LEDGER_IMPORT_OBJECT"],
+                         os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_READER_SESSION_TOKEN"]]) + chr(10))
+"""
+
+
+class TheLedgerImport(unittest.TestCase):
+    def test_every_export_is_imported_once_with_the_reader_keys_and_the_ledger(self):
+        exports = {f"{collect_lane.LEDGER_EXPORTS}2026-11-28-a__b.jsonl.gz": b"x",
+                   f"{collect_lane.LEDGER_EXPORTS}2026-11-28-c__d.jsonl.gz": b"y",
+                   f"{collect_lane.LEDGER_EXPORTS}2026-11-28-report.json": b"z"}
+        reader = {"access_key_id": "rk", "secret_access_key": "rs", "session_token": "rt"}
+        vendor = Vendor({**Vendor().answer, "reader": reader})
+        with tempfile.TemporaryDirectory() as scratch:
+            seen = pathlib.Path(scratch) / "seen.txt"
+            fake = pathlib.Path(scratch) / "fake.py"
+            fake.write_text(FAKE_IMPORT.replace("SEEN", repr(str(seen))), encoding="utf-8")
+            imported = collect_lane.import_ledger("run-1", secrets_for(), vendor, [].append,
+                                                  program=[sys.executable, str(fake)],
+                                                  store_factory=lambda credentials: Store(exports))
+            lines = seen.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(imported, sorted(key for key in exports if key.endswith(".jsonl.gz")))
+        self.assertEqual([line.split()[1] for line in lines], imported)
+        self.assertTrue(all(line.startswith("import-bronze-ledger-rows ") and line.endswith(" rt") for line in lines))
+        self.assertEqual(vendor.calls[0][0].rsplit(":", 1)[1], collect_lane.LEDGER_IMPORT)
+
+
 class TheLaneAsDeclared(unittest.TestCase):
     def test_a_handoff_lane_runs_here_only_while_its_job_is_off_on_the_host(self):
         jobs = collect_lane.jobs()
@@ -268,13 +359,13 @@ class TheLaneAsDeclared(unittest.TestCase):
         self.assertNotIn(first, collect_lane.lanes_here(platform, jobs))
 
     def test_every_lane_s_beat_resolves_in_its_source_contract(self):
-        for job_id, lane in LANES.items():
+        for job_id, lane in BEATS.items():
             cron, timezone = collect_lane.beat(lane)
             self.assertEqual(len(cron.split()), 5, job_id)
             self.assertEqual(timezone, "UTC", job_id)
 
     def test_every_beat_is_daily_onbid_s_with_the_loss_the_owner_accepted(self):
-        for job_id, lane in LANES.items():
+        for job_id, lane in BEATS.items():
             minute, hour, *rest = collect_lane.beat(lane)[0].split()
             self.assertTrue(minute.isdigit() and hour.isdigit() and rest == ["*", "*", "*"], job_id)
         onbid = json.loads((collect_lane.LAKEHOUSE_CONTRACTS / "data-go-kr-onbid.contract.json").read_text(encoding="utf-8"))
@@ -294,8 +385,19 @@ class TheLaneAsDeclared(unittest.TestCase):
             self.assertEqual((tags["ecs/cpu"], tags["ecs/memory"]), (str(size["cpu"]), str(size["memory"])))
             role = json.loads(tags["ecs/task_overrides"])["taskRoleArn"]
             self.assertIn(f":role{CONTRACT['ecs']['run_role_path']}{CONTRACT['tags']['project']}-{lane['role']}", role)
-            self.assertEqual(tags[collect_lane.KIND_TAG], "collect")
+            # The run queue limits collectors and loads apart (dagster.yaml): a lane's kind is its job's group.
+            expected = "silver" if job_id == "industrial_land_sale_notice_silver" else "collect"
+            self.assertEqual(tags[collect_lane.KIND_TAG], expected, job_id)
             self.assertFalse([tag for tag in tags if "runtime" in tag or "timeout" in tag], job_id)
+
+    def test_a_load_starts_on_the_lanes_that_produce_its_inputs_and_has_no_beat(self):
+        # ADR-0623 section 1-2: Silver and Gold are eager(); the producers are read from the graph, never listed.
+        lane = LANES["industrial_land_sale_notice_silver"]
+        self.assertTrue(collect_lane.started_by_inputs(lane))
+        self.assertNotIn("beat", lane)
+        self.assertEqual(collect_lane.producers("industrial_land_sale_notice_silver"),
+                         ["industrial_land_sale_notice_factoryon_collect", "industrial_land_sale_notice_ilis_collect",
+                          "industrial_land_sale_notice_kicox_collect"])
 
     def test_every_lane_refreshes_its_keys_through_the_sdk_whatever_its_run_time(self):
         # One platform time limit for every lane (root ADR-0623 §1): the publisher asks the vendor again before the

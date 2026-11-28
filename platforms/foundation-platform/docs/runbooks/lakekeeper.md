@@ -153,6 +153,35 @@ tofu apply "$TF_DATA_DIR/plan"
 `INSERT … SELECT` 로 옮긴 뒤, 두 쪽의 행 수, 키 유일(표 계약의 `current_row_latest.key` 와 `newest_first`, 그 품질 관문), 행마다와 열마다의 해시
 (`count`·`sum(hash(…))`)가 같은지 본다.
 
+## 구성 요소 전환 (A1, 첫째: 산업용지 분양공고, W109e)
+
+전환 PR 하나가 구성 요소의 표를 마지막 이름으로 바꾸고(이름 바꾸기 목록의 제 항목을 지운다), 표 노드에 `catalog: lakekeeper` 를 달고, 그 작업들을
+AWS 레인으로 옮기고 호스트에서 끈다(`enabled: false`, 인계). 카탈로그가 쥐는 것은 손으로 적지 않는다: 생성기(`scripts/catalog/declared_definitions.py`
+`lakekeeper_declaration`)가 파이프라인 그래프에서 `config/lakekeeper-declaration.v1.json` 을 만든다 — 표, 레인마다의 권한(읽는 표에 `select`, 적재가
+쓰는 표에 `write`), 레인과 함께 옮기는 Bronze 원천. 그 표를 건드리는 켜진 호스트 작업이 있으면 생성이 거부한다. 이 스택은 그 파일에서 레인마다
+Cognito 클라이언트와 칸(`perfectory-lakekeeper-prod/principal-<레인>`: 클라이언트와 카탈로그 주소·토큰 끝점·범위·창고, 그 레인의 실행 역할만 읽는다)을
+만들고, 플랫폼의 태스크 보안 그룹에서 카탈로그 포트로 가는 길을 열며, 조정기가 표를 만들고 권한을 준다.
+
+순서(병합 뒤, 노트북; 플랫폼 스택은 `docs/runbooks/aws-platform.md` 의 적용):
+
+1. 호스트: 병합이 자동 배포되면 그 작업들이 꺼지고, 원장 내보내기(`bronze_ledger_export`, 배포 뒤 한 번)가 원천마다
+   `control/evidence/ledger_move/<날짜>-<원천>.jsonl.gz` 를 쓴다. 그 객체들이 있는지 읽기 키로 본다.
+2. 이 스택 prod 적용(`code_location_image` = 그 커밋의 `dagster_image`): 클라이언트·칸·보안 그룹 규칙, 그리고 조정기가 표 둘을 비게 만들고 권한을
+   주며 드리프트 0 이어야 적용이 끝난다.
+3. 플랫폼 스택 적용(같은 이미지): 레인 역할·창구 alias, 배포 전 사슬의 셋째 걸음 `ledger-import`(원장 내보내기를 AWS 원장에 들인다; 한 번 들인
+   줄은 다시 들이지 않는다), 그다음 서비스가 새 코드 위치로 옮긴다.
+4. 다시 짓기: 적재 레인(`industrial_land_sale_notice_silver`)은 수집 레인이 바꾼 것 뒤에 eager 로 돈다. 표가 비어 있는 동안 수집 레인은 아무것도
+   묻지 않고 `ready` 가 표를 이름한다(표가 그 레인의 상태다). 그래서 첫 적재는 한 번 손으로 띄운다(Dagster 에서 그 자산을 materialize).
+   `max_objects` 60 이라 객체 85 개는 두 run 이다. 늦음 검사는 표가 있던 동안 창이 끝난 객체만 센다.
+5. 비교(T17, 다시 짓기): `./probe.sh operator lake-compare silver.industrial_land_sale_notice_read silver.industrial_land_sale_notice_fetch_attempt`,
+   그리고 `lake-compare silver.industrial_land_sale_notice_attachment silver.industrial_land_sale_notice_attachment`. Basin 쪽(전환에서 얼었다)의
+   객체마다 행 수와 적재가 쓰지 않는 열의 해시로 서명해 다시 지은 쪽에 모두 있어야 하고(Bronze 시기 뒤 키가 바뀌었으므로 `source_record_id` 로 짝짓지
+   않는다), 다시 지은 쪽에만 있는 객체는 Basin 의 마지막 적재보다 새것이어야 한다. 키 유일, `ingested_at_utc` 는 있음만 본다.
+6. 조정기를 다시 돌려(위의 `-replace='terraform_data.reconcile[0]'`) 드리프트 0 을 본다. 그다음 수집 레인이 매일 박자에 돈다.
+
+호스트의 미디어 대조기는 이 카탈로그에 닿지 않는다: 전환한 색인 표의 적재가 커밋 전에 그 행의 키를 `control/media_index/<ns>/<표>/` 에 쓰고, 대조기의
+`media-index-delta` 가 그것을 Basin 의 나머지 색인과 합친다(코디네이터 2026-11-28). 마지막 색인이 옮기면 대조기가 통째로 AWS 로 간다.
+
 ## 탐침
 
 ```bash

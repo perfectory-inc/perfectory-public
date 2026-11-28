@@ -2,7 +2,7 @@
 
 python -I -c <loader; this file> <step> [args]: the shared part (common.py) comes as the module `common`. Steps:
 health; lake-mints <count> [workers] [namespace.table] (T13, common); lake-migrate <namespace.table> (T17);
-lake-probe-drop. Its tables live in ACCEPTANCE_NAMESPACE only, never in a namespace the warehouse declares, and
+lake-compare <basin namespace.table> <lakekeeper namespace.table> (T17 of a rebuild, W109e); lake-probe-drop. Its tables live in ACCEPTANCE_NAMESPACE only, never in a namespace the warehouse declares, and
 lake-probe-drop removes that namespace with every table and file in it right after, so the reconciler finds no drift.
 
 It runs in the release's code-location image (orchestration/dagster/Dockerfile.aws), whose user writes only /tmp:
@@ -235,6 +235,112 @@ def step_lake_migrate(source):
     check("T17 equal count and hash per column", 0, len(differ), differ=differ, columns=len(basin_side["columns"]))
 
 
+def attach_both(con):
+    """Basin READ_ONLY with the warehouse credential's token and this catalog with the operator's client; (ok, run)."""
+    basin_uri, basin_warehouse, basin_token = basin()
+    client_id, client_secret = os.environ["CLIENT_ID"], os.environ["CLIENT_SECRET"]
+    if not (client_id.isalnum() and client_secret.isalnum()):
+        check("client credentials are alphanumeric", True, False)
+        return False, None
+
+    def run(sql, holds_secret=False):
+        try:
+            return 200, con.execute(sql).fetchall()
+        except Exception as error:
+            if holds_secret:
+                return type(error).__name__, None
+            message = str(error)
+            for secret in SECRETS:
+                message = message.replace(secret, "<redacted>")
+            return f"{type(error).__name__}: {message[:240]}", None
+
+    for label, sql in (
+            ("Basin", f"CREATE SECRET basin (TYPE ICEBERG, TOKEN '{basin_token}')"),
+            ("Lakekeeper", f"CREATE SECRET lk (TYPE ICEBERG, CLIENT_ID '{client_id}', CLIENT_SECRET '{client_secret}', "
+                           f"OAUTH2_SERVER_URI '{TOKEN_URL}', OAUTH2_SCOPE '{SCOPE}')")):
+        status, _ = run(sql, holds_secret=True)
+        if not check(f"CREATE SECRET for {label}", 200, status):
+            return False, run
+    for label, sql in (
+            ("ATTACH Basin READ_ONLY", f"ATTACH '{basin_warehouse}' AS basin (TYPE ICEBERG, ENDPOINT '{basin_uri}', SECRET basin, READ_ONLY)"),
+            ("ATTACH Lakekeeper READ_ONLY", f"ATTACH '{warehouse()['bucket']}' AS lk (TYPE ICEBERG, ENDPOINT '{CATALOG}/catalog', SECRET lk, READ_ONLY)")):
+        status, _ = run(sql)
+        if not check(label, 200, status):
+            return False, run
+    return True, run
+
+
+# A load writes these, not the source (industrial_land_sale_notice_stage LOAD_COLUMNS): ingested_at_utc is when the
+# row was appended, and source_record_id is the Bronze key, which the Bronze epoch changed after the old catalog's
+# rows were written (root ADR-0626 §8 N2: the switch rebuilds them, they are not rewritten).
+LOAD_WRITTEN = ("source_record_id", "ingested_at_utc")
+
+
+def step_lake_compare(old, new):
+    """T17 for a component rebuilt from Bronze by its own load (coordinator 2026-11-28, W109e), not copied: the old
+    catalog's table (Basin, frozen at the switch) against the rebuilt one, both at their heads, in one DuckDB.
+
+    - objects: each side's rows grouped by their Bronze object (source_record_id), each object signed by its row count
+      and the hash of its rows without the load's own columns; the old side's objects must all be in the new one, and
+      an object only the new side has must be newer than the old side's newest (collected after its last load);
+    - keys: the contract's key and newest_first unique on each side;
+    - columns: count and hash of every column but the load's own, equal when the new side holds no newer object;
+    - ingested_at_utc by presence: every row of the new side has one."""
+    with open(TABLE_CONTRACTS, encoding="utf-8") as file:
+        contracts = json.load(file)["contracts"]
+    contract = contracts[new]
+    latest = contract.get("current_row_latest") or {}
+    key = [*latest.get("key", []), *latest.get("newest_first", [])]
+    columns = [column["name"] for column in contract["columns"]]
+    compared = [column for column in columns if column not in LOAD_WRITTEN]
+    con = duckdb_connect()
+    os.environ["SHOW_ERROR_MESSAGES"] = "true"
+    ok, run = attach_both(con)
+    if not ok:
+        return
+    sides = {"old": f"basin.{old}", "new": f"lk.{new}"}
+    signature = f"hash({', '.join(compared)})"
+    profiles = {}
+    for side, relation in sides.items():
+        status, rows = run(f"SELECT count(*), count(DISTINCT ({', '.join(key)})), count(ingested_at_utc), "
+                           f"max(source_snapshot_id) FROM {relation}")
+        if not check(f"profile of the {side} side ({relation})", 200, status):
+            return
+        status, per_column = run("SELECT " + ", ".join(f"concat(count({c}), ':', sum(hash({c})))" for c in compared)
+                                 + f" FROM {relation}")
+        status_objects, objects = run(f"SELECT source_record_id, count(*), sum({signature})::VARCHAR, min(source_snapshot_id) "
+                                      f"FROM {relation} GROUP BY 1")
+        if not (check(f"columns of the {side} side", 200, status) and check(f"objects of the {side} side", 200, status_objects)):
+            return
+        rows, distinct, ingested, newest = rows[0]
+        profiles[side] = {"rows": rows, "distinct_keys": distinct, "ingested": ingested, "newest": newest,
+                          "columns": dict(zip(compared, per_column[0])),
+                          "objects": [(count, digest, snapshot) for _, count, digest, snapshot in objects]}
+    old_side, new_side = profiles["old"], profiles["new"]
+    unmatched = list(new_side["objects"])
+    missing = []
+    for count, digest, snapshot in old_side["objects"]:
+        found = next((item for item in unmatched if item[0] == count and item[1] == digest), None)
+        if found is None:
+            missing.append({"rows": count, "snapshot": snapshot})
+        else:
+            unmatched.remove(found)
+    emit(note="T17 rebuild sides", old=old, new=new, old_rows=old_side["rows"], new_rows=new_side["rows"],
+         old_objects=len(old_side["objects"]), new_objects=len(new_side["objects"]), key=key)
+    check("T17 every object of the old side is in the rebuild, row for row", 0, len(missing), missing=missing[:10])
+    later = [item for item in unmatched if old_side["newest"] is None or item[2] > old_side["newest"]]
+    check("T17 an object only the rebuild holds was collected after the old side's last load", len(unmatched), len(later),
+          rebuilt_only=len(unmatched), newest_old=old_side["newest"])
+    check("T17 keys unique on the old side", old_side["rows"], old_side["distinct_keys"])
+    check("T17 keys unique in the rebuild", new_side["rows"], new_side["distinct_keys"])
+    check("T17 every rebuilt row has ingested_at_utc", new_side["rows"], new_side["ingested"])
+    if not unmatched:
+        check("T17 equal row counts", old_side["rows"], new_side["rows"])
+        differ = sorted(c for c in compared if old_side["columns"][c] != new_side["columns"][c])
+        check("T17 equal count and hash per column but the load's own", 0, len(differ), differ=differ,
+              columns=len(compared))
+
+
 def step_lake_probe_drop():
     """As the operator: the acceptance namespace and everything in it at once, its files purged (upstream concepts,
     v0.15.1: in a soft-deletion warehouse a recursive drop needs force, and removes every table below it at once,
@@ -265,6 +371,7 @@ STEPS = {
     "health": lambda: step_health(),
     "lake-mints": lambda count, workers="50", table="silver.w109_smoke": step_lake_mints(count, workers, table),
     "lake-migrate": lambda source: step_lake_migrate(source),
+    "lake-compare": lambda old, new: step_lake_compare(old, new),
     "lake-probe-drop": lambda: step_lake_probe_drop(),
 }
 
