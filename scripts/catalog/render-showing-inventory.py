@@ -59,7 +59,12 @@ def inventory(documents: dict) -> list[dict]:
     lanes = {node: lane["lane"] for lane in dd.lane_index(documents)["lanes"] for node in lane["serving_nodes"]}
     web = {(s.get("owner") or {}).get("lane") for s in documents[dd.REGISTRY]["subjects"]
            if any(c["name"] == "web" for c in s.get("consumers", []))}
-    on = {e.split("-to-", 1)[1] for j in jobs if j.get("enabled") for e in j.get("pipeline_graph_edges", [])}
+    # A job is on where it runs: here (enabled), or as its lane on AWS, where a handed-off job is off here
+    # (config/aws-platform.contract.json collect.lanes, job_specs.on_aws; W109e moved a component's load there).
+    aws = dd.read_json(ROOT / dd.AWS) if (ROOT / dd.AWS).is_file() else {}
+    aws_lanes = set(((aws.get("collect") or {}).get("lanes") or {}))
+    on = {e.split("-to-", 1)[1] for j in jobs if j.get("enabled") or j["id"] in aws_lanes
+          for e in j.get("pipeline_graph_edges", [])}
     # A Silver with no path whose every loading job is off holds no rows yet: the step it waits for is
     # its loader's first run, not a Gold (2026-11-09: 19 such tables read as 없음 beside contract-only ones).
     loaded = {e.split("-to-", 1)[1] for j in jobs for e in j.get("pipeline_graph_edges", [])}
