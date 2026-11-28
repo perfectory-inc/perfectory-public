@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::{
     detail_source_slugs, planned_objects, stage_object, PlannedObject, ATTACHMENT_TABLE,
-    PLAN_SCHEMA, FETCH_ATTEMPT_TABLE,
+    FETCH_ATTEMPT_TABLE, PLAN_SCHEMA,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 

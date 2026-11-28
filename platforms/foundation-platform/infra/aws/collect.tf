@@ -1,6 +1,8 @@
 # The credential vendor and the lanes' run roles (root ADR-0623 §2). A lane is data (config/aws-platform.contract.json,
 # collect.lanes: its role's suffix and its scope); no block here names one. Only the vendor's object half is here
-# (coordinator 2026-11-27): no lane reads a table, so there is no catalog token; tables wait for root ADR-0624.
+# (coordinator 2026-11-27): a lane reaches a table through the Lakekeeper catalog (root ADR-0624), with its own client,
+# whose slot infra/aws-lakekeeper makes for each lane config/lakekeeper-declaration.v1.json grants, and which the lane's
+# role alone reads.
 
 locals {
   collect          = local.contract.collect
@@ -8,10 +10,20 @@ locals {
   vendor_name      = "${local.project}-r2-vend"
   lakehouse_bucket = jsondecode(file("${path.module}/../../config/r2-connections.contract.json")).connections.lakehouse.expected_values.FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
   # A lane's own state prefix is generated from its id, beside the prefixes it declares (contract collect.state_reason).
-  vendor_lanes = { for id, lane in local.collect.lanes : id => {
+  # The rollout's ledger import (ledger-import.tf) is one more alias: read-only on the host's ledger exports.
+  vendor_lanes = merge({ for id, lane in local.collect.lanes : id => {
     write_prefixes = concat(lane.write_prefixes, ["${local.collect.state_prefix}${id}/"])
     read_prefixes  = try(lane.read_prefixes, [])
-  } }
+    } }, {
+    (local.ledger_import) = {
+      write_prefixes = ["${local.collect.state_prefix}${local.ledger_import}/"]
+      read_prefixes  = ["control/evidence/ledger_move/"]
+    }
+  })
+  # The lanes the Lakekeeper catalog grants a table (generated from the pipeline graph), and the catalog's name,
+  # which names each one's client slot (<name>/principal-<lane>, infra/aws-lakekeeper/identity.tf).
+  lakekeeper_lanes = jsondecode(file("${path.module}/../../config/lakekeeper-declaration.v1.json")).lanes
+  lakekeeper_name  = jsondecode(file("${path.module}/../../config/lakekeeper-prod.contract.json")).name
   # Source key slots, each with the lanes whose commands read it (contract collect.source_secrets).
   source_secrets = { for name, slot in local.collect.source_secrets : name => {
     slot  = slot
@@ -202,6 +214,16 @@ data "aws_iam_policy_document" "lane" {
       sid       = "ReadItsSourceKeys"
       actions   = ["secretsmanager:GetSecretValue"]
       resources = [for name in statement.value : aws_secretsmanager_secret.source[name].arn]
+    }
+  }
+  # Its catalog client (a Secrets Manager ARN ends in six characters of its own, hence the one wildcard); the slot's
+  # own policy refuses every other reader (infra/aws-lakekeeper/identity.tf).
+  dynamic "statement" {
+    for_each = contains(keys(local.lakekeeper_lanes), each.key) ? [each.key] : []
+    content {
+      sid       = "ReadItsCatalogClient"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = ["arn:aws:secretsmanager:${local.contract.region}:${local.contract.account.id}:secret:${local.lakekeeper_name}/principal-${statement.value}-??????"]
     }
   }
 }

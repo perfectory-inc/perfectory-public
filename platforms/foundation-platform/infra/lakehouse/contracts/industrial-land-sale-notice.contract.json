@@ -21,6 +21,7 @@
       "provider": "factoryon.go.kr",
       "base_url": "https://www.factoryon.go.kr",
       "detail_dataset_slug": "industrial_land_sale_notice_detail",
+      "beat": {"cron": "10 18 * * *", "timezone": "UTC", "reason": "Once a day like every collector (owner decisions 2026-11-22 for this site: once a day at the least load, and 2026-11-26 for every collector, root ADR-0623 §1), at the hour its host copy ran (03:10 KST). It walks no whole list (full_walk false): list page 1 and the notices owed."},
       "user_agent": "Mozilla/5.0 (compatible; data-collector/1.0)",
       "full_walk": false,
       "list": {
@@ -46,6 +47,7 @@
       "provider": "industryland.or.kr",
       "base_url_from": "industryland-or-kr.contract.json#/base_url",
       "detail_dataset_slug": "industrial_land_sale_notice_detail",
+      "beat": {"cron": "35 17 * * *", "timezone": "UTC", "reason": "Once a day like every collector (owner decision 2026-11-26, root ADR-0623 §1), in full_walk_hour_utc, so the one daily run walks the whole list (the list is one POST); on the host it ran hourly and walked the whole list in that hour only."},
       "list": {
         "dataset_slug": "industrial_land_sale_notice_list",
         "operation": "parcelList",
@@ -79,6 +81,7 @@
       "provider": "kicox.or.kr",
       "base_url": "https://www.kicox.or.kr",
       "detail_dataset_slug": "industrial_land_sale_notice_detail",
+      "beat": {"cron": "45 17 * * *", "timezone": "UTC", "reason": "Once a day like every collector (owner decision 2026-11-26, root ADR-0623 §1), in full_walk_hour_utc, so the one daily run walks the whole board (97 pages, about 2 minutes asked back to back) and sees a correction deep in it; on the host it ran hourly and walked the whole board in that hour only."},
       "list": {
         "operation": "boardList",
         "path": "boardList/1003",

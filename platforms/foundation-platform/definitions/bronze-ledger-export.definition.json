@@ -1,0 +1,50 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "bronze-ledger-export",
+  "jobs": [
+    {
+      "id": "bronze_ledger_export",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The Bronze ledger's move with its lanes (root ADR-0616 A1b, A4; coordinator 2026-11-28; scripts/ops/bronze-ledger-export.sh, the publisher's export-bronze-ledger-rows): a source's ledger rows go with its collector, so for each Bronze source written by an AWS lane that holds a Lakekeeper table (config/lakekeeper-declaration.v1.json ledger_sources, generated from the pipeline graph) that has no export yet, its rows (source_catalog, ingestion_run, bronze_object, bronze_object_version, as to_jsonb, every timestamp kept) as one create-only gzip JSON Lines object, control/evidence/ledger_move/<date>-<source>.jsonl.gz. The AWS rollout imports every export into the AWS ledger before its services move (infra/aws/ledger-import.tf), so a load there plans from the history. It refuses, writing nothing, while a writer of the source runs or ran within two close intervals of the line writer, and a source whose objects carry rows elsewhere (members, measurements, publications). Partial: only sources without an export; `unchanged` once each has one. Started once after the deploy that turns the source's host writer off.",
+      "systemd_service": "foundation-bronze-ledger-export.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "20 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 30,
+      "memory_max": "512M",
+      "memory_measured": "no run yet (new 2026-11-28, root ADR-0616 A4); sized as the publisher binary holding one source's ledger rows as JSON (85 rows for the industrial land sale notice's four sources on 2026-11-28, about 60 KB with their request parameters) and their gzip; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 30,
+          "estimated_from": "computed: four sources, five ledger queries each over at most a few hundred rows and one create-only put each; seconds"
+        }
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "serving-bronze-object-to-source-industrial-land-sale-notice"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-28T12:00:00Z",
+      "dagster_stage": "dagster",
+      "started_once_after_deploy": true,
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "A move, not a data producer: once each source has its export, `unchanged` is its normal outcome. That it keeps finishing is the done bound."
+      }
+    }
+  ]
+}

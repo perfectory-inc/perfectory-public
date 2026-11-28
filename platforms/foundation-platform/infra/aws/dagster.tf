@@ -441,9 +441,9 @@ resource "aws_ecs_service" "dagster" {
   triggers = {
     database_password = aws_secretsmanager_secret_version.dagster_database.secret_string_wo_version
   }
-  # The rollout migrates first: the service moves to a new task definition only after the bootstrap and the
-  # migrate task exited 0 (foundation-database.tf).
-  depends_on = [terraform_data.database_migrate]
+  # The rollout migrates first: the service moves to a new task definition only after the bootstrap, the
+  # migrate task (foundation-database.tf) and the ledger import (ledger-import.tf) exited 0.
+  depends_on = [terraform_data.database_migrate, terraform_data.ledger_import]
 }
 
 resource "aws_sns_topic" "alarms" {

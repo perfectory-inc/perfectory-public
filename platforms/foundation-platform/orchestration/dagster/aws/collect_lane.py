@@ -21,8 +21,19 @@ this module; nothing here names a lane. For a run:
    last `foundation-job-outcome` line decides as on the host (job_specs.job_outcome). Then the state goes back as a
    new object, also when the command failed: what it asked and counted is spent either way.
 
-A lane that is not ready (vendor inert, a source key not placed, no state to start from) asks nothing and says
-which; definitions.py turns that into a failing readiness check (ADR-0623 §4). This module is plain Python.
+A lane that is not ready (vendor inert, a source key not placed, no state to start from, its catalog client not
+placed, or a command that says `foundation-job-not-ready`) asks nothing and says which; definitions.py turns that
+into a failing readiness check (ADR-0623 §4). This module is plain Python.
+
+A lane whose job reads or writes a table of the Lakekeeper catalog (root ADR-0624; config/lakekeeper-declaration.v1.json,
+generated from the pipeline graph) also gets its own catalog client: the Cognito app client of its principal, from
+the slot `<catalog>/principal-<lane>` its role alone reads, with the catalog's address, which the catalog's stack
+writes beside it (infra/aws-lakekeeper/identity.tf). A lane that states `state: table` keeps no state object: what
+it owes is that table.
+
+`import-ledger` is the one-off of the rollout (infra/aws/ledger-import.tf, before the service moves): the host's
+exports of the ledger rows of the sources whose lanes moved (control/evidence/ledger_move/, root ADR-0616 A4) go
+into the AWS ledger, each through the publisher's `import-bronze-ledger-rows`, which keeps what is there.
 """
 
 import datetime
@@ -43,6 +54,10 @@ CONTRACT = PLATFORM_ROOT / "config" / "aws-platform.contract.json"
 JOBS = PLATFORM_ROOT / "orchestration" / "jobs.v1.json"
 GRAPH = PLATFORM_ROOT / "docs" / "catalog" / "pipeline-graph.v1.json"
 LAKEHOUSE_CONTRACTS = PLATFORM_ROOT / "infra" / "lakehouse" / "contracts"
+# What the Lakekeeper catalog holds and which lane holds which grant (generated, root ADR-0418), and the catalog's
+# production contract (its name names the principal slots).
+LAKEKEEPER = PLATFORM_ROOT / "config" / "lakekeeper-declaration.v1.json"
+LAKEKEEPER_CONTRACT = PLATFORM_ROOT / "config" / "lakekeeper-prod.contract.json"
 PUBLISHER = "foundation-outbox-publisher"
 OUTCOME = "foundation-job-outcome "
 MATERIALIZES = "changed"
@@ -58,6 +73,15 @@ NONE = "none"
 # owner 2026-11-26; W101c 2026-11-27: onbid's first AWS run took 2 h 12 min and outlived its 1 h key).
 CREDENTIAL_PROCESS = "credential-process"
 CREDENTIAL_PROCESS_ENV = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_CREDENTIAL_PROCESS"
+# A lane started by its inputs (a Silver or Gold load): eager() on the lanes that produce them (ADR-0623 §1-2).
+INPUTS = "inputs"
+# A lane whose state is its table in the catalog: no state object is restored or saved.
+TABLE_STATE = "table"
+# A command that asked nothing because what it needs is not there yet (`foundation-job-not-ready <what>`).
+NOT_READY = "foundation-job-not-ready "
+# The rollout's one-off that moves the host's ledger exports into the AWS ledger; its vendor alias reads them.
+LEDGER_IMPORT = "bronze_ledger_import"
+LEDGER_EXPORTS = "control/evidence/ledger_move/"
 
 
 def contract():
@@ -112,6 +136,24 @@ def resolve(document, pointer):
     return value
 
 
+def started_by_inputs(lane):
+    """Whether the lane is a load that starts on its inputs (eager), not at a beat."""
+    return lane.get("started_by") == INPUTS
+
+
+def producers(job_id, platform=None, job_list=None):
+    """The lanes here whose jobs produce an input of lane `job_id`: the jobs whose edges end at a node one of its
+    edges starts from (job_specs.producers, the host's own answer for `started_by: inputs`)."""
+    platform = platform or contract()
+    job_list = job_list or jobs()
+    graph = json.loads(GRAPH.read_text(encoding="utf-8"))
+    edges = {edge["id"]: edge for edge in graph["edges"]}
+    inputs = {edges[e]["from"] for e in job(job_id, job_list)["pipeline_graph_edges"] if e in edges}
+    here = lanes_here(platform, job_list)
+    return sorted(other for other in here if other != job_id and not started_by_inputs(here[other])
+                  and any(edges[e]["to"] in inputs for e in job(other, job_list)["pipeline_graph_edges"] if e in edges))
+
+
 def beat(lane):
     """(cron, timezone) of the lane's beat, from the pointer into its source contract."""
     name, _, pointer = lane["beat"].partition("#")
@@ -129,7 +171,13 @@ def lane_role_arn(platform, lane):
     return f"arn:aws:iam::{platform['account']['id']}:role{platform['ecs']['run_role_path']}{project}-{lane['role']}"
 
 
-def run_tags(platform, job_id, lane):
+def kind(job_id, lane, job_list=None):
+    """The run's kind, which the run queue limits (dagster.yaml): its job's dagster_group (collect, silver); a
+    `none` lane has no job and is a collector."""
+    return "collect" if lane["handover"] == NONE else job(job_id, job_list)["dagster_group"]
+
+
+def run_tags(platform, job_id, lane, job_list=None):
     """The run's ECS task: the lane's role and size class, and the kind and lane tags the run queue's limits read.
     No time number: the platform's one ceiling is the instance's run monitoring (ADR-0623 §3)."""
     size = platform["collect"]["size_classes"][lane["size"]]
@@ -137,7 +185,7 @@ def run_tags(platform, job_id, lane):
         "ecs/task_overrides": json.dumps({"taskRoleArn": lane_role_arn(platform, lane)}),
         "ecs/cpu": str(size["cpu"]),
         "ecs/memory": str(size["memory"]),
-        KIND_TAG: "collect",
+        KIND_TAG: kind(job_id, lane, job_list),
         LANE_TAG: job_id,
     }
 
@@ -194,6 +242,43 @@ def source_keys(client, platform, lane):
             raise NotReady(f"the source key slot {slot} has no value yet (docs/runbooks/aws-platform.md)")
         found[name] = value
     return found
+
+
+def lakekeeper_declaration():
+    """The generated declaration of the Lakekeeper catalog: its tables and each lane's grants."""
+    return json.loads(LAKEKEEPER.read_text(encoding="utf-8"))
+
+
+# The fields of a lane principal's slot (infra/aws-lakekeeper/identity.tf writes them all).
+CLIENT_FIELDS = ("client_id", "client_secret", "token_uri", "scope", "catalog_uri", "warehouse")
+
+
+def catalog_client(client, job_id, declaration=None, catalog=None):
+    """{env name: value} of the lane's Lakekeeper client, or {} for a lane that holds no grant: the publisher is then
+    in Lakekeeper mode (lakehouse_catalog::CatalogSettings). NotReady names a slot that holds no client yet."""
+    declaration = declaration or lakekeeper_declaration()
+    if job_id not in declaration["lanes"]:
+        return {}
+    catalog = catalog or json.loads(LAKEKEEPER_CONTRACT.read_text(encoding="utf-8"))
+    slot = f"{catalog['name']}/principal-{job_id}"
+    try:
+        value = client.get_secret_value(SecretId=slot)["SecretString"].strip()
+    except client.exceptions.ResourceNotFoundException:
+        value = ""
+    held = json.loads(value) if value else {}
+    missing = [name for name in CLIENT_FIELDS if not held.get(name)]
+    if missing:
+        raise NotReady(f"the catalog client slot {slot} lacks {missing} (applied by infra/aws-lakekeeper, "
+                       "docs/runbooks/lakekeeper.md)")
+    return {
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER": "iceberg_rest",
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI": held["catalog_uri"],
+        "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE": held["warehouse"],
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_ID": held["client_id"],
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_SECRET": held["client_secret"],
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_TOKEN_URI": held["token_uri"],
+        "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_CLIENT_SCOPE": held["scope"],
+    }
 
 
 def database_url(client, platform):
@@ -328,6 +413,14 @@ def environment(lane, credentials, url, keys, work, refresh):
     return env
 
 
+def not_ready(lines):
+    """What the command waits for, from its last `foundation-job-not-ready` line; None when it said none."""
+    for line in reversed(lines):
+        if line.startswith(NOT_READY):
+            return line[len(NOT_READY):].strip() or "an input the command does not name"
+    return None
+
+
 def outcome(lines):
     """The word of the last outcome line; none counts as `changed`, as job_specs.job_outcome reads it."""
     for line in reversed(lines):
@@ -355,15 +448,20 @@ def collect(job_id, run_id, secrets_client, lambda_client, log, program=None, st
     platform = contract()
     lane = platform["collect"]["lanes"][job_id]
     credentials = vended(lambda_client, vendor_function(platform), job_id, run_id)
-    keys = source_keys(secrets_client, platform, lane)
+    keys = {**source_keys(secrets_client, platform, lane), **catalog_client(secrets_client, job_id)}
     url = database_url(secrets_client, platform)
     store, bucket, prefix = store_factory(credentials), credentials["bucket"], state_prefix(platform, job_id)
+    keeps_state = lane.get("state") != TABLE_STATE
     with tempfile.TemporaryDirectory(prefix=f"{job_id}-") as scratch:
         work = pathlib.Path(scratch)
         for name in ("output", "state", *(name.lower() for name in lane["work_dirs"])):
             (work / name).mkdir()
-        read_key, side = restore(store, bucket, prefix, work / "state", lane["handover"])
-        log(f"{job_id}: state from {read_key} ({side})")
+        if keeps_state:
+            read_key, side = restore(store, bucket, prefix, work / "state", lane["handover"])
+            log(f"{job_id}: state from {read_key} ({side})")
+        else:
+            # Its state is its table in the catalog (granted select): nothing to restore or save.
+            read_key, side = None, TABLE_STATE
         before = digest(work / "state")
         started = datetime.datetime.now(datetime.timezone.utc)
         try:
@@ -371,25 +469,78 @@ def collect(job_id, run_id, secrets_client, lambda_client, log, program=None, st
             status, lines = run(lane, env, log, program)
         finally:
             written = None
-            if digest(work / "state") != before or side == "host":
+            if keeps_state and (digest(work / "state") != before or side == "host"):
                 # Fresh keys: the run may have outlived the ones it started with.
                 fresh = store_factory(vended(lambda_client, vendor_function(platform), job_id, run_id))
                 written = save(fresh, bucket, prefix, run_id, work / "state")
                 log(f"{job_id}: state saved as {written}")
         seconds = round((datetime.datetime.now(datetime.timezone.utc) - started).total_seconds(), 1)
+    waiting = not_ready(lines)
+    if status == 0 and waiting:
+        raise NotReady(waiting)
     word = outcome(lines)
     if status != 0 or word not in (MATERIALIZES, *QUIET):
         raise RunFailed(f"{lane['command']} exited {status} ({word}) after {seconds} s: {lines[-1] if lines else ''}")
     return {"outcome": word, "state_read": read_key, "state_written": written, "seconds": seconds}
 
 
+def ledger_exports(store, bucket):
+    """The keys of the host's ledger exports (`<LEDGER_EXPORTS><date>-<source>.jsonl.gz`), in name order."""
+    keys = []
+    for page in store.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=LEDGER_EXPORTS):
+        keys.extend(item["Key"] for item in page.get("Contents", []) if item["Key"].endswith(".jsonl.gz"))
+    return sorted(keys)
+
+
+def import_ledger(run_id, secrets_client, lambda_client, log, program=None, store_factory=object_store):
+    """The rollout's one-off (root ADR-0616 A4): every host ledger export into the AWS ledger, through the
+    publisher's `import-bronze-ledger-rows`, which keeps every row already there (so a second run imports
+    nothing). Returns the export keys; RunFailed on the first that does not import."""
+    platform = contract()
+    credentials = vended(lambda_client, vendor_function(platform), LEDGER_IMPORT, run_id)
+    reader = credentials.get("reader")
+    if not reader:
+        raise RunFailed(f"the vendor gave {LEDGER_IMPORT} no read credential on {LEDGER_EXPORTS}")
+    store = store_factory({**credentials, "writer": reader})
+    exports = ledger_exports(store, credentials["bucket"])
+    program = program or os.environ.get("FOUNDATION_PLATFORM_PUBLISHER_BIN", PUBLISHER)
+    command = "import-bronze-ledger-rows"
+    argv = [*program, command] if isinstance(program, (list, tuple)) else [program, command]
+    base = {
+        "FOUNDATION_PLATFORM_RUNTIME_ENV": "production",
+        "FOUNDATION_PLATFORM_EXECUTION_CONTEXT": "service",
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT": endpoint(credentials),
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET": credentials["bucket"],
+        "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION": "auto",
+        **reader_environment(reader),
+        "DATABASE_URL": database_url(secrets_client, platform),
+    }
+    for key in exports:
+        log(f"{LEDGER_IMPORT}: {key}")
+        done = subprocess.run(argv, env={**os.environ, **base, "FOUNDATION_PLATFORM_LEDGER_IMPORT_OBJECT": key},
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                              errors="replace", check=False)
+        for line in done.stdout.splitlines():
+            log(line)
+        if done.returncode != 0:
+            raise RunFailed(f"{command} exited {done.returncode} on {key}")
+    return exports
+
+
 if __name__ == "__main__":
-    # credential-process <job id> <run id>: the lane's role asks the vendor through its own alias.
-    if len(sys.argv) != 4 or sys.argv[1] != CREDENTIAL_PROCESS:
-        sys.exit(f"usage: {sys.argv[0]} {CREDENTIAL_PROCESS} <job id> <run id>")
     import boto3
 
     _platform = contract()
+    if len(sys.argv) == 2 and sys.argv[1] == "import-ledger":
+        # The rollout's one-off task (infra/aws/ledger-import.tf): its role invokes only its own alias.
+        _run = datetime.datetime.now(datetime.timezone.utc).strftime("rollout-%Y%m%dT%H%M%SZ")
+        _imported = import_ledger(_run, boto3.client("secretsmanager", region_name=_platform["region"]),
+                                  boto3.client("lambda", region_name=_platform["region"]), print)
+        print(f"{LEDGER_IMPORT}: {len(_imported)} export(s) imported or already there")
+        sys.exit(0)
+    # credential-process <job id> <run id>: the lane's role asks the vendor through its own alias.
+    if len(sys.argv) != 4 or sys.argv[1] != CREDENTIAL_PROCESS:
+        sys.exit(f"usage: {sys.argv[0]} {CREDENTIAL_PROCESS} <job id> <run id> | import-ledger")
     _answer = vended(boto3.client("lambda", region_name=_platform["region"]), vendor_function(_platform), sys.argv[2],
                      sys.argv[3])
     print(json.dumps(credential_process_answer(_answer)))

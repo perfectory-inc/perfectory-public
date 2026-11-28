@@ -517,11 +517,14 @@ pub(crate) fn walk_done(asked_notices: usize, total: Option<u64>) -> bool {
 }
 
 /// Reads the last reads from the lakehouse (`read_from`'s current snapshot); none when the table
-/// holds no snapshot yet. A failure fails the run: it never asks blind.
+/// holds no snapshot yet. A failure fails the run: it never asks blind. On the Lakekeeper catalog a
+/// table with no snapshot is `None`: the lane's table is its state, and its load's first commit (the
+/// switch's rebuild from Bronze) comes before the collector asks anything, or it would ask its
+/// source's whole history again (root ADR-0616 §7: never from empty state; coordinator 2026-11-28).
 async fn last_reads_from_lakehouse(
     contract: &LaneContract,
     source: Source,
-) -> anyhow::Result<HashMap<String, LastRead>> {
+) -> anyhow::Result<Option<HashMap<String, LastRead>>> {
     use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
     use lakehouse_domain::SILVER_INDUSTRIAL_LAND_SALE_NOTICE_FETCH_ATTEMPT;
     use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
@@ -552,7 +555,7 @@ async fn last_reads_from_lakehouse(
         .await
         .with_context(|| format!("failed to resolve {}", contract.read_from))?
     else {
-        return Ok(HashMap::new());
+        return Ok(Some(HashMap::new()));
     };
     let lakehouse = LakehouseObjectReader::from_env()?;
     let scanned = scan_snapshot_rows(
@@ -561,11 +564,11 @@ async fn last_reads_from_lakehouse(
         &snapshot,
     )
     .await?;
-    Ok(last_reads(
+    Ok(Some(last_reads(
         scanned.rows.iter(),
         source,
         contract.attachments.max_file_bytes_since,
-    ))
+    )))
 }
 
 /// The columns [`last_reads`] reads, as one JSON object per row of `read_from`.
@@ -573,12 +576,12 @@ const LAST_READ_COLUMNS: &str = "notice_source, notice_id, list_fingerprint, sou
      source_line_number, read_outcome, file_count, files_stored";
 
 /// [`last_reads_from_lakehouse`] on the Lakekeeper catalog: `read_from`'s rows of `source` at the
-/// table's head, read by `DuckDB` attached with the lane's client (`LakehouseRead::from_env`); none
+/// table's head, read by `DuckDB` attached with the lane's client (`LakehouseRead::from_env`); `None`
 /// when the table holds no snapshot yet.
 async fn last_reads_through_duckdb(
     contract: &LaneContract,
     source: Source,
-) -> anyhow::Result<HashMap<String, LastRead>> {
+) -> anyhow::Result<Option<HashMap<String, LastRead>>> {
     use foundation_publisher_silver::duckdb_parquet_stage::{
         table_at, DuckDbParquetStage, LakehouseRead,
     };
@@ -590,7 +593,7 @@ async fn last_reads_through_duckdb(
         .await
         .with_context(|| format!("failed to resolve {}", contract.read_from))?
     else {
-        return Ok(HashMap::new());
+        return Ok(None);
     };
     let stage = DuckDbParquetStage::open_reading_lakehouse(
         &std::env::temp_dir(),
@@ -601,11 +604,11 @@ async fn last_reads_through_duckdb(
         &table_at(&contract.read_from, head.snapshot_id),
         source,
     )?;
-    Ok(last_reads(
+    Ok(Some(last_reads(
         rows.iter(),
         source,
         contract.attachments.max_file_bytes_since,
-    ))
+    )))
 }
 
 /// `source`'s rows of `relation` (a table, or [`table_at`]'s pinned read) as [`last_reads`] reads
@@ -956,7 +959,15 @@ pub async fn run() -> anyhow::Result<()> {
     // (a run of the other hours walks the recent pages and the backlog).
     let full_walk =
         contract.walks_whole(source)? && started_at.hour() == contract.full_walk_hour_utc;
-    let last = last_reads_from_lakehouse(&contract, source).await?;
+    let Some(last) = last_reads_from_lakehouse(&contract, source).await? else {
+        println!(
+            "foundation-job-not-ready {} holds no snapshot yet: its load's first commit comes first, before {} is asked anything",
+            contract.read_from,
+            source.name()
+        );
+        println!("foundation-job-outcome waiting");
+        return Ok(());
+    };
     let settled_before = last.values().filter(|read| read.settled).count();
 
     let live: Live = if config.live_write {

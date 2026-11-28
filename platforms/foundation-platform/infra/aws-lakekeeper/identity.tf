@@ -1,4 +1,8 @@
 # Machine identity (coordinator 2026-11-27): one Cognito app client per principal, OAuth2 client credentials.
+# The principals are the contract's (identity.principals: the operator, and dev's probes) and, in prod, one per lane
+# the generated declaration grants a table (config/lakekeeper-declaration.v1.json, from the pipeline graph): a lane's
+# client slot is read only by that lane's run role (infra/aws collect.tf), and holds the catalog's address beside it,
+# so the lane takes everything from one slot (orchestration/dagster/aws/collect_lane.py catalog_client).
 # Lakekeeper accepts OIDC JWTs only and has no AWS IAM login (upstream authentication, v0.15.1), so a job proves
 # who it is with its client's secret, which only its own task's execution role can inject (probes.tf). The
 # principals are the contract's (identity.principals); the catalog admits the declared ones only (catalog.tf).
@@ -7,6 +11,15 @@
 # unlike every other secret of the platform, it is in this stack's state (provider 6.72.0 has no write-only form).
 # The state bucket is private, versioned and encrypted, and only the applying SSO role reads it. Accepted for prod
 # too (root ADR-0624 decision 4-5; ADR-0619 §4's 2026-11-27 note).
+
+locals {
+  lane_principals = { for lane, grants in local.declared.lanes : lane => {
+    declared             = true
+    scopes               = [local.env.identity.scope]
+    access_token_minutes = local.env.identity.lane_access_token_minutes
+  } }
+  principals = merge(local.env.identity.principals, local.lane_principals)
+}
 
 resource "aws_cognito_user_pool" "machines" {
   name                = local.name
@@ -43,7 +56,7 @@ resource "aws_cognito_resource_server" "catalog" {
 }
 
 resource "aws_cognito_user_pool_client" "principal" {
-  for_each                             = local.env.identity.principals
+  for_each                             = local.principals
   name                                 = "${local.name}-${each.key}"
   user_pool_id                         = aws_cognito_user_pool.machines.id
   generate_secret                      = true
@@ -64,20 +77,53 @@ resource "aws_cognito_user_pool_client" "principal" {
 
 # Each principal's id and secret, in the shape a job reads them; only that principal's probe injects it.
 resource "aws_secretsmanager_secret" "principal" {
-  for_each                = local.env.identity.principals
+  for_each                = local.principals
   name                    = "${local.name}/principal-${each.key}"
   description             = "OAuth2 client credentials of the ${local.env.title} principal ${each.key}."
   recovery_window_in_days = local.env.secret_recovery_days
 }
 
 resource "aws_secretsmanager_secret_version" "principal" {
-  for_each  = local.env.identity.principals
+  for_each  = local.principals
   secret_id = aws_secretsmanager_secret.principal[each.key].id
+  # The client and where to use it: a job reads one slot. Write-only, so a changed address needs a new version.
   secret_string_wo = jsonencode({
     client_id     = aws_cognito_user_pool_client.principal[each.key].id
     client_secret = aws_cognito_user_pool_client.principal[each.key].client_secret
+    token_uri     = local.token_url
+    scope         = local.catalog_scope
+    catalog_uri   = "${local.catalog_url}/catalog"
+    warehouse     = local.env.warehouse.bucket
   })
   secret_string_wo_version = 1
+}
+
+# A lane's slot refuses every reader but that lane's run role (the platform contract names the role and its path),
+# the applier included, as the platform's source key slots do (infra/aws collect.tf).
+data "aws_iam_policy_document" "lane_principal" {
+  for_each = local.lane_principals
+  statement {
+    sid       = "OnlyItsLaneReads"
+    effect    = "Deny"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "ArnNotEquals"
+      variable = "aws:PrincipalArn"
+      values   = ["arn:aws:iam::${local.account}:role${local.platform.ecs.run_role_path}${local.platform.tags.project}-${local.platform.collect.lanes[each.key].role}"]
+    }
+  }
+}
+
+resource "aws_secretsmanager_secret_policy" "lane_principal" {
+  for_each            = local.lane_principals
+  secret_arn          = aws_secretsmanager_secret.principal[each.key].arn
+  policy              = data.aws_iam_policy_document.lane_principal[each.key].json
+  block_public_policy = true
 }
 
 locals {

@@ -20,7 +20,10 @@
 //! a healthy pipeline. An unrecorded object inside the horizon but older than the window is still
 //! owed and loaded, and is named `late` in the plan: the load script fails the run after loading it,
 //! so a load that had been failing for longer than the window cannot pass unseen (a check that sees
-//! nothing happening must not read as green).
+//! nothing happening must not read as green). Only an object whose window ran out while the table
+//! already held a snapshot is late: a table born later (a component's switch rebuilds its tables from
+//! Bronze, root ADR-0624 10-6) never had a load that could fail it, and its first fill would
+//! otherwise fail every run that loads history.
 
 use std::{
     collections::BTreeSet,
@@ -77,7 +80,8 @@ fn find_retain_days(value: &JsonValue) -> Option<i64> {
 }
 
 /// Unrecorded objects inside the horizon, oldest first, at most `max_objects` of them; those older
-/// than the window are also named late.
+/// than the window whose window ran out after the table's first snapshot (`born_at`) are also named
+/// late.
 pub(crate) fn select(
     listed: &[LedgerObject],
     recorded: &BTreeSet<String>,
@@ -85,6 +89,7 @@ pub(crate) fn select(
     window_days: i64,
     horizon_days: i64,
     max_objects: usize,
+    born_at: Option<DateTime<Utc>>,
 ) -> Selection {
     let late_before = now - Duration::days(window_days);
     let horizon = now - Duration::days(horizon_days);
@@ -105,7 +110,8 @@ pub(crate) fn select(
     owed.sort_by(|a, b| (a.landed_at, &a.key).cmp(&(b.landed_at, &b.key)));
     selection.beyond_bound = owed.len().saturating_sub(max_objects);
     for object in owed.into_iter().take(max_objects) {
-        if object.landed_at < late_before {
+        let window_end = object.landed_at + Duration::days(window_days);
+        if object.landed_at < late_before && born_at.is_some_and(|born| born <= window_end) {
             selection.late.push(object.key.clone());
         }
         selection.owed.push(object.key.clone());
@@ -139,6 +145,21 @@ fn local_path(output_dir: &Path, key: &str) -> anyhow::Result<PathBuf> {
     Ok(output_dir.join("objects").join(source_of(key)?).join(leaf))
 }
 
+/// What one plan is asked for.
+pub(crate) struct PlanRequest<'a> {
+    pub(crate) table: &'a str,
+    pub(crate) slugs: &'a [String],
+    pub(crate) window_days: i64,
+    pub(crate) max_objects: usize,
+    pub(crate) output_dir: &'a Path,
+}
+
+/// What a plan owes: the objects fetched, and those of them that are late.
+pub(crate) struct Planned {
+    pub(crate) owed: usize,
+    pub(crate) late: usize,
+}
+
 /// Reads the sources' objects from the ledger, asks the table, fetches what it owes and writes
 /// `plan.json`.
 ///
@@ -163,6 +184,29 @@ pub async fn run() -> anyhow::Result<()> {
         .parse()
         .with_context(|| format!("{PREFIX}_MAX_OBJECTS must be a whole number"))?;
     let output_dir = PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT_DIR"))?);
+    plan(&PlanRequest {
+        table: &table,
+        slugs: &slugs,
+        window_days,
+        max_objects,
+        output_dir: &output_dir,
+    })
+    .await
+    .map(|_| ())
+}
+
+/// One plan: [`run`]'s work for a caller that holds its settings (a lane's own command).
+///
+/// # Errors
+/// As [`run`].
+pub(crate) async fn plan(request: &PlanRequest<'_>) -> anyhow::Result<Planned> {
+    let PlanRequest {
+        table,
+        slugs,
+        window_days,
+        max_objects,
+        output_dir,
+    } = *request;
     let horizon_days = snapshot_retain_days()? - HORIZON_MARGIN_DAYS;
     if window_days < 1 || window_days >= horizon_days {
         bail!(
@@ -175,16 +219,27 @@ pub async fn run() -> anyhow::Result<()> {
             .context("a Silver load plan reads R2 with the lakehouse reader key")?,
     );
     let ledger = ledger_from_env().await?;
-    let listed = objects_of(&ledger, &slugs).await?;
+    let listed = objects_of(&ledger, slugs).await?;
     ledger.close().await;
     // The catalog the environment names: the current one, or Lakekeeper with the lane's client.
     let catalog = foundation_publisher_core::lakehouse_catalog::CatalogSettings::from_env()?
         .rest_catalog()
         .await?;
     let recorded = catalog
-        .load_ingested_batch_objects(&table)
+        .load_ingested_batch_objects(table)
         .await?
         .unwrap_or_default();
+    // The table's first snapshot still kept: before it no load could have missed an object.
+    let born_at = catalog
+        .load_main_snapshot_history(table)
+        .await?
+        .and_then(|history| {
+            history
+                .iter()
+                .filter_map(|snapshot| snapshot.timestamp_ms)
+                .min()
+        })
+        .and_then(DateTime::<Utc>::from_timestamp_millis);
     let selection = select(
         &listed,
         &recorded,
@@ -192,11 +247,12 @@ pub async fn run() -> anyhow::Result<()> {
         window_days,
         horizon_days,
         max_objects,
+        born_at,
     );
 
     let mut objects = Vec::new();
     for key in &selection.owed {
-        let path = local_path(&output_dir, key)?;
+        let path = local_path(output_dir, key)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -223,7 +279,7 @@ pub async fn run() -> anyhow::Result<()> {
             "source_slug": object.source_slug,
             "collected_at": object.collected_at.to_rfc3339(),
             "landed_at": object.landed_at.to_rfc3339(),
-            "local_path": path.strip_prefix(&output_dir).unwrap_or(&path).to_string_lossy().replace('\\', "/"),
+            "local_path": path.strip_prefix(output_dir).unwrap_or(&path).to_string_lossy().replace('\\', "/"),
             "size_bytes": bytes.len(),
         }));
     }
@@ -242,7 +298,10 @@ pub async fn run() -> anyhow::Result<()> {
                "recorded": selection.recorded, "beyond_bound": selection.beyond_bound,
                "late": selection.late.len(), "beyond_horizon": selection.beyond_horizon})
     );
-    Ok(())
+    Ok(Planned {
+        owed: objects.len(),
+        late: selection.late.len(),
+    })
 }
 
 #[cfg(test)]
@@ -288,6 +347,7 @@ mod tests {
             7,
             28,
             10,
+            Some(at("2098-01-01T00:00:00Z")),
         );
         assert!(selection.owed.is_empty(), "{:?}", selection.owed);
         assert_eq!((selection.recorded, selection.beyond_horizon), (1, 1));
@@ -303,7 +363,16 @@ mod tests {
             object("expired.gz", "2098-11-01T00:00:00Z"),
         ];
         let recorded = BTreeSet::from([listed[1].key.clone()]);
-        let selection = select(&listed, &recorded, at("2099-01-10T06:00:00Z"), 7, 28, 10);
+        let born = Some(at("2098-01-01T00:00:00Z"));
+        let selection = select(
+            &listed,
+            &recorded,
+            at("2099-01-10T06:00:00Z"),
+            7,
+            28,
+            10,
+            born,
+        );
         let leaves = |keys: &[String]| {
             keys.iter()
                 .map(|key| key.rsplit('/').next().unwrap_or_default().to_owned())
@@ -324,8 +393,57 @@ mod tests {
             (5, 1, 1),
             "an object past the horizon may have lost its record; it is not compared"
         );
-        let bounded = select(&listed, &recorded, at("2099-01-10T06:00:00Z"), 7, 28, 1);
+        let bounded = select(
+            &listed,
+            &recorded,
+            at("2099-01-10T06:00:00Z"),
+            7,
+            28,
+            1,
+            born,
+        );
         assert_eq!((bounded.owed.len(), bounded.beyond_bound), (1, 2));
+    }
+
+    /// W109e (the first Lakekeeper switch): a component's tables are rebuilt from Bronze into tables
+    /// the reconciler made empty. Its history is older than the window, but no load of that table could
+    /// have missed it: neither the first fill (no snapshot) nor its next runs (a table born after the
+    /// window ran out) name it late, so the rebuild does not fail by design; an object whose window
+    /// runs out while the table holds a snapshot still does.
+    #[test]
+    fn only_a_window_that_ran_out_while_the_table_existed_is_late() {
+        let listed = [
+            object("history.gz", "2099-01-01T00:00:00Z"),
+            object("recent.gz", "2099-01-09T00:00:00Z"),
+        ];
+        let none = BTreeSet::new();
+        let now = at("2099-01-10T06:00:00Z");
+        let first_fill = select(&listed, &none, now, 3, 28, 10, None);
+        assert_eq!((first_fill.owed.len(), first_fill.late.len()), (2, 0));
+        let born_today = select(
+            &listed,
+            &none,
+            now,
+            3,
+            28,
+            10,
+            Some(at("2099-01-10T05:00:00Z")),
+        );
+        assert!(born_today.late.is_empty(), "{:?}", born_today.late);
+        let born_before = select(
+            &listed,
+            &none,
+            now,
+            3,
+            28,
+            10,
+            Some(at("2099-01-02T00:00:00Z")),
+        );
+        assert_eq!(
+            born_before.late.len(),
+            1,
+            "history's window ran out on 01-04, the table was there"
+        );
     }
 
     #[test]

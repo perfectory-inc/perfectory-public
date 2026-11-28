@@ -272,7 +272,12 @@ pub fn stage_object(
         reads,
         attachments,
         changed_attachments,
-        reads_file: write(reads, reads_shape, FETCH_ATTEMPT_TABLE, "SELECT * FROM sale_reads")?,
+        reads_file: write(
+            reads,
+            reads_shape,
+            FETCH_ATTEMPT_TABLE,
+            "SELECT * FROM sale_reads",
+        )?,
         attachments_file: write(
             changed_attachments,
             attachments_shape,
@@ -280,6 +285,24 @@ pub fn stage_object(
             "SELECT * FROM sale_attachments_changed",
         )?,
     })
+}
+
+/// The `(sha256, media_format)` keys the changed attachment rows of the object [`stage_object`] staged
+/// last name, in key order: what the media reconciler must count as named once they are committed.
+///
+/// # Errors
+/// Returns a `DuckDB` failure, or a row without a key.
+pub fn changed_media_keys(stage: &DuckDbParquetStage) -> anyhow::Result<Vec<(String, String)>> {
+    let mut statement = stage.connection().prepare(
+        "SELECT DISTINCT sha256, media_format FROM sale_attachments_changed ORDER BY sha256, media_format",
+    )?;
+    let keys = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("DuckDB failed to read the changed attachments' media keys")?;
+    Ok(keys)
 }
 
 #[cfg(test)]

@@ -781,6 +781,24 @@ fn the_bronze_epoch_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn the_ledger_move_and_the_sale_notice_lane_commands_are_explicit() -> anyhow::Result<()> {
+    for (name, command) in [
+        ("export-bronze-ledger-rows", Command::ExportBronzeLedgerRows),
+        ("import-bronze-ledger-rows", Command::ImportBronzeLedgerRows),
+        (
+            "run-industrial-land-sale-notice-silver",
+            Command::RunIndustrialLandSaleNoticeSilver,
+        ),
+    ] {
+        assert_eq!(
+            parse_command(["foundation-outbox-publisher", name])?,
+            command
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn verify_r2_cleanup_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "verify-r2-cleanup"])?,

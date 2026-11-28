@@ -47,11 +47,11 @@
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
         "silver-industrial-land-sale-notice-fetch-attempt-to-source-industrial-land-sale-notice"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-28T08:00:00Z",
-      "dagster_stage": "dagster",
+      "enabled": false,
+      "enabled_since": null,
+      "dagster_stage": "airflow",
       "started_once_after_deploy": null,
-      "disabled_reason": null
+      "disabled_reason": "On AWS since the Lakekeeper switch of its component (root ADR-0624 A1, ADR-0616 §7 handoff, W109e): its tables (silver.industrial_land_sale_notice_fetch_attempt, silver.industrial_land_sale_notice_attachment) live in the Lakekeeper catalog, whose endpoint only the platform's VPC reaches, so the job runs only as its AWS lane (config/aws-platform.contract.json collect.lanes, same id) and the generator refuses it here while it touches them (scripts/catalog/declared_definitions.py lakekeeper_declaration). Back to the host is the same switch reversed: the tables' catalog marker goes, and this job is turned on."
     },
     {
       "id": "industrial_land_sale_notice_ilis_collect",
@@ -87,8 +87,8 @@
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "The provider publishes sale notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1).",
-        "landed_within_hours": 24,
-        "landed_basis": "the board keeps a notice only while its provider lists it (endpoint catalog provider_retention, group industrial_land_sale_notice). The job runs hourly; how soon a post leaves the board is not measured, so the bound is one day unread, 24 hourly turns (root ADR-0614)."
+        "landed_within_hours": 30,
+        "landed_basis": "the board keeps a notice only while its provider lists it (endpoint catalog provider_retention, group industrial_land_sale_notice). On AWS the lane reads once a day like every collector (owner decision 2026-11-26, root ADR-0623 §1; industrial-land-sale-notice.contract.json sources beat): 30 h is one daily turn, its run and room for a late start; on the host it ran hourly and the bound was 24 h. How soon a post leaves the board is not measured (root ADR-0614)."
       },
       "pool": "default_pool",
       "retries": 0,
@@ -97,11 +97,11 @@
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
         "silver-industrial-land-sale-notice-fetch-attempt-to-source-industrial-land-sale-notice"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-28T08:00:00Z",
-      "dagster_stage": "dagster",
+      "enabled": false,
+      "enabled_since": null,
+      "dagster_stage": "airflow",
       "started_once_after_deploy": null,
-      "disabled_reason": null
+      "disabled_reason": "On AWS since the Lakekeeper switch of its component (root ADR-0624 A1, ADR-0616 §7 handoff, W109e): its tables (silver.industrial_land_sale_notice_fetch_attempt, silver.industrial_land_sale_notice_attachment) live in the Lakekeeper catalog, whose endpoint only the platform's VPC reaches, so the job runs only as its AWS lane (config/aws-platform.contract.json collect.lanes, same id) and the generator refuses it here while it touches them (scripts/catalog/declared_definitions.py lakekeeper_declaration). Back to the host is the same switch reversed: the tables' catalog marker goes, and this job is turned on."
     },
     {
       "id": "industrial_land_sale_notice_kicox_collect",
@@ -137,8 +137,8 @@
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "The provider publishes board posts on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1).",
-        "landed_within_hours": 24,
-        "landed_basis": "the board keeps a post only while its provider lists it (endpoint catalog provider_retention, group industrial_land_sale_notice). The job runs hourly; how soon a post leaves the board is not measured, so the bound is one day unread, 24 hourly turns (root ADR-0614)."
+        "landed_within_hours": 30,
+        "landed_basis": "the board keeps a notice only while its provider lists it (endpoint catalog provider_retention, group industrial_land_sale_notice). On AWS the lane reads once a day like every collector (owner decision 2026-11-26, root ADR-0623 §1; industrial-land-sale-notice.contract.json sources beat): 30 h is one daily turn, its run and room for a late start; on the host it ran hourly and the bound was 24 h. How soon a post leaves the board is not measured (root ADR-0614)."
       },
       "pool": "default_pool",
       "retries": 0,
@@ -147,11 +147,11 @@
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
         "silver-industrial-land-sale-notice-fetch-attempt-to-source-industrial-land-sale-notice"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-28T08:00:00Z",
-      "dagster_stage": "dagster",
+      "enabled": false,
+      "enabled_since": null,
+      "dagster_stage": "airflow",
       "started_once_after_deploy": null,
-      "disabled_reason": null
+      "disabled_reason": "On AWS since the Lakekeeper switch of its component (root ADR-0624 A1, ADR-0616 §7 handoff, W109e): its tables (silver.industrial_land_sale_notice_fetch_attempt, silver.industrial_land_sale_notice_attachment) live in the Lakekeeper catalog, whose endpoint only the platform's VPC reaches, so the job runs only as its AWS lane (config/aws-platform.contract.json collect.lanes, same id) and the generator refuses it here while it touches them (scripts/catalog/declared_definitions.py lakekeeper_declaration). Back to the host is the same switch reversed: the tables' catalog marker goes, and this job is turned on."
     },
     {
       "id": "industrial_land_sale_notice_lh_collect",
@@ -206,7 +206,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver load of the industrial land sale notice reads and attachments (root ADR-0603; scripts/ops/industrial-land-sale-notice-silver-load.sh, the publisher's load-industrial-land-sale-notice-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559): the detail objects of the three sources (ILIS, KICOX, LH) that no commit of silver.industrial_land_sale_notice_fetch_attempt records (plan-silver-load-objects, R2 alone), oldest first, each committed on its own: first its attachments in the store to silver.industrial_land_sale_notice_attachment (new or changed (source, notice, hash) only; the index the media reconciler reads the store through), then one read row per notice to silver.industrial_land_sale_notice_fetch_attempt. Both tables are born on their first commit. `unchanged` without starting the load when nothing is owed; no Spark.",
+      "description": "Silver load of the industrial land sale notice fetch attempts and attachments (root ADR-0603; on AWS the publisher's run-industrial-land-sale-notice-silver, DuckDB inside the publisher and its own Iceberg append to the Lakekeeper catalog, root ADR-0559, ADR-0624): the detail objects of the sources that no commit of silver.industrial_land_sale_notice_fetch_attempt records, read from the Bronze ledger (plan-silver-load-objects, root ADR-0626 §4), oldest first, each committed on its own: first its attachments in the store to silver.industrial_land_sale_notice_attachment (new or changed (source, notice, hash) only; the index the media reconciler reads the store through, its keys also written under control/media_index/ for the host's reconciler), then one fetch-attempt row per notice to silver.industrial_land_sale_notice_fetch_attempt. The reconciler makes both tables (root ADR-0624 P8). `unchanged` without starting the load when nothing is owed; no Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
@@ -244,11 +244,11 @@
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-fetch-attempt",
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-28T08:00:00Z",
-      "dagster_stage": "dagster",
+      "enabled": false,
+      "enabled_since": null,
+      "dagster_stage": "airflow",
       "started_once_after_deploy": null,
-      "disabled_reason": null
+      "disabled_reason": "On AWS since the Lakekeeper switch of its component (root ADR-0624 A1, ADR-0616 §7 handoff, W109e): its tables (silver.industrial_land_sale_notice_fetch_attempt, silver.industrial_land_sale_notice_attachment) live in the Lakekeeper catalog, whose endpoint only the platform's VPC reaches, so the job runs only as its AWS lane (config/aws-platform.contract.json collect.lanes, same id) and the generator refuses it here while it touches them (scripts/catalog/declared_definitions.py lakekeeper_declaration). Back to the host is the same switch reversed: the tables' catalog marker goes, and this job is turned on."
     }
   ],
   "assets": [
@@ -280,7 +280,8 @@
           "kind": "lakehouse_contract",
           "value": "silver.industrial_land_sale_notice_fetch_attempt"
         }
-      ]
+      ],
+      "catalog": "lakekeeper"
     },
     {
       "id": "silver-industrial-land-sale-notice-attachment",
@@ -299,7 +300,8 @@
           "kind": "lakehouse_contract",
           "value": "silver.industrial_land_sale_notice_attachment"
         }
-      ]
+      ],
+      "catalog": "lakekeeper"
     }
   ],
   "dependencies": [

@@ -17,7 +17,7 @@ locals {
   # .well-known/openid-configuration Lakekeeper reads.
   issuer          = "https://${aws_cognito_user_pool.machines.endpoint}"
   catalog_scope   = "${aws_cognito_resource_server.catalog.identifier}/${local.env.identity.scope}"
-  declared_client = [for name, principal in local.env.identity.principals : aws_cognito_user_pool_client.principal[name].id if principal.declared]
+  declared_client = [for name, principal in local.principals : aws_cognito_user_pool_client.principal[name].id if principal.declared]
   catalog_settings = {
     LAKEKEEPER__PG_HOST_W                 = local.database.address
     LAKEKEEPER__PG_PORT                   = tostring(local.database.port)
@@ -100,16 +100,35 @@ resource "aws_security_group" "catalog" {
 }
 
 # Who may call the catalog: the reconciler, and in dev the probes. Lanes come with their component (root ADR-0624 A1).
+# The platform's Dagster service and run tasks (infra/aws dagster.tf), whose lanes call the catalog: only while the
+# declaration grants a lane a table.
+data "aws_security_group" "platform_tasks" {
+  count  = length(local.lane_principals) > 0 ? 1 : 0
+  vpc_id = data.aws_vpc.platform.id
+  name   = "perfectory-platform-tasks"
+}
+
 resource "aws_vpc_security_group_ingress_rule" "catalog" {
   for_each = merge(
     { reconciler = aws_security_group.reconciler.id },
     { for group in aws_security_group.probe : "probes" => group.id },
+    { for group in data.aws_security_group.platform_tasks : "lanes" => group.id },
   )
   security_group_id            = aws_security_group.catalog.id
   ip_protocol                  = "tcp"
   from_port                    = local.catalog.port
   to_port                      = local.catalog.port
   referenced_security_group_id = each.value
+}
+
+# Out of the platform's tasks to the catalog's port: that group allows only TLS and its database otherwise.
+resource "aws_vpc_security_group_egress_rule" "lanes_to_catalog" {
+  count                        = length(data.aws_security_group.platform_tasks)
+  security_group_id            = data.aws_security_group.platform_tasks[0].id
+  ip_protocol                  = "tcp"
+  from_port                    = local.catalog.port
+  to_port                      = local.catalog.port
+  referenced_security_group_id = aws_security_group.catalog.id
 }
 
 moved {

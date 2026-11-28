@@ -368,7 +368,7 @@ fn manifest_key_of(evidence: &BTreeMap<String, Listed>) -> anyhow::Result<Option
     Ok(found.first().map(|key| (*key).clone()))
 }
 
-async fn put_create_only(
+pub(crate) async fn put_create_only(
     storage: &R2ObjectStorage,
     key: &str,
     body: Vec<u8>,
@@ -393,7 +393,7 @@ async fn put_create_only(
 
 /// Refuses while a run of an affected source is in progress or ended a moment ago: two of the line
 /// writer's close intervals, so a run that is between two objects is seen.
-async fn refuse_while_active(pool: &PgPool, sources: &[Uuid]) -> anyhow::Result<()> {
+pub(crate) async fn refuse_while_active(pool: &PgPool, sources: &[Uuid]) -> anyhow::Result<()> {
     let quiet = Duration::seconds(i64::try_from(
         crate::bronze_line_objects::close_after_seconds()? * 2,
     )?);
