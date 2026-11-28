@@ -376,7 +376,10 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
 - **나뉜 원장**(코디네이터 2026-11-28): AWS 로 옮긴 수집기(온비드는 2026-11-27 부터, 겹침 레인은 AWS 쪽 쓰기)의 새 객체는 RDS 원장에만 있고
   ai-server 는 RDS 에 닿지 않는다(ADR-0616 A1b). 호스트의 Silver 적재는 그 객체를 A4(Silver 와 원장 줄이 AWS 로 갈 때)까지 계획하지 않는다:
   사장의 2026-11-24 결정대로 지금 서빙의 신선도는 목표가 아니다. 2026-11-28 에 그런 객체는 온비드 0, 연금 사업장 18 이다.
-- **실행**: 작업 `bronze_epoch`(릴리스 이미지의 `rekey-bronze-epoch`, 매시간, 남은 것만). 증거 목록
+- **실행**: 작업 `bronze_epoch`(릴리스 이미지의 `rekey-bronze-epoch`, 매시간, 남은 것만). Bronze 와 원장 줄을 쓰므로
+  `collect` 묶음(`dagster_stage: dagster`)이고, 원천 묶음 6 개에서 `serving-bronze-object` 로 가는 변을 싣는다. 그래서 호스트 범위
+  `collection`(ADR-0625)이 ai-server 에 둔다; 2026-11-28 첫 배포는 `operations` 묶음과 `reads_data_contracts` 여서 `derived` 로
+  분류되었고 아무것도 시작하지 않았다(옮긴 것 0). 증거 목록
   `control/evidence/r2_move/<날짜>-bronze-epoch.jsonl.gz` 먼저, 만들기만 복사와 전체 바이트 SHA-256 재해시와 옛 ETag 비교, 원천마다 한
   트랜잭션의 제자리 `UPDATE`(원천 줄의 slug, 객체 줄의 키와 키에서 지은 칸들; `bronze_object_id` 는 그대로), 확인 보고를 목록 옆에, 그 뒤에만
   버킷 잠금(`bronze/` 30 일)이 놓아주는 대로 옛 키를 지운다. 옮길 원천의 쓰는 쪽이 줄 쓰기의 닫힘 간격 두 번 안에 돌았으면 아무것도 옮기지

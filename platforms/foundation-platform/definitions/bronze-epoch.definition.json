@@ -5,7 +5,7 @@
   "jobs": [
     {
       "id": "bronze_epoch",
-      "dagster_group": "operations",
+      "dagster_group": "collect",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
@@ -34,15 +34,133 @@
       },
       "pool": "default_pool",
       "retries": 0,
-      "pipeline_graph_edges": [],
-      "reads_data_contracts": true,
+      "pipeline_graph_edges": [
+        "source-code-go-kr-to-serving-bronze-object",
+        "source-courtauction-go-kr-to-serving-bronze-object",
+        "source-data-go-kr-onbid-to-serving-bronze-object",
+        "source-ilis-to-serving-bronze-object",
+        "source-industrial-land-sale-notice-to-serving-bronze-object",
+        "source-vworld-dataset-to-serving-bronze-object"
+      ],
       "enabled": true,
       "enabled_since": "2026-11-28T00:00:00Z",
-      "dagster_stage": "proxied",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "A one-time move, not a data producer: once every move is verified and every old key deleted, `unchanged` is its normal outcome until it is turned off. That it keeps finishing is the done bound."
       }
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-code-go-kr",
+      "to": "serving-bronze-object",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "source_slugs": [
+        "codegokr__legal_dong_code"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "serving-bronze-object",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__appraisal_report",
+        "courtauctiongokr__case_appraisal",
+        "courtauctiongokr__case_detail",
+        "courtauctiongokr__case_filing",
+        "courtauctiongokr__case_survey",
+        "courtauctiongokr__case_survey_report",
+        "courtauctiongokr__common_code",
+        "courtauctiongokr__dividend_notice",
+        "courtauctiongokr__item",
+        "courtauctiongokr__item_detail",
+        "courtauctiongokr__sale_notice",
+        "courtauctiongokr__sale_result",
+        "courtauctiongokr__sale_specification"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "serving-bronze-object",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_announcement",
+        "datagokr__onbid_announcement_bid_result",
+        "datagokr__onbid_announcement_detail",
+        "datagokr__onbid_item_bid_info",
+        "datagokr__onbid_item_bid_result",
+        "datagokr__onbid_real_estate_item",
+        "datagokr__onbid_real_estate_item_detail"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "source-ilis",
+      "to": "serving-bronze-object",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "source_slugs": [
+        "industrylandorkr__industrial_complex_notice_detail"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "source-industrial-land-sale-notice",
+      "to": "serving-bronze-object",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "source_slugs": [
+        "factoryongokr__industrial_land_sale_notice_detail",
+        "industrylandorkr__industrial_land_sale_notice_detail",
+        "kicoxorkr__industrial_land_sale_notice_detail"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+    },
+    {
+      "from": "source-vworld-dataset",
+      "to": "serving-bronze-object",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/bronze-epoch.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/bronze_epoch.rs"
+      ],
+      "source_slugs": [
+        "vworldkr__industrial_complex_boundary",
+        "vworldkr__industrial_complex_facility_land_use",
+        "vworldkr__industrial_complex_land_use_zone",
+        "vworldkr__industrial_complex_location",
+        "vworldkr__industrial_complex_parcel",
+        "vworldkr__industrial_complex_permitted_industry",
+        "vworldkr__industrial_complex_profile"
+      ],
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
     }
   ]
 }

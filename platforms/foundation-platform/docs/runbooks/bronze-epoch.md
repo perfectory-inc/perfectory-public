@@ -9,7 +9,8 @@ last_reviewed: 2026-11-28
 
 [루트 ADR-0626](../../../../docs/adr/0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md)
 §4·§8 N2 와 그 2026-11-28 각주. `bronze_epoch` 작업(`definitions/bronze-epoch.definition.json`, 매시 50 분)은 발행기의
-`rekey-bronze-epoch` 를 돌린다. 실행마다 남은 것만 한다.
+`rekey-bronze-epoch` 를 돌린다. 실행마다 남은 것만 한다. `collect` 묶음의 `dagster` 작업이라 Dagster 센서가 시작하고, 호스트
+범위 `collection` 이 그것을 ai-server 에 둔다(`job_specs.py --host-classes` 에서 `bronze_epoch collection runs`).
 
 | 걸음 | 무엇 | 어디 |
 |---|---|---|
