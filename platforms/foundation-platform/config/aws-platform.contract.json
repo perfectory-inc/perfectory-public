@@ -51,11 +51,11 @@
       "ap-northeast-2c": 9
     },
     "fixed_egress": {
-      "address": true,
-      "gateway": true,
+      "address": false,
+      "gateway": false,
       "zone": "ap-northeast-2a",
       "subnet_netnum": 2,
-      "reason": "One fixed egress address (infra/aws/egress.tf), owner 2026-11-28: ca.kapanet.or.kr dropped 43.200-43.202 and rt.molit.go.kr everything but 43.201-43.202 (W101c probes), so a task's random public IP passes or fails by draw. This first setting is the one test the owner approved: one Elastic IP, a NAT gateway on it in the 2a public subnet, and one egress subnet (netnum 2) routed through it; one probe from there to each host, then gateway off (the NAT gateway is the hourly cost), and address kept only if kapanet admitted it. Only a lane that names this subnet uses it; every other lane keeps its own public IP."
+      "reason": "One fixed egress address (infra/aws/egress.tf), owner 2026-11-28: ca.kapanet.or.kr dropped 43.200-43.202 and rt.molit.go.kr everything but 43.201-43.202 (W101c probes), so a task's random public IP passes or fails by draw. This first setting is the one test the owner approved: one Elastic IP, a NAT gateway on it in the 2a public subnet, and one egress subnet (netnum 2) routed through it; one probe from there to each host, then gateway off (the NAT gateway is the hourly cost), and address kept only if kapanet admitted it. Result 2026-11-28 09:20Z: the Elastic IP was 43.202.14.36; ca.kapanet.or.kr dropped it (TCP timeout 12 s) and rt.molit.go.kr admitted it (HTTP 200), so both are off again and the address is released; no other address is taken (owner's instruction). Turning them on is the same code. Only a lane that names this subnet uses it; every other lane keeps its own public IP."
     },
     "address_reason": "The VPC's own address block is given at apply time (TF_VAR_vpc_cidr), not written here: this repository is public and holds no private network addressing (scripts/guard/public-repository-safety.sh). This file decides the shape: a /16 cut into /20 subnets, each subnet the netnum its zone has in public_subnets or private_subnets (cidrsubnet). Once the VPC exists the runbook reads its block back from AWS, and the VPC and its subnets refuse to be destroyed (prevent_destroy), so a wrong block stops the plan instead of replacing the network.",
     "reason": "No NAT gateway and no load balancer (root ADR-0616 §1, §10), except the fixed-egress NAT gateway while fixed_egress.gateway is on. Tasks run in the public subnets with a public IPv4 address and no inbound rule: they reach the sources, R2, GHCR and the AWS APIs through the internet gateway. The private subnets have no route out and hold only the database (RDS needs subnets in two zones). Two zones, because RDS requires them; 2a and 2c because every Fargate and RDS class is offered there. The account's default VPC is left as it is and used by nothing here."
