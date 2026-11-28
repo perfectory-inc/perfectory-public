@@ -377,7 +377,8 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
   ai-server 는 RDS 에 닿지 않는다(ADR-0616 A1b). 호스트의 Silver 적재는 그 객체를 A4(Silver 와 원장 줄이 AWS 로 갈 때)까지 계획하지 않는다:
   사장의 2026-11-24 결정대로 지금 서빙의 신선도는 목표가 아니다. 2026-11-28 에 그런 객체는 온비드 0, 연금 사업장 18 이다.
 - **실행**: 작업 `bronze_epoch`(릴리스 이미지의 `rekey-bronze-epoch`, 매시간, 남은 것만). Bronze 와 원장 줄을 쓰므로
-  `collect` 묶음(`dagster_stage: dagster`)이고, 원천 묶음 6 개에서 `serving-bronze-object` 로 가는 변을 싣는다. 그래서 호스트 범위
+  `collect` 묶음(`dagster_stage: dagster`)이고, `serving-bronze-object`(원장)에서 옮기는 원천 묶음 5 개(code.go.kr·법원경매·온비드·ILIS·
+  산업용지 분양공고)로 가는 변을 싣는다(V-World 묶음은 모든 V-World Silver 의 입력이라 싣지 않는다: 그 14 객체는 이름 바뀐 산단 원천뿐). 그래서 호스트 범위
   `collection`(ADR-0625)이 ai-server 에 둔다; 2026-11-28 첫 배포는 `operations` 묶음과 `reads_data_contracts` 여서 `derived` 로
   분류되었고 아무것도 시작하지 않았다(옮긴 것 0). 증거 목록
   `control/evidence/r2_move/<날짜>-bronze-epoch.jsonl.gz` 먼저, 만들기만 복사와 전체 바이트 SHA-256 재해시와 옛 ETag 비교, 원천마다 한
