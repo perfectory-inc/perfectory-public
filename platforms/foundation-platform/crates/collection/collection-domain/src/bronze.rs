@@ -1353,7 +1353,7 @@ mod tests {
             "item",
             "item-detail-part0001",
             "OPN209912310000000002",
-            "20991231DS00160-128",
+            "20991231DS99999-1",
             "page-000001",
         ] {
             assert!(key(leaf).is_ok(), "{leaf} carries no run stamp");

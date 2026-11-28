@@ -51,7 +51,6 @@ rules:
         - /platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_onbid_collect.rs
         - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs
         - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs
-        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect.rs
     patterns:
       - pattern-either:
           - pattern: object_key.$READ(...)

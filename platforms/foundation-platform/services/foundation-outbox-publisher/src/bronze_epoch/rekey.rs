@@ -422,8 +422,12 @@ mod tests {
             "regcode.html"
         );
         assert_eq!(
-            rename_file_part("99999-1", "sandan_boundary", "industrial_complex_boundary"),
-            "99999-1"
+            rename_file_part(
+                "20991231DS99991-1",
+                "sandan_boundary",
+                "industrial_complex_boundary"
+            ),
+            "20991231DS99991-1"
         );
         // A dataset prefix is renamed only as a whole part.
         assert_eq!(
@@ -498,22 +502,22 @@ mod tests {
         let boundary = landed(
             "vworldkr__sandan_boundary",
             "sandan_boundary",
-            "99999-1",
+            "20991231DS99991-1",
             "zip",
             false,
         )?;
         assert_eq!(
             boundary.object_key,
-            "bronze/source=vworldkr__sandan_boundary/99999-1.zip"
+            "bronze/source=vworldkr__sandan_boundary/20991231DS99991-1.zip"
         );
         let moved = rekey(&boundary, &renamed())?.ok_or_else(|| anyhow::anyhow!("moved"))?;
         assert_eq!(
             moved.object_key,
-            "bronze/source=vworldkr__industrial_complex_boundary/99999-1.zip"
+            "bronze/source=vworldkr__industrial_complex_boundary/20991231DS99991-1.zip"
         );
         assert_eq!(
             moved.source_partition_key,
-            "operation=industrial_complex_boundary/provider_file_id=99999-1"
+            "operation=industrial_complex_boundary/provider_file_id=20991231DS99991-1"
         );
         assert_eq!(
             moved.request_params["operation"],

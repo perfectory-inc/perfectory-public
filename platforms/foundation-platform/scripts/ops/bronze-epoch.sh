@@ -17,5 +17,5 @@ out="$(mktemp)"
 trap 'rm -f "${out}"' EXIT
 "${PUBLISHER_BIN}" rekey-bronze-epoch 2>&1 | tee "${out}"
 # The publisher's last line is the job's outcome (root ADR-0171); the summary goes to the journal with it.
-grep -E '^foundation-job-outcome (changed|unchanged)$' "${out}" | tail -n 1 | grep -q . \
+grep -qE '^foundation-job-outcome (changed|unchanged)$' "${out}" \
   || { echo "bronze-epoch: the epoch printed no outcome" >&2; exit 1; }
