@@ -132,9 +132,10 @@ class EveryCallIsLoggedWithoutAValue(unittest.TestCase):
             get_secret_value=lambda SecretId: {"SecretString": {"mint": MINT}[SecretId]},  # noqa: N803
             exceptions=types.SimpleNamespace(ResourceNotFoundException=KeyError))
         boto3 = types.SimpleNamespace(client=lambda name: client)
-        env = {"LANES": json.dumps(LANES), "BUCKET": BUCKET, "CREDENTIAL_TTL_SECONDS": "3600", "MINT_SECRET": "mint"}
+        env = {"BUCKET": BUCKET, "CREDENTIAL_TTL_SECONDS": "3600", "MINT_SECRET": "mint"}
         out = io.StringIO()
         with unittest.mock.patch.dict(os.environ, env), unittest.mock.patch.dict(sys.modules, {"boto3": boto3}), \
+                unittest.mock.patch.object(vend, "lanes_of", lambda: LANES), \
                 unittest.mock.patch.object(r2_credentials, "cloudflare", Cloudflare()), contextlib.redirect_stdout(out):
             answer = vend.handler(event, types.SimpleNamespace(invoked_function_arn=arn))
         return answer, out.getvalue()
@@ -161,9 +162,14 @@ class TheStackFeedsTheVendorTheContractsLanes(unittest.TestCase):
     def test_the_function_gets_no_catalog_secret_and_each_lane_its_state_prefix(self):
         import aws_stack
 
+        # 2026-11-28 (W109e): with eleven lanes the list measured 4,744 bytes, past Lambda's 4 KB of environment, and
+        # the apply was refused. The environment holds fixed-size values only; the lanes are the package's lanes.json.
         variables = aws_stack.body("aws_lambda_function.r2_vend")["environment"][0]["variables"]
-        self.assertEqual(sorted(variables), ["BUCKET", "CREDENTIAL_TTL_SECONDS", "LANES", "MINT_SECRET"])
-        self.assertIn("local.vendor_lanes", aws_stack.references(variables["LANES"]))
+        self.assertEqual(sorted(variables), ["BUCKET", "CREDENTIAL_TTL_SECONDS", "MINT_SECRET"])
+        package = aws_stack.body("data.archive_file.r2_vend")
+        self.assertIn("local.vendor_lanes", aws_stack.references(package))
+        self.assertIn("lanes.json", json.dumps(package))
+        self.assertEqual(vend.LANES_FILE.name, "lanes.json")
         lanes = aws_stack.body("local.vendor_lanes")
         self.assertIn("local.collect.state_prefix", aws_stack.references(lanes))
         self.assertNotIn("read_tables", json.dumps(lanes))

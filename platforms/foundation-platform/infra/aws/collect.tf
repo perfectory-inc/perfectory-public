@@ -145,11 +145,23 @@ resource "aws_iam_role_policy" "r2_vend" {
   policy = data.aws_iam_policy_document.r2_vend.json
 }
 
+# The vendor's code and its lanes, one package: the lanes are data that grows with every lane, and Lambda holds at most
+# 4 KB of environment (2026-11-28, W109e: eleven lanes measured 4,744 bytes and the update was refused). A new package
+# is a new version, so every alias moves with it, as it did when the lanes were an environment variable.
 data "archive_file" "r2_vend" {
   type        = "zip"
-  source_dir  = "${path.module}/r2-vend"
-  excludes    = ["__pycache__"]
   output_path = "${path.module}/.build/r2-vend.zip"
+  dynamic "source" {
+    for_each = { for name in fileset("${path.module}/r2-vend", "*.py") : name => file("${path.module}/r2-vend/${name}") }
+    content {
+      filename = source.key
+      content  = source.value
+    }
+  }
+  source {
+    filename = "lanes.json"
+    content  = jsonencode(local.vendor_lanes)
+  }
 }
 
 resource "aws_lambda_function" "r2_vend" {
@@ -168,7 +180,6 @@ resource "aws_lambda_function" "r2_vend" {
     variables = {
       MINT_SECRET            = aws_secretsmanager_secret.r2_mint_token.name
       BUCKET                 = local.lakehouse_bucket
-      LANES                  = jsonencode(local.vendor_lanes)
       CREDENTIAL_TTL_SECONDS = tostring(local.collect.credential_ttl_seconds)
     }
   }
