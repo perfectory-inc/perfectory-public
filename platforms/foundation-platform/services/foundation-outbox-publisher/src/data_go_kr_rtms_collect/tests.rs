@@ -127,10 +127,11 @@ fn the_months_owed_are_the_export_s_plan_from_the_history_value() {
         at("2026-11-30T15:40:00Z"),
     )
     .unwrap();
+    // 15:40Z on 11-30 is 00:40 KST on 12-01: the month the provider counts is December.
     let first = &work[0];
     assert_eq!(
         (first.stage, first.month),
-        (Stage::Recent, month_index("2026-11").unwrap())
+        (Stage::Recent, month_index("2026-12").unwrap())
     );
     // The whole history (owner 2026-11-28, D1 ii): each kind from its own first month.
     let earliest = work.iter().map(|item| item.month).min().unwrap();
