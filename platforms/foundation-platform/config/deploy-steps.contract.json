@@ -73,6 +73,14 @@
                  "infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py",
                  "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"]
     },
+    "start-once.legal_dong_code_changes": {
+      "inputs": ["scripts/ops/legal-dong-code-collect.sh", "scripts/ops/admitted-writer-runtime.sh",
+                 "infra/systemd/foundation-legal-dong-code.service",
+                 "services/foundation-outbox-publisher/src/code_go_kr_legal_dong_collect.rs",
+                 "crates/publisher/foundation-publisher-silver/src/code_go_kr_legal_dong_contract.rs",
+                 "infra/lakehouse/contracts/code-go-kr-legal-dong.contract.json",
+                 "infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py", "infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py"]
+    },
     "start-once.data_quality": {
       "inputs": ["scripts/ops/data-quality-check.py", "infra/systemd/foundation-data-quality.service", "contracts/data"]
     },
