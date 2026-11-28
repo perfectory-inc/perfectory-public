@@ -302,7 +302,7 @@ class TheHostScope(unittest.TestCase):
         named = {sensor.name for sensor in decide.sensors(jobs, graph)}
         decided = {job["id"] for job in jobs["jobs"] if job.get("dagster_stage") == "dagster"}
         self.assertEqual(named, {decide.SENSOR_PREFIX + job_id for job_id in decided & here})
-        self.assertIn(decide.SENSOR_PREFIX + "court_auction_collect", named)
+        self.assertIn(decide.SENSOR_PREFIX + "source_sweep", named)
         self.assertNotIn(decide.SENSOR_PREFIX + "gold_panel_rebuild", named)
         jobs["host_scope"] = "all"
         everywhere = {sensor.name for sensor in decide.sensors(jobs, graph)}
