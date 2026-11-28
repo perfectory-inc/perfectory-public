@@ -164,7 +164,13 @@ pub(crate) fn rekey(
     let params = &row.request_params;
     let operation = text_param(params, "operation", key)?;
     let file_id = text_param(params, "provider_file_id", key)?;
-    let file_name = text_param(params, "provider_file_name", key)?;
+    // A row the catalog recovery rehydrated from evidence keeps the name in its column only.
+    let file_name = match params["provider_file_name"].as_str() {
+        Some(name) => name,
+        None => row.provider_file_name.as_deref().with_context(|| {
+            format!("{key}: neither request_params nor the row holds provider_file_name")
+        })?,
+    };
     let identity = |operation: &str,
                     file_id: &str,
                     file_name: &str|
@@ -257,10 +263,12 @@ pub(crate) fn rekey(
             "provider_file_id".to_owned(),
             JsonValue::from(file_id.clone()),
         );
-        object.insert(
-            "provider_file_name".to_owned(),
-            JsonValue::from(file_name.clone()),
-        );
+        if object.contains_key("provider_file_name") {
+            object.insert(
+                "provider_file_name".to_owned(),
+                JsonValue::from(file_name.clone()),
+            );
+        }
     } else {
         bail!("{key}: request_params is not an object");
     }
@@ -523,6 +531,21 @@ mod tests {
             moved.request_params["operation"],
             "industrial_complex_boundary"
         );
+
+        // A recovered row (2026-11-28 04:50Z: the 14 sandan rows) has the name in its column only.
+        let mut recovered = boundary.clone();
+        let name = recovered.request_params["provider_file_name"].clone();
+        recovered
+            .request_params
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("params"))?
+            .remove("provider_file_name");
+        recovered.provider_file_name = name.as_str().map(str::to_owned);
+        let again = rekey(&recovered, &renamed())?.ok_or_else(|| anyhow::anyhow!("moved"))?;
+        assert_eq!(again.object_key, moved.object_key);
+        assert!(again.request_params.get("provider_file_name").is_none());
+        recovered.provider_file_name = None;
+        assert!(rekey(&recovered, &renamed()).is_err());
         Ok(())
     }
 
