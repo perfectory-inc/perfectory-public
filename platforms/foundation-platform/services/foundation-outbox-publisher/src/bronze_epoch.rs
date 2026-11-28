@@ -415,7 +415,7 @@ pub(crate) async fn refuse_while_active(pool: &PgPool, sources: &[Uuid]) -> anyh
         .collect();
     ensure!(
         busy.is_empty(),
-        "a writer of an epoch source is running or ran within {} minutes, so nothing moves: {}; the next run tries again",
+        "a writer of a source to move is running or ran within {} minutes, so nothing moves: {}; the next run tries again",
         quiet.num_minutes(),
         busy.join(", ")
     );
