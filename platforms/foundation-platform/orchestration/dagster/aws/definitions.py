@@ -46,7 +46,9 @@ def start_condition(lane):
     A load: eager() (ADR-0623 §1-2) without its wait for missing inputs, since a collector that only ever found
     nothing new never materializes, and that must not stop the load of the others' objects."""
     if collect_lane.started_by_inputs(lane):
-        return AutomationCondition.eager().without(~AutomationCondition.any_deps_missing())
+        # Dagster 1.13.27's own form (docs: customizing eager, "allow_missing_upstreams").
+        return (AutomationCondition.eager().without(~AutomationCondition.any_deps_missing())
+                .with_label("eager_allow_missing"))
     cron, timezone = collect_lane.beat(lane)
     return (AutomationCondition.cron_tick_passed(cron, cron_timezone=timezone).since_last_handled()
             & ~AutomationCondition.in_progress())

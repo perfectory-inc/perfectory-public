@@ -66,16 +66,36 @@ def load(hosted=None, contract=None):
 @unittest.skipIf(dagster is None, "Dagster is not installed here")
 class OneAssetAndOneSensorPerLane(unittest.TestCase):
     def test_overlap_lanes_always_and_handoff_lanes_only_when_off_on_the_host(self):
-        module, collect_lane = load(hosted={"rt_molit_real_transaction_collect", "onbid_public_auction_collect"})
+        _, collect_lane = load(hosted=set())
         lanes = collect_lane.contract()["collect"]["lanes"]
+        handoff = {job_id for job_id, lane in lanes.items() if lane["handover"] == "handoff"}
+        module, collect_lane = load(hosted=handoff)
+        declaration = collect_lane.lakekeeper_declaration()
         keys = {key.to_user_string() for key in module.defs.get_repository_def().asset_graph.get_all_asset_keys()}
+
+        def lane_keys(job_id, lane):
+            return {key.to_user_string() for key in module.lane_keys(job_id, lane, declaration)}
+
         for job_id, lane in lanes.items():
             # An overlap lane always runs, and so does a lane with no host copy (`none`, the RTMS lane).
-            self.assertEqual(f"collect/{job_id}" in keys, lane["handover"] in ("overlap", "none"), job_id)
+            self.assertEqual(lane_keys(job_id, lane) <= keys, lane["handover"] in ("overlap", "none"), job_id)
         module, _ = load(hosted=set())
         keys = {key.to_user_string() for key in module.defs.get_repository_def().asset_graph.get_all_asset_keys()}
-        self.assertTrue({f"collect/{job_id}" for job_id in lanes} <= keys)
+        self.assertTrue(set().union(*(lane_keys(job_id, lane) for job_id, lane in lanes.items())) <= keys)
         self.assertIn("source_read/onbid_public_auction_collect", keys)
+
+    def test_a_load_lane_s_assets_are_its_tables_and_it_starts_on_its_collectors(self):
+        # W109e: the sale notice load is eager() on the three collectors here, and materializes the two tables it
+        # writes (root ADR-0626 §1: iceberg/<namespace>/<table>); its run's kind is silver (dagster.yaml's limit).
+        module, collect_lane = load(hosted=set())
+        graph = module.defs.get_repository_def().asset_graph
+        for table in ("industrial_land_sale_notice_fetch_attempt", "industrial_land_sale_notice_attachment"):
+            node = graph.get(dagster.AssetKey(["iceberg", "silver", table]))
+            self.assertEqual({key.to_user_string() for key in node.parent_keys},
+                             {f"collect/industrial_land_sale_notice_{source}_collect" for source in ("factoryon", "ilis", "kicox")})
+            self.assertEqual(node.automation_condition.get_label(), "eager_allow_missing")
+        sensors = {sensor.name: sensor for sensor in module.defs.get_repository_def().sensor_defs}
+        self.assertEqual(sensors["industrial_land_sale_notice_silver_automation"].run_tags[collect_lane.KIND_TAG], "silver")
 
     def test_each_sensor_carries_its_lane_s_run_tags(self):
         module, collect_lane = load(hosted=set())

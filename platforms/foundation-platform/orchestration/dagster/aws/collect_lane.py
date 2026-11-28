@@ -148,10 +148,12 @@ def producers(job_id, platform=None, job_list=None):
     job_list = job_list or jobs()
     graph = json.loads(GRAPH.read_text(encoding="utf-8"))
     edges = {edge["id"]: edge for edge in graph["edges"]}
-    inputs = {edges[e]["from"] for e in job(job_id, job_list)["pipeline_graph_edges"] if e in edges}
+    by_id = {entry["id"]: entry for entry in job_list["jobs"]}
+    inputs = {edges[e]["from"] for e in by_id[job_id]["pipeline_graph_edges"] if e in edges}
     here = lanes_here(platform, job_list)
-    return sorted(other for other in here if other != job_id and not started_by_inputs(here[other])
-                  and any(edges[e]["to"] in inputs for e in job(other, job_list)["pipeline_graph_edges"] if e in edges))
+    # A lane with no host job (`none`) has no edges in the list, so it produces no job's input here.
+    return sorted(other for other in here if other != job_id and other in by_id and not started_by_inputs(here[other])
+                  and any(edges[e]["to"] in inputs for e in by_id[other]["pipeline_graph_edges"] if e in edges))
 
 
 def beat(lane):
