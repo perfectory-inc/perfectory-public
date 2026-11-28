@@ -40,7 +40,7 @@ sentry-tracing = { workspace = true }
 subtle = "2"
 # Used by listing photo upload/download presigning.
 aws-sdk-s3 = { version = "=1.157.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
-aws-smithy-types = "=1.9.1"
+aws-smithy-types = "=1.9.5"
 utoipa = { workspace = true }
 gongzzang-workspace-hack.workspace = true
 
