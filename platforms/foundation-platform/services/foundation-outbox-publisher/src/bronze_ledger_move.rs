@@ -63,8 +63,15 @@ pub(crate) fn exported_source(key: &str) -> Option<&str> {
     let leaf = key
         .strip_prefix(EXPORT_PREFIX)?
         .strip_suffix(EXPORT_SUFFIX)?;
-    let (date, source) = leaf.split_once('-')?;
-    (date.len() == 10 && !source.is_empty()).then_some(source)
+    let (date, source) = (leaf.get(..10)?, leaf.get(10..)?.strip_prefix('-')?);
+    let is_date = date.bytes().enumerate().all(|(at, byte)| {
+        if at == 4 || at == 7 {
+            byte == b'-'
+        } else {
+            byte.is_ascii_digit()
+        }
+    });
+    (is_date && !source.is_empty()).then_some(source)
 }
 
 fn gzip(lines: &[JsonValue]) -> anyhow::Result<Vec<u8>> {
