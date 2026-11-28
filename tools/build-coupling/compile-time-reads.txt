@@ -151,6 +151,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauct
 platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/tests.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_file_data_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_onbid_collect.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_rtms_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_change_set.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_commit.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_support.rs:2
