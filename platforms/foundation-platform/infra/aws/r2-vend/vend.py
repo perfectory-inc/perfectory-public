@@ -19,10 +19,19 @@ never a value (§2-7).
 import datetime
 import json
 import os
+import pathlib
 
 import r2_credentials
 
 CALLS = ("credentials",)
+# The lanes, in the function's own package (infra/aws/collect.tf): data that grows with every lane, past what Lambda's
+# 4 KB of environment holds.
+LANES_FILE = pathlib.Path(__file__).with_name("lanes.json")
+
+
+def lanes_of(path=LANES_FILE):
+    """{lane: {write_prefixes, read_prefixes}} as the package holds them."""
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class Refused(Exception):
@@ -88,7 +97,7 @@ def vend(lane_name, call_name, lanes, bucket, ttl_seconds, mint_value, now=None,
 def handler(event, context):
     import boto3
 
-    lanes = json.loads(os.environ["LANES"])
+    lanes = lanes_of()
     call_name, run_id = event.get("call"), event.get("run_id")
     record = {"call": call_name, "run_id": run_id}
     try:
