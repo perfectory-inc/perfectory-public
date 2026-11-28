@@ -14284,8 +14284,8 @@
         "object_suffix_separator": null
       }
     },
-    "silver.industrial_land_sale_notice_read": {
-      "table_name": "silver.industrial_land_sale_notice_read",
+    "silver.industrial_land_sale_notice_fetch_attempt": {
+      "table_name": "silver.industrial_land_sale_notice_fetch_attempt",
       "physical_format": "Parquet",
       "serving_role": "Canonical",
       "current_row_predicate": null,

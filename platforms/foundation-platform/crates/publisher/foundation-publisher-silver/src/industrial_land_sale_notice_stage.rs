@@ -23,7 +23,7 @@ use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYT
 pub use crate::industrial_complex_notice_stage::{refuse_repeated, PlannedObject, PLAN_SCHEMA};
 
 /// The read record a load's plan is decided from (the lane contract's `read_from`).
-pub const READ_TABLE: &str = "silver.industrial_land_sale_notice_read";
+pub const FETCH_ATTEMPT_TABLE: &str = "silver.industrial_land_sale_notice_fetch_attempt";
 /// The index of the attachments the media store holds.
 pub const ATTACHMENT_TABLE: &str = "silver.industrial_land_sale_notice_attachment";
 /// Columns a load writes, not the source: never compared.
@@ -272,7 +272,7 @@ pub fn stage_object(
         reads,
         attachments,
         changed_attachments,
-        reads_file: write(reads, reads_shape, READ_TABLE, "SELECT * FROM sale_reads")?,
+        reads_file: write(reads, reads_shape, FETCH_ATTEMPT_TABLE, "SELECT * FROM sale_reads")?,
         attachments_file: write(
             changed_attachments,
             attachments_shape,

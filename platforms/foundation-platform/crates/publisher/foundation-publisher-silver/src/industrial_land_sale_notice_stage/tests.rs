@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::{
     detail_source_slugs, planned_objects, stage_object, PlannedObject, ATTACHMENT_TABLE,
-    PLAN_SCHEMA, READ_TABLE,
+    PLAN_SCHEMA, FETCH_ATTEMPT_TABLE,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
@@ -74,7 +74,7 @@ fn every_source_s_line_stages_its_read_and_its_stored_files() -> anyhow::Result<
     let stage = DuckDbParquetStage::open(root.path())?;
     let staged = stage_object(
         &stage,
-        (&shape(READ_TABLE)?, &shape(ATTACHMENT_TABLE)?),
+        (&shape(FETCH_ATTEMPT_TABLE)?, &shape(ATTACHMENT_TABLE)?),
         contract(ATTACHMENT_TABLE)?,
         &object(root.path(), OBJECT)?,
         None,
@@ -134,7 +134,7 @@ fn a_line_the_collector_does_not_write_is_refused() -> anyhow::Result<()> {
     ] {
         let staged = stage_object(
             &stage,
-            (&shape(READ_TABLE)?, &shape(ATTACHMENT_TABLE)?),
+            (&shape(FETCH_ATTEMPT_TABLE)?, &shape(ATTACHMENT_TABLE)?),
             contract(ATTACHMENT_TABLE)?,
             &object(root.path(), refused)?,
             None,

@@ -8,7 +8,7 @@
   "retry_after_hours": 24,
   "$full_walk_hour_utc": "이 시(UTC)에 시작한 실행은 목록 전체를 걷는다: 매시 실행은 최근 쪽(list.recent_pages)과 밀린 것만 걷기 때문에, 깊은 쪽에서 제공자가 바꾼 공고(LH 상태, KICOX 정정)는 하루 안에 이 걷기가 본다. KICOX 97 쪽 × 2 초 ≈ 3 분.",
   "full_walk_hour_utc": 17,
-  "read_from": "silver.industrial_land_sale_notice_read",
+  "read_from": "silver.industrial_land_sale_notice_fetch_attempt",
   "attachments": {
     "$comment": "공용 내용주소 저장소(ADR-0298)의 접두어는 그 저장소를 쓰는 계약이 정한다(ADR-0484 §2와 같은 저장소). 첨부는 받는 대로 디스크(유닛의 /tmp)에 받아 해시하고 거기서 조각으로 올린다: 메모리는 파일 크기와 상관없이 조각 하나다(루트 ADR-0603 개정 3). max_file_bytes 는 그 임시 파일 하나의 디스크 상한이고(256 MiB 는 메모리 때문이었다 — 2026-11-22 공장설립온라인 두 파일이 넘었다), 넘는 파일은 끝까지 해시하고 세되 담지 않는다. max_file_bytes_since 는 상한이 이 값이 된 때다: 그보다 앞선 읽기 중 파일을 담지 못한 것(읽은 기록의 file_count > files_stored — 옛 상한을 넘은 파일)은 다음 실행이 한 번 다시 묻는다. 상한을 바꾸는 PR 이 이 시각도 바꾼다.",
     "max_file_bytes_since": "2026-11-23T00:00:00Z",

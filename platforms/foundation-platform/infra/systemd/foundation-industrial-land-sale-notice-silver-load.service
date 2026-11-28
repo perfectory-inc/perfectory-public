@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform 산업용지 분양·처분·공급 공고, the Silver half: load silver.industrial_land_sale_notice_attachment and silver.industrial_land_sale_notice_read (root ADR-0603)
+Description=Foundation Platform 산업용지 분양·처분·공급 공고, the Silver half: load silver.industrial_land_sale_notice_attachment and silver.industrial_land_sale_notice_fetch_attempt (root ADR-0603)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/industrial-land-sale-notice.md
 X-Foundation-Owner=lakehouse
 Requires=docker.service

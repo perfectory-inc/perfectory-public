@@ -8,7 +8,7 @@
 //! each in one Iceberg commit that records the object even when it holds no row (root ADR-0559,
 //! ADR-0560): first the attachments the media store holds that are new or changed, to
 //! `silver.industrial_land_sale_notice_attachment` (the index the media reconciler reads the store
-//! through, root ADR-0387); then every read, to `silver.industrial_land_sale_notice_read`, whose
+//! through, root ADR-0387); then every read, to `silver.industrial_land_sale_notice_fetch_attempt`, whose
 //! record the collector's next frontier and the next plan are decided from. A table is created by
 //! its first commit. The last stdout line is `industrial-land-sale-notice-summary-json {json}`.
 
@@ -25,7 +25,7 @@ use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     industrial_land_sale_notice_stage::{
         detail_source_slugs, planned_objects, refuse_repeated, stage_object, ATTACHMENT_TABLE,
-        READ_TABLE,
+        FETCH_ATTEMPT_TABLE,
     },
 };
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
@@ -96,10 +96,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let committer = LakehouseDataCommitter::from_env().await?;
     // Both tables are born on their first commit (root ADR-0564 §1): the lake migration leaves an
     // absent table to the load that makes it.
-    for table in [ATTACHMENT_TABLE, READ_TABLE] {
+    for table in [ATTACHMENT_TABLE, FETCH_ATTEMPT_TABLE] {
         committer.create_table_if_absent(contract(table)?).await?;
     }
-    let reads_shape = committer.table_shape(READ_TABLE).await?;
+    let reads_shape = committer.table_shape(FETCH_ATTEMPT_TABLE).await?;
     let attachments_shape = committer.table_shape(ATTACHMENT_TABLE).await?;
     // The catalog the environment names: the current one, or Lakekeeper with the lane's client.
     let catalog = foundation_publisher_core::lakehouse_catalog::CatalogSettings::from_env()?
@@ -131,11 +131,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             attachment_head,
         )
         .await?;
-        let read_head = head(&catalog, READ_TABLE).await?;
+        let read_head = head(&catalog, FETCH_ATTEMPT_TABLE).await?;
         let reads_appended = append(
             &committer,
             &catalog,
-            READ_TABLE,
+            FETCH_ATTEMPT_TABLE,
             staged.reads_file.as_ref(),
             &object.object_key,
             read_head,

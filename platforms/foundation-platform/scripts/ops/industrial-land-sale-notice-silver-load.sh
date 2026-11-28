@@ -3,12 +3,12 @@
 # Bronze 를 바꿨다고 알리면, 그리고 일정마다 돌린다. Spark 는 쓰지 않는다.
 #
 # 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 네 원천(공장설립온라인·ILIS·한국산업단지공단·LH)의 상세 Bronze 접두어를
-# 나열하고, 읽은 기록 표(silver.industrial_land_sale_notice_read)의 커밋 요약이 이미 기록한 객체를 빼고, 남은 것을
+# 나열하고, 읽은 기록 표(silver.industrial_land_sale_notice_fetch_attempt)의 커밋 요약이 이미 기록한 객체를 빼고, 남은 것을
 # 오래된 것부터 계약(industrial-land-sale-notice.contract.json silver_load)의 범위 안에서 이 실행의 폴더로 받는다.
 # 발행기의 load-industrial-land-sale-notice-silver 가 객체마다(발행기 안의 DuckDB 가 행을 만들고 발행기가 Iceberg 추가
 # 커밋으로 붙인다, root ADR-0559·ADR-0560) 먼저 저장소에 담긴 첨부 가운데 새것·바뀐 것을
 # silver.industrial_land_sale_notice_attachment(미디어 대조기가 읽는 색인)에, 그다음 읽은 기록을
-# silver.industrial_land_sale_notice_read 에 쌓는다. 행이 없는 객체도 기록한다. 쌓을 것이 없으면 아무것도 띄우지 않는다.
+# silver.industrial_land_sale_notice_fetch_attempt 에 쌓는다. 행이 없는 객체도 기록한다. 쌓을 것이 없으면 아무것도 띄우지 않는다.
 #
 # 실패하면 커밋하지 못한 객체는 표에 기록이 없어 다음 실행이 다시 받는다. 받은 사본은 성공하든 실패하든 지운다.
 set -Eeuo pipefail
@@ -44,7 +44,7 @@ print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"], ",".join
 ' "${CONTRACT}")"
 read -r window_days max_objects detail_slugs <<< "${settings}"
 
-env FOUNDATION_PLATFORM_SILVER_LOAD_TABLE=silver.industrial_land_sale_notice_read \
+env FOUNDATION_PLATFORM_SILVER_LOAD_TABLE=silver.industrial_land_sale_notice_fetch_attempt \
   FOUNDATION_PLATFORM_SILVER_LOAD_SOURCE_SLUGS="${detail_slugs}" \
   FOUNDATION_PLATFORM_SILVER_LOAD_WINDOW_DAYS="${window_days}" \
   FOUNDATION_PLATFORM_SILVER_LOAD_MAX_OBJECTS="${max_objects}" \

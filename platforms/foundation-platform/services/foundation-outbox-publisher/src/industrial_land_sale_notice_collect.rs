@@ -523,14 +523,14 @@ async fn last_reads_from_lakehouse(
     source: Source,
 ) -> anyhow::Result<HashMap<String, LastRead>> {
     use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
-    use lakehouse_domain::SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ;
+    use lakehouse_domain::SILVER_INDUSTRIAL_LAND_SALE_NOTICE_FETCH_ATTEMPT;
     use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 
     ensure!(
-        contract.read_from == SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ.table_name,
+        contract.read_from == SILVER_INDUSTRIAL_LAND_SALE_NOTICE_FETCH_ATTEMPT.table_name,
         "read_from names {}, the collector reads {}",
         contract.read_from,
-        SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ.table_name
+        SILVER_INDUSTRIAL_LAND_SALE_NOTICE_FETCH_ATTEMPT.table_name
     );
     // On the Lakekeeper catalog the last reads are a DuckDB read through the lane's client and the
     // credential the catalog vends (root ADR-0624 P2, P7): no key, no hand-written scan.
@@ -556,7 +556,7 @@ async fn last_reads_from_lakehouse(
     };
     let lakehouse = LakehouseObjectReader::from_env()?;
     let scanned = scan_snapshot_rows(
-        &SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ,
+        &SILVER_INDUSTRIAL_LAND_SALE_NOTICE_FETCH_ATTEMPT,
         &lakehouse,
         &snapshot,
     )

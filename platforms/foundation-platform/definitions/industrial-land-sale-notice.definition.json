@@ -9,7 +9,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "공장설립온라인지원시스템(팩토리온) 분양 및 처분신청 공고 (root ADR-0603 §8; scripts/ops/industrial-land-sale-notice-collect.sh factoryon): the widest list (1,567 notices measured 2026-11-22: 한국산업단지공단 and its branches' 처분신청, 시도, 시군, 공사, K-water, 한국농어촌공사, private developers), collected by the owner's decision of 2026-11-22 knowing its robots.txt disallows /bbs/, at the least load: once a day, one request after another (no pause between them, one in flight: the owner's decision of 2026-11-23), the whole history once, then list page 1 and only the new notices' pages (lttotNdDspsPblancDetail.do) and attachments (atchFileDownload.do). Any 4xx, 429 or a page that is not the one asked for stops the run at once: it commits what it read and fails, so it is seen, and asks nothing more until the next day. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "공장설립온라인지원시스템(팩토리온) 분양 및 처분신청 공고 (root ADR-0603 §8; scripts/ops/industrial-land-sale-notice-collect.sh factoryon): the widest list (1,567 notices measured 2026-11-22: 한국산업단지공단 and its branches' 처분신청, 시도, 시군, 공사, K-water, 한국농어촌공사, private developers), collected by the owner's decision of 2026-11-22 knowing its robots.txt disallows /bbs/, at the least load: once a day, one request after another (no pause between them, one in flight: the owner's decision of 2026-11-23), the whole history once, then list page 1 and only the new notices' pages (lttotNdDspsPblancDetail.do) and attachments (atchFileDownload.do). Any 4xx, 429 or a page that is not the one asked for stops the run at once: it commits what it read and fails, so it is seen, and asks nothing more until the next day. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_fetch_attempt), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@factoryon.service",
       "systemd_timer": null,
       "state_paths": [
@@ -43,9 +43,9 @@
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-fetch-attempt",
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
-        "silver-industrial-land-sale-notice-read-to-source-industrial-land-sale-notice"
+        "silver-industrial-land-sale-notice-fetch-attempt-to-source-industrial-land-sale-notice"
       ],
       "enabled": true,
       "enabled_since": "2026-11-28T08:00:00Z",
@@ -59,7 +59,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "ILIS 산업단지 분양공고 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh ilis, the publisher's collect-industrial-land-sale-notices): the national sale-notice registry's whole list in one POST (il/parcel/list.do, 741 notices measured 2026-11-22; the answer lands in Bronze whenever it changed, as the provider takes notices down: 105 of 846 sequences gone, their detail answering code 400), then one detail (il/parcel/det.do) and its attachments per owed notice. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "ILIS 산업단지 분양공고 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh ilis, the publisher's collect-industrial-land-sale-notices): the national sale-notice registry's whole list in one POST (il/parcel/list.do, 741 notices measured 2026-11-22; the answer lands in Bronze whenever it changed, as the provider takes notices down: 105 of 846 sequences gone, their detail answering code 400), then one detail (il/parcel/det.do) and its attachments per owed notice. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_fetch_attempt), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@ilis.service",
       "systemd_timer": null,
       "state_paths": [
@@ -93,9 +93,9 @@
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-fetch-attempt",
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
-        "silver-industrial-land-sale-notice-read-to-source-industrial-land-sale-notice"
+        "silver-industrial-land-sale-notice-fetch-attempt-to-source-industrial-land-sale-notice"
       ],
       "enabled": true,
       "enabled_since": "2026-11-28T08:00:00Z",
@@ -109,7 +109,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "한국산업단지공단 임대/분양 게시판 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh kicox): the board's list pages (boardList/1003, ten posts a page, 962 posts since 2008 measured 2026-11-22), newest first, and one post page (boardDetail/1003) and its attachments (api/fnFile/commonFileDownload) per owed post: the complexes KICOX develops itself, which the ILIS registry does not carry. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "한국산업단지공단 임대/분양 게시판 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh kicox): the board's list pages (boardList/1003, ten posts a page, 962 posts since 2008 measured 2026-11-22), newest first, and one post page (boardDetail/1003) and its attachments (api/fnFile/commonFileDownload) per owed post: the complexes KICOX develops itself, which the ILIS registry does not carry. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_fetch_attempt), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@kicox.service",
       "systemd_timer": null,
       "state_paths": [
@@ -143,9 +143,9 @@
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-fetch-attempt",
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
-        "silver-industrial-land-sale-notice-read-to-source-industrial-land-sale-notice"
+        "silver-industrial-land-sale-notice-fetch-attempt-to-source-industrial-land-sale-notice"
       ],
       "enabled": true,
       "enabled_since": "2026-11-28T08:00:00Z",
@@ -159,7 +159,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "LH 토지 공고 through data.go.kr (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh lh): the land notice list (lhLeaseNoticeInfo1, kind 01, the whole history window; each answer lands in Bronze when it changed), and per owed notice its detail (lhLeaseNoticeDtlInfo1, whose dsAhflInfo lists the attachments on apply.lh.or.kr) and supply list (lhLeaseNoticeSplInfo1: per 필지 its use, address, lot number, area and planned price) kept as one read. Without the platform's data.go.kr service key, or while the gateway refuses the three services, the run ends with 78 before writing anything. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "LH 토지 공고 through data.go.kr (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh lh): the land notice list (lhLeaseNoticeInfo1, kind 01, the whole history window; each answer lands in Bronze when it changed), and per owed notice its detail (lhLeaseNoticeDtlInfo1, whose dsAhflInfo lists the attachments on apply.lh.or.kr) and supply list (lhLeaseNoticeSplInfo1: per 필지 its use, address, lot number, area and planned price) kept as one read. Without the platform's data.go.kr service key, or while the gateway refuses the three services, the run ends with 78 before writing anything. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_fetch_attempt), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, one read at a time through the one Bronze line writer, which closes a content-qualified object (root ADR-0152) every close_after_seconds (bronze-line-objects.contract.json), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@lh.service",
       "systemd_timer": null,
       "state_paths": [
@@ -190,9 +190,9 @@
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-fetch-attempt",
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
-        "silver-industrial-land-sale-notice-read-to-source-industrial-land-sale-notice"
+        "silver-industrial-land-sale-notice-fetch-attempt-to-source-industrial-land-sale-notice"
       ],
       "enabled": false,
       "enabled_since": null,
@@ -206,7 +206,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver load of the industrial land sale notice reads and attachments (root ADR-0603; scripts/ops/industrial-land-sale-notice-silver-load.sh, the publisher's load-industrial-land-sale-notice-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559): the detail objects of the three sources (ILIS, KICOX, LH) that no commit of silver.industrial_land_sale_notice_read records (plan-silver-load-objects, R2 alone), oldest first, each committed on its own: first its attachments in the store to silver.industrial_land_sale_notice_attachment (new or changed (source, notice, hash) only; the index the media reconciler reads the store through), then one read row per notice to silver.industrial_land_sale_notice_read. Both tables are born on their first commit. `unchanged` without starting the load when nothing is owed; no Spark.",
+      "description": "Silver load of the industrial land sale notice reads and attachments (root ADR-0603; scripts/ops/industrial-land-sale-notice-silver-load.sh, the publisher's load-industrial-land-sale-notice-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559): the detail objects of the three sources (ILIS, KICOX, LH) that no commit of silver.industrial_land_sale_notice_fetch_attempt records (plan-silver-load-objects, R2 alone), oldest first, each committed on its own: first its attachments in the store to silver.industrial_land_sale_notice_attachment (new or changed (source, notice, hash) only; the index the media reconciler reads the store through), then one read row per notice to silver.industrial_land_sale_notice_fetch_attempt. Both tables are born on their first commit. `unchanged` without starting the load when nothing is owed; no Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
@@ -241,7 +241,7 @@
       "priority_weight": 100,
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-fetch-attempt",
         "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment"
       ],
       "enabled": true,
@@ -264,7 +264,7 @@
       "unmapped_status": "collected_only"
     },
     {
-      "id": "silver-industrial-land-sale-notice-read",
+      "id": "silver-industrial-land-sale-notice-fetch-attempt",
       "type": "silver_table",
       "title": "산업용지 분양공고 읽은 기록",
       "description": "네 원천의 분양공고 상세를 읽을 때마다(실패 포함) 공고 하나에 한 행을 쌓는다: 원천·공고 id·목록 지문·물은 시각·결과·첨부 수. 수집기가 다음 실행에 물을 공고를 이 표에서 계산한다(루트 ADR-0603).",
@@ -274,11 +274,11 @@
         "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/industrial-land-sale-notice.contract.json"
       ],
-      "table_name": "silver.industrial_land_sale_notice_read",
+      "table_name": "silver.industrial_land_sale_notice_fetch_attempt",
       "runtime_bindings": [
         {
           "kind": "lakehouse_contract",
-          "value": "silver.industrial_land_sale_notice_read"
+          "value": "silver.industrial_land_sale_notice_fetch_attempt"
         }
       ]
     },
@@ -305,7 +305,7 @@
   "dependencies": [
     {
       "from": "source-industrial-land-sale-notice",
-      "to": "silver-industrial-land-sale-notice-read",
+      "to": "silver-industrial-land-sale-notice-fetch-attempt",
       "relation": "feeds",
       "status": "partial",
       "via": [
@@ -342,7 +342,7 @@
       "description": "공고의 첨부를 형식에 상관없이 받아 공용 미디어 저장소에 내용 해시로 한 번만 담고, 색인을 쌓는다(루트 ADR-0603)."
     },
     {
-      "from": "silver-industrial-land-sale-notice-read",
+      "from": "silver-industrial-land-sale-notice-fetch-attempt",
       "to": "source-industrial-land-sale-notice",
       "relation": "schedules",
       "status": "partial",

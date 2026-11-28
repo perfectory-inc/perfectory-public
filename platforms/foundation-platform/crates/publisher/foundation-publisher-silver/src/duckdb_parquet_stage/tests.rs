@@ -1164,7 +1164,7 @@ async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_
             serde_json::json!(99001),
         ),
         (
-            contract("silver.industrial_land_sale_notice_read")?,
+            contract("silver.industrial_land_sale_notice_fetch_attempt")?,
             SALE_NOTICE_READ,
             "notice_id",
             serde_json::json!("99001"),
