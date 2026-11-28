@@ -32,7 +32,8 @@
         "first_run": {
           "estimate_seconds": 3900,
           "estimated_from": "measured 2026-11-22 18:52-22:22Z on ai-server: 508 notices and 980 attachments (1.54 GB) in 1,539 requests over 12,629 s, of which 10,766 s were the seven-second waits now removed, so about 1.21 s a request asked back to back; the whole list (1,067 notices that run) is about 3,233 requests, about 3,900 s from an empty ledger, inside the 6,480 s share of the 120-minute limit; after the first fill a run is list page 1 and the new notices."
-        }
+        },
+        "unmeasured_reason": "Off here since the Lakekeeper switch (W109e): its AWS lane runs it, with no time number of its own (root ADR-0623 §3), and its runs are measured there (the run's usage line, collect_lane); the host never measured a whole run of it under this cap."
       },
       "expected_outcome": {
         "changes_within_hours": null,
@@ -82,7 +83,8 @@
         "first_run": {
           "estimate_seconds": 1100,
           "estimated_from": "measured 2026-11-22 18:52-19:22Z on ai-server: 290 of the 741 notices and 413 attachments (1.32 GB) in 704 requests over 1,819 s, of which 1,406 s were the two-second waits now removed, so about 0.59 s a request asked back to back; the whole list is about 1,797 requests, about 1,100 s from an empty ledger, inside the 2,160 s share of the 40-minute limit."
-        }
+        },
+        "unmeasured_reason": "Off here since the Lakekeeper switch (W109e): its AWS lane runs it, with no time number of its own (root ADR-0623 §3), and its runs are measured there (the run's usage line, collect_lane); the host never measured a whole run of it under this cap."
       },
       "expected_outcome": {
         "changes_within_hours": null,
@@ -132,7 +134,8 @@
         "first_run": {
           "estimate_seconds": 2150,
           "estimated_from": "measured 2026-11-22 18:52-23:11Z on ai-server: the whole board, 962 posts and 2,088 attachments (4.53 GB), in five runs of 8,794 s and 3,335 requests together, of which 6,668 s were the two-second waits now removed; one run asked back to back does it in about 2,150 s from an empty ledger, inside the 3,240 s share of the 60-minute limit."
-        }
+        },
+        "unmeasured_reason": "Off here since the Lakekeeper switch (W109e): its AWS lane runs it, with no time number of its own (root ADR-0623 §3), and its runs are measured there (the run's usage line, collect_lane); the host never measured a whole run of it under this cap."
       },
       "expected_outcome": {
         "changes_within_hours": null,
@@ -231,7 +234,8 @@
         "first_run": {
           "estimate_seconds": 600,
           "estimated_from": "computed from the ILIS notice Silver load, the same DuckDB stage and append (2.0 s an object measured 2026-11-18 on ai-server over 884 production objects, R2 fetch included): the first fill leaves about 35 objects (741 + 962 notices, 50 to an object), about 70 s, and 600 s stays the bound until a production run is measured, inside the 2,160 s share of the 40-minute limit"
-        }
+        },
+        "unmeasured_reason": "Off here since the Lakekeeper switch (W109e): its AWS lane runs it, with no time number of its own (root ADR-0623 §3), and its runs are measured there (the run's usage line, collect_lane); the host never measured a whole run of it under this cap."
       },
       "expected_outcome": {
         "changes_within_hours": null,

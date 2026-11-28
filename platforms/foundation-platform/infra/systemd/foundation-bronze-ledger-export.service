@@ -19,7 +19,7 @@ EnvironmentFile=/etc/foundation-platform/source-sweep.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/bronze-ledger-export.sh
 # The job list's time_limit_minutes (jobs.v1.json). Generated from the list, not hand-set: `cargo run -p
 # foundation-jobs -- generate` (committed_units test).
-TimeoutStartSec=30min
+TimeoutStartSec=30m
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
