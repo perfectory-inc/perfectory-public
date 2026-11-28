@@ -17,7 +17,7 @@ import unittest
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/recovery/identity-restore-drill.sh"
 PG_IMAGE = "postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73"
-ZITADEL_IMAGE = "ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c"
+ZITADEL_IMAGE = "ghcr.io/zitadel/zitadel:v2.71.19@sha256:32834d46240c5ece9f86c5e5f706b167c2064fba76bbf9213e3494023c38ca5d"
 
 FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json, os, sys

@@ -52,7 +52,7 @@ JOB_UNITS = CONTROL_ROOT / "platforms/foundation-platform/scripts/deploy/job_uni
 CHATTR = "/usr/bin/chattr"
 FS_IOC_GETFLAGS = 0x80006601 | (struct.calcsize("l") << 16)
 FS_IMMUTABLE_FL = 0x10
-BUILDKIT_IMAGE = "moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3"
+BUILDKIT_IMAGE = "moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c"
 # The publisher's dependency layer (`cargo chef cook`, keyed by Cargo.lock and the manifests) is kept
 # between releases in BuildKit's local cache: an OCI layout whose blobs are named by their sha256.
 # Every blob is re-hashed before a build may import it, and only the administrator writes it

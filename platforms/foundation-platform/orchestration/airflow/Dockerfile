@@ -4,7 +4,7 @@
 # is this: extend the reference image, never install at container start (_PIP_ADDITIONAL_REQUIREMENTS).
 # The DAGs, the job list and the code are the release's, mounted read-only as before; the image adds one
 # wheel and nothing else.
-FROM apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371
+FROM apache/airflow:3.4.0@sha256:a8d9d19c563c768b2bc605ef26440f28a9164ea886064e99c599b057432ff572
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 

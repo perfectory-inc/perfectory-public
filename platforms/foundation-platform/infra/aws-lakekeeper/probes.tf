@@ -11,7 +11,7 @@
 
 
 locals {
-  probe_image = replace("public.ecr.aws/docker/library/python:3.14.10-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b", "/:[^:/@]+@/", "@")
+  probe_image = replace("public.ecr.aws/docker/library/python:3.15.2-slim-trixie@sha256:08a4c22c92b79ec821a7ad49768480039ee5b7accac3955228e75366e30abc8e", "/:[^:/@]+@/", "@")
   # A probe acts as one principal. anonymous has no client at all (T6: a call with no token). warehouse is the
   # operator with the warehouse's R2 credential too: the one task that hands it to Lakekeeper (warehouse.tf).
   probes = !local.env.probes ? {} : merge(

@@ -25,7 +25,7 @@ import uuid
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 HELPER = PLATFORM / "scripts/deploy/runtime-up-in-order.sh"
 # tools/technology-versions.contract.json pins it.
-IMAGE = "busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+IMAGE = "busybox:1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4"
 
 COMPOSE = f"""
 services:

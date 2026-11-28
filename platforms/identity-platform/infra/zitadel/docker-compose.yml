@@ -33,7 +33,7 @@ services:
 
   zitadel:
     logging: *log-cap
-    image: ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c
+    image: ghcr.io/zitadel/zitadel:v2.71.19@sha256:32834d46240c5ece9f86c5e5f706b167c2064fba76bbf9213e3494023c38ca5d
     # Measured on ai-server 2026-11-07: cgroup memory.peak 186 MiB over 22 days (was 1g).
     mem_limit: 384m
     oom_score_adj: -900

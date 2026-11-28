@@ -294,8 +294,8 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
 
     let compose = read_area_file("compose.observability.yml")?;
     for required in [
-        "prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
-        "prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba",
+        "prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06",
+        "prom/alertmanager:v0.35.1@sha256:4e3d029e69c7f61dd53a2b31a3dc427a2b81736cffca185c0854075e07969e36",
         "127.0.0.1:${FOUNDATION_PROMETHEUS_PORT:-19090}:9090",
         "127.0.0.1:${FOUNDATION_ALERTMANAGER_PORT:-19093}:9093",
         "read_only: true",

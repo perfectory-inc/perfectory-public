@@ -46,7 +46,7 @@ print(digest.hexdigest())' "${state}")" || return 0
   uid="$(id -u)" || return 0
   gid="$(id -g)" || return 0
   # The pinned reference tools/technology-versions.contract.json lists.
-  local COLLECTOR_STATE_AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
+  local COLLECTOR_STATE_AWS_IMAGE="amazon/aws-cli:2.42.5@sha256:4e569d37c0b93893f660946f9b00a442b1172b1c4ba86338a3a1af3937ed62b5"
   # --memory 512m: the same image's measured peak (133 MiB anonymous over `s3 cp` of 1 GiB, ai-server 2026-10-18,
   # parcel-number-change-collect.sh). These comments stay above the assignments: a comment line after them ends
   # the command there, and docker then starts without the keys (2026-11-13).

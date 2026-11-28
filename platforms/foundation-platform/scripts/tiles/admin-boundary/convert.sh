@@ -30,7 +30,7 @@ case "${1:-}" in
     docker run --rm --memory 512m -v "$WORKDIR":/w \
       -e AWS_ACCESS_KEY_ID="$FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID" \
       -e AWS_SECRET_ACCESS_KEY="$FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY" \
-      amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73 \
+      amazon/aws-cli:2.42.5@sha256:4e569d37c0b93893f660946f9b00a442b1172b1c4ba86338a3a1af3937ed62b5 \
       s3 sync "s3://$FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET/bronze/source=vworldkr__boundary_emd/" /w/zips/ \
       --exclude "*" --include "*.zip" --endpoint-url "$FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT" --only-show-errors
     echo "downloaded $(ls zips/*.zip | wc -l) zips"

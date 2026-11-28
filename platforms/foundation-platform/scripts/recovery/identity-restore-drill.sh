@@ -17,7 +17,7 @@ source "${script_dir}/identity-backup-lib.sh"
 # a live database or Zitadel runs another one (a dump restores into the version it came from).
 PG_IMAGE="postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73"
 SOCAT_IMAGE="alpine/socat:1.8.1.3@sha256:5aa280c6fc5bee94dbd2bbdf2a58d30f50396eaa110be84b03636945b157ae68"
-ZITADEL_IMAGE="ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c"
+ZITADEL_IMAGE="ghcr.io/zitadel/zitadel:v2.71.19@sha256:32834d46240c5ece9f86c5e5f706b167c2064fba76bbf9213e3494023c38ca5d"
 drill="identity-restore-drill-$(date -u +%Y%m%d%H%M%S)"
 # Tries one second apart; a loaded host makes each `docker exec` slower, so the bound is generous.
 ready_tries="${FOUNDATION_RESTORE_DRILL_READY_TRIES:-600}"
