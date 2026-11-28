@@ -369,7 +369,8 @@ fn a_plan_names_its_table_and_an_object_two_plans_name_is_loaded_once() -> anyho
             plan_dir.join("plan.json"),
             serde_json::to_vec(&serde_json::json!({
                 "schema_version": PLAN_SCHEMA, "table": table,
-                "objects": [{"object_key": OBJECT_KEY, "source_slug": slug, "local_path": "objects/a.gz"}],
+                "objects": [{"object_key": OBJECT_KEY, "source_slug": slug, "local_path": "objects/a.gz",
+                             "collected_at": "2099-01-02T03:04:05Z"}],
             }))?,
         )?;
     }
@@ -384,12 +385,15 @@ fn a_plan_names_its_table_and_an_object_two_plans_name_is_loaded_once() -> anyho
     let objects = planned_objects(&dirs, &source)?;
     assert_eq!(objects.len(), 1);
     assert_eq!(objects[0].role, Role::DividendNotices);
+    // The run is the ledger's collected_at the plan carries, never a part of the key (ADR-0626 G5).
+    assert_eq!(objects[0].source_snapshot_id, "20990102T030405Z");
     // An object of another source does not load into the plan's table.
     std::fs::write(
         dirs[0].join("plan.json"),
         serde_json::to_vec(&serde_json::json!({
             "schema_version": PLAN_SCHEMA, "table": "silver.court_auction_dividend_notice",
-            "objects": [{"object_key": OBJECT_KEY, "source_slug": "courtauctiongokr__auction_item", "local_path": "a.gz"}],
+            "objects": [{"object_key": OBJECT_KEY, "source_slug": "courtauctiongokr__item", "local_path": "a.gz",
+                         "collected_at": "2099-01-02T03:04:05Z"}],
         }))?,
     )?;
     assert!(planned_objects(&dirs[..1], &source).is_err());
@@ -410,9 +414,9 @@ fn a_plan_of_the_case_read_record_loads_each_object_as_its_sources_document() ->
             "schema_version": PLAN_SCHEMA, "table": "silver.court_auction_case_document_read",
             "objects": [
                 {"object_key": OBJECT_KEY, "source_slug": source.source_slug(Role::CaseDetail)?,
-                 "local_path": "objects/a.gz"},
+                 "local_path": "objects/a.gz", "collected_at": "2099-01-02T03:04:05Z"},
                 {"object_key": survey, "source_slug": source.source_slug(Role::CaseSurvey)?,
-                 "local_path": "objects/b.gz"},
+                 "local_path": "objects/b.gz", "collected_at": "2099-01-02T03:04:05Z"},
             ],
         }))?,
     )?;

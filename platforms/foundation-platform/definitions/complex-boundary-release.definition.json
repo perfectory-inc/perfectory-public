@@ -46,9 +46,10 @@
         "source-vworld-dataset-to-silver-industrial-complex-boundaries",
         "silver-industrial-complexes-to-silver-industrial-complex-boundaries"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-20T02:15:00Z",
-      "dagster_stage": "dagster",
+      "enabled": false,
+      "enabled_since": null,
+      "disabled_reason": "Paused for the Bronze epoch (root ADR-0626 §8 N2, W114, coordinator 2026-11-28): it reads the renamed industrial complex boundary. The job bronze_epoch moves those objects to the key today's writer builds and their ledger rows in place, and refuses while a writer of theirs has run in the last two close intervals; a run here meanwhile would split a source row or land a key of the old form. The resume pull request turns it on again (enabled true, enabled_since its merge) once the epoch's report is verified. Nothing is lost while it is off: a collector's next run asks what is due from its state and its Silver table, and a Silver load plans from the ledger what its table has not recorded. It was at dagster_stage dagster, where the resume puts it back.",
+      "dagster_stage": "airflow",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Its provider publishes on no fixed day (expected_cadence `irregular` in docs/catalog/public-source-endpoint-catalog.v1.json), so a run that finds nothing new is healthy. That it keeps finishing is the done bound."
@@ -86,7 +87,7 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_handoff_to_silver.py"
       ],
       "source_slugs": [
-        "vworldkr__sandan_boundary"
+        "vworldkr__industrial_complex_boundary"
       ]
     },
     {

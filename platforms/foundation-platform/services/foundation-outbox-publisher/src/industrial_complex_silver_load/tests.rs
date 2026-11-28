@@ -2,8 +2,9 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 
 use super::{
-    complex_of, mirror_path, newest, planned_keys, unrecorded_inputs, Listed, INPUTS, PLAN_SCHEMA,
+    complex_of, mirror_path, newest, planned_keys, unrecorded_inputs, INPUTS, PLAN_SCHEMA,
 };
+use crate::bronze_ledger_objects::LedgerObject;
 
 fn at(text: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(text)
@@ -11,11 +12,23 @@ fn at(text: &str) -> DateTime<Utc> {
         .unwrap_or_default()
 }
 
-fn listed(key: &str, when: &str) -> Listed {
-    Listed {
+fn listed(key: &str, when: &str) -> LedgerObject {
+    LedgerObject {
+        source_slug: key
+            .strip_prefix("bronze/source=")
+            .and_then(|rest| rest.split_once('/'))
+            .map(|(slug, _)| slug.to_owned())
+            .unwrap_or_default(),
         key: key.to_owned(),
-        last_modified: at(when),
+        size_bytes: 1,
+        collected_at: at(when),
+        landed_at: at(when),
+        former_keys: Vec::new(),
     }
+}
+
+fn keys(chosen: &[&LedgerObject]) -> Vec<String> {
+    chosen.iter().map(|object| object.key.clone()).collect()
 }
 
 /// The newest workbook, not the first: the profile prefix holds an old `.xlsx` and monthly zips.
@@ -24,21 +37,21 @@ fn the_newest_object_of_the_inputs_extension_is_taken() -> anyhow::Result<()> {
     let profile = &INPUTS[0];
     let objects = [
         listed(
-            "bronze/source=vworldkr__sandan_profile/20991231DS99999-1.xlsx",
+            "bronze/source=vworldkr__industrial_complex_profile/20991231DS99999-1.xlsx",
             "2099-03-01T00:00:00Z",
         ),
         listed(
-            "bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip",
+            "bronze/source=vworldkr__industrial_complex_profile/20991231DS99999-6.zip",
             "2099-02-01T00:00:00Z",
         ),
         listed(
-            "bronze/source=vworldkr__sandan_profile/20991231DS99999-7.zip",
+            "bronze/source=vworldkr__industrial_complex_profile/20991231DS99999-7.zip",
             "2099-02-02T00:00:00Z",
         ),
     ];
     assert_eq!(
-        newest(profile, &objects)?,
-        ["bronze/source=vworldkr__sandan_profile/20991231DS99999-7.zip"]
+        keys(&newest(profile, &objects)?),
+        ["bronze/source=vworldkr__industrial_complex_profile/20991231DS99999-7.zip"]
     );
     assert!(
         newest(profile, &objects[..1]).is_err(),
@@ -61,7 +74,7 @@ fn the_newest_detail_of_each_complex_is_taken() -> anyhow::Result<()> {
         listed(&key("99999B", "2099-01-01"), "2099-01-01T00:00:00Z"),
     ];
     assert_eq!(
-        newest(detail, &objects)?,
+        keys(&newest(detail, &objects)?),
         [key("99999A", "2099-01-02"), key("99999B", "2099-01-01")]
     );
     assert!(newest(detail, &[])?.is_empty());
@@ -76,9 +89,9 @@ fn a_fetched_object_lands_under_its_own_key_and_nowhere_else() -> anyhow::Result
     assert_eq!(
         mirror_path(
             root,
-            "bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip"
+            "bronze/source=vworldkr__industrial_complex_profile/20991231DS99999-6.zip"
         )?,
-        root.join("bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip")
+        root.join("bronze/source=vworldkr__industrial_complex_profile/20991231DS99999-6.zip")
     );
     for key in [
         "silver/x.zip",
@@ -111,7 +124,8 @@ fn a_plan_names_each_input_once() -> anyhow::Result<()> {
 /// does not hold yet; with nothing new it records nothing.
 #[test]
 fn the_commit_records_only_the_inputs_the_table_does_not_hold() {
-    let profile = "bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip".to_owned();
+    let profile =
+        "bronze/source=vworldkr__industrial_complex_profile/20991231DS99999-6.zip".to_owned();
     let list = "bronze/source=industrylandorkr__industrial_complex_list/operation=danjiList/scope=national/page-000001--sha256-aa.json".to_owned();
     let notice = "bronze/source=industrylandorkr__industrial_complex_notice/operation=danrefList/scope=national/page-000001--sha256-bb.json".to_owned();
     let planned = vec![profile.clone(), list.clone(), notice.clone()];

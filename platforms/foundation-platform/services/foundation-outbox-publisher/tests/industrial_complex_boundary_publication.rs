@@ -46,15 +46,16 @@ static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 /// rename has to change the test that proves the promote gate can still find the load's unit.
 const COMPLEX_UNIT_KEY: &str = "complex";
 const CANONICAL_SNAPSHOT_ID: &str = "841361364657368624";
-const SOURCE_SNAPSHOT_ID: &str = "vworldkr__sandan_boundary-publication-test";
-const OBJECT_KEY: &str = "bronze/vworldkr__sandan_boundary/publication-test.zip";
+const SOURCE_SNAPSHOT_ID: &str = "vworldkr__industrial_complex_boundary-publication-test";
+const OBJECT_KEY: &str = "bronze/vworldkr__industrial_complex_boundary/publication-test.zip";
 /// What the collector recorded for [`OBJECT_KEY`], in the lowercase hex
 /// `bronze_object_checksum_sha256_check` requires.
 const OBJECT_SHA256: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 /// Well formed, and not [`OBJECT_SHA256`]. Naming this is naming a different object.
 const OTHER_SHA256: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 /// A key `catalog.bronze_object` holds nothing at.
-const UNCOLLECTED_OBJECT_KEY: &str = "bronze/vworldkr__sandan_boundary/never-collected.zip";
+const UNCOLLECTED_OBJECT_KEY: &str =
+    "bronze/vworldkr__industrial_complex_boundary/never-collected.zip";
 const TILES_URL_TEMPLATE: &str = "http://127.0.0.1:3112/complex/{z}/{x}/{y}";
 
 /// Synthetic complex codes, six characters like the source's, in a range the source does not use.

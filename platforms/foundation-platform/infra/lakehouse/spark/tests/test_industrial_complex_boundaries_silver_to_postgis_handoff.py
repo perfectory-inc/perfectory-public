@@ -33,8 +33,8 @@ def silver_row(**overrides):
         "geometry_wkb_hex": "0103000000",
         "area_sqm_calculated": "10000.00",
         "geometry_checksum_sha256": "a" * 64,
-        "source_record_id": "bronze/vworldkr__sandan_boundary/test.zip",
-        "source_snapshot_id": "vworldkr__sandan_boundary-test",
+        "source_record_id": "bronze/vworldkr__industrial_complex_boundary/test.zip",
+        "source_snapshot_id": "vworldkr__industrial_complex_boundary-test",
     }
     row.update(overrides)
     return row
@@ -135,11 +135,11 @@ class SummaryTest(unittest.TestCase):
             iceberg_args(),
             "841361364657368624",
             2,
-            ["vworldkr__sandan_boundary-test"],
+            ["vworldkr__industrial_complex_boundary-test"],
             "2026-08-19T00:00:00Z",
         )
         self.assertEqual(summary["canonical_iceberg_snapshot_id"], "841361364657368624")
-        self.assertEqual(summary["source_snapshot_ids"], ["vworldkr__sandan_boundary-test"])
+        self.assertEqual(summary["source_snapshot_ids"], ["vworldkr__industrial_complex_boundary-test"])
         self.assertEqual(summary["geometry_srid"], GEOMETRY_SRID)
         self.assertFalse(summary["completion_claim_allowed"])
         self.assertIn("does_not_write_postgis", summary["evidence_limitations"])
@@ -160,7 +160,7 @@ class SummaryTest(unittest.TestCase):
             ),
             None,
             1,
-            ["vworldkr__sandan_boundary-test"],
+            ["vworldkr__industrial_complex_boundary-test"],
             "2026-08-19T00:00:00Z",
         )
         self.assertIsNone(summary["canonical_iceberg_snapshot_id"])

@@ -25,9 +25,26 @@ use crate::{
 pub const TABLE: &str = "reference.legal_dong_code_snapshot";
 /// The `status` of a code in force, as the snapshot table writes it (`code_go_kr_legal_dong.EXISTS`).
 pub const EXISTS: &str = "존재";
+/// The Bronze source of the collector's full-table objects.
+pub const CODE_GO_KR_TABLE_SOURCE: &str = "codegokr__legal_dong_code";
 /// The Bronze prefix of the collector's full-table objects. The shrink bound compares a
 /// code.go.kr snapshot only with earlier code.go.kr snapshots: another source lists another set.
-pub const CODE_GO_KR_TABLE_PREFIX: &str = "bronze/source=codegokr__legal_dong_code_table/";
+pub const CODE_GO_KR_TABLE_PREFIX: &str = "bronze/source=codegokr__legal_dong_code/";
+
+/// The prefixes a code.go.kr snapshot's `source_record_id` starts with.
+///
+/// The source's own, and those of the ids it had before the Bronze epoch renamed it
+/// (`codegokr__legal_dong_code_table`, root ADR-0626 §4), which the rows loaded before the epoch
+/// keep until the table is rebuilt from Bronze.
+#[must_use]
+pub fn code_go_kr_table_prefixes() -> Vec<String> {
+    std::iter::once(CODE_GO_KR_TABLE_SOURCE)
+        .chain(collection_domain::former_source_slugs(
+            CODE_GO_KR_TABLE_SOURCE,
+        ))
+        .map(|slug| format!("bronze/source={slug}/"))
+        .collect()
+}
 /// The fields of a full-table row, one per contract header in the same order.
 const FULL_TABLE_FIELDS: usize = 11;
 
@@ -566,11 +583,15 @@ fn previous_row_count_in(
     source: &str,
     snapshot_date: NaiveDate,
 ) -> anyhow::Result<Option<u64>> {
+    let of_the_source = code_go_kr_table_prefixes()
+        .iter()
+        .map(|prefix| format!("starts_with(source_record_id, {})", literal(prefix)))
+        .collect::<Vec<_>>()
+        .join(" OR ");
     let mut found = stage.connection().prepare(&format!(
-        "SELECT count(*) FROM {source} WHERE starts_with(source_record_id, {prefix}) AND snapshot_date < DATE '{date}' \
+        "SELECT count(*) FROM {source} WHERE ({of_the_source}) AND snapshot_date < DATE '{date}' \
          GROUP BY snapshot_date, source_record_id \
          ORDER BY snapshot_date DESC, max(ingested_at_utc) DESC, source_record_id DESC LIMIT 1",
-        prefix = literal(CODE_GO_KR_TABLE_PREFIX),
         date = snapshot_date.format("%Y-%m-%d"),
     ))?;
     let rows = found

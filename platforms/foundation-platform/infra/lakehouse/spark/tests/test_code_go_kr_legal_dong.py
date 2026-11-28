@@ -861,7 +861,7 @@ def collect_dir(root, table_rows, name="regcode-20990702T051500Z"):
     raw = table_html(table_rows).encode("utf-8")
     (root / "objects" / f"{name}.html").write_bytes(raw)
     manifest = {"collection_date": "2099-07-02", "objects": [{
-        "role": "full_table", "object_key": f"bronze/source=codegokr__legal_dong_code_table/{name}.html",
+        "role": "full_table", "object_key": f"bronze/source=codegokr__legal_dong_code/{name}.html",
         "local_path": f"objects/{name}.html", "checksum_sha256": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw)}]}
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return root
@@ -1081,7 +1081,7 @@ class SigunguSplitTest(unittest.TestCase):
 
 
 class StewardOnlyRerunTest(unittest.TestCase):
-    KEY = "bronze/source=codegokr__legal_dong_code_table/operation=regCodeL/regcode-x.html"
+    KEY = "bronze/source=codegokr__legal_dong_code/operation=regCodeL/regcode-x.html"
 
     def test_rows_a_steward_decision_unlocks_are_appended_by_a_rerun_on_the_same_table(self):
         # 시군구에 후보가 없으니 그 아래 동들도 짝을 못 찾는다. 스튜어드가 시군구를 승인하면, 같은 표로

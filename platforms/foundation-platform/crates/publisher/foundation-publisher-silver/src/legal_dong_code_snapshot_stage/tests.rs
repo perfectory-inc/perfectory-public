@@ -153,7 +153,7 @@ fn the_snapshot_is_staged_as_the_tables_columns_with_empty_fields_null() -> anyh
         contract,
         &rows,
         NaiveDate::from_ymd_opt(2099, 1, 2).context("a day")?,
-        "bronze/source=codegokr__legal_dong_code_table/synthetic.html",
+        "bronze/source=codegokr__legal_dong_code/synthetic.html",
         at,
     )?;
     assert_eq!(
@@ -229,7 +229,8 @@ fn the_sites_empty_result_notice_is_no_rows() -> anyhow::Result<()> {
 }
 
 /// A day that holds two loads (a retry) is one snapshot: counting every row of that day would
-/// double the baseline and refuse every later table as shrunken.
+/// double the baseline and refuse every later table as shrunken. A load before the Bronze epoch
+/// recorded the source's former id (root ADR-0626 §4) and is still the source's.
 #[test]
 fn the_shrink_baseline_is_the_latest_earlier_code_go_kr_load() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
@@ -239,9 +240,9 @@ fn the_shrink_baseline_is_the_latest_earlier_code_go_kr_load() -> anyhow::Result
          SELECT 'c' || i AS region_cd, DATE '2099-01-01' AS snapshot_date,
                 'bronze/source=codegokr__legal_dong_code_table/k-1' AS source_record_id, to_timestamp(4070000000) AS ingested_at_utc
          FROM range(5) t(i)
-         UNION ALL SELECT 'c' || i, DATE '2099-01-02', 'bronze/source=codegokr__legal_dong_code_table/k-2a', to_timestamp(4070090000)
+         UNION ALL SELECT 'c' || i, DATE '2099-01-02', 'bronze/source=codegokr__legal_dong_code/k-2a', to_timestamp(4070090000)
          FROM range(6) t(i)
-         UNION ALL SELECT 'c' || i, DATE '2099-01-02', 'bronze/source=codegokr__legal_dong_code_table/k-2b', to_timestamp(4070095000)
+         UNION ALL SELECT 'c' || i, DATE '2099-01-02', 'bronze/source=codegokr__legal_dong_code/k-2b', to_timestamp(4070095000)
          FROM range(7) t(i)
          UNION ALL SELECT 'c' || i, DATE '2099-01-02', 'another-source:full:2099-01-02', to_timestamp(4070099000)
          FROM range(9) t(i)",

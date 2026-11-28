@@ -1,20 +1,26 @@
-//! Which Bronze objects a Silver load still owes, decided from R2 alone (root ADR-0280).
+//! Which Bronze objects a Silver load still owes, decided from the Bronze ledger (root ADR-0280,
+//! amended 2026-11-28 by root ADR-0626 §4: it was decided from R2 alone).
 //!
 //! The record of what a table has loaded is the table itself: every `append_batch_once` commit
 //! lists its Bronze objects in the snapshot summary (`foundation.ingest-batch-objects`), and the
 //! catalog answers them without Spark (`load_ingested_batch_objects`, as the Silver refresh lanes
-//! ask, root ADR-0169 §3). What exists to load is the Bronze prefix of each source. So a load needs
-//! no queue beside them: it lists the prefixes, takes away what the table records, and fetches the
-//! rest into a directory of its own run, which the Spark load reads and the script removes.
+//! ask, root ADR-0169 §3). What exists to load is the ledger's objects of each source
+//! ([`crate::bronze_ledger_objects`]): each with when its run collected it, which the plan hands
+//! the load as the object's snapshot (never parsed from the key, root ADR-0626 rule 5), and when it
+//! landed. So a load needs no queue beside them: it takes the sources' objects, takes away what the
+//! table records under the object's key or a key the object had before (an in-place re-key keeps
+//! the object's row and bytes, root ADR-0626 §8 N2), and fetches the rest into a directory of its
+//! own run, which the load reads and the script removes.
 //!
 //! Two bounds. The horizon is how far back a table's record can be believed: an expired snapshot
 //! takes its record with it, so only objects landed within `lakehouse-maintenance.contract.json`'s
 //! `retain_days` (less a margin) are compared at all; an older one would read as unloaded and be
-//! appended again. The window is how late an object may arrive in a healthy pipeline. An
-//! unrecorded object inside the horizon but older than the window is still owed and loaded, and is
-//! named `late` in the plan: the load script fails the run after loading it, so a load that had
-//! been failing for longer than the window cannot pass unseen (a check that sees nothing happening
-//! must not read as green).
+//! appended again. An object landed when its ledger row was written, which a re-key keeps (R2's
+//! own modification time would restart with a copy). The window is how late an object may arrive in
+//! a healthy pipeline. An unrecorded object inside the horizon but older than the window is still
+//! owed and loaded, and is named `late` in the plan: the load script fails the run after loading it,
+//! so a load that had been failing for longer than the window cannot pass unseen (a check that sees
+//! nothing happening must not read as green).
 
 use std::{
     collections::BTreeSet,
@@ -23,28 +29,21 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Duration, Utc};
-use foundation_outbox::object_storage::{R2InventoryRequest, R2ObjectStorageConfig};
+use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use foundation_outbox::R2ObjectStorage;
+use foundation_publisher_silver::silver_load_plan::PLAN_SCHEMA;
 use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 
+use crate::bronze_ledger_objects::{ledger_from_env, objects_of, LedgerObject};
 use crate::public_data_control_support::{required_env_value, write_json_file};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_SILVER_LOAD";
 const MAINTENANCE_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/lakehouse-maintenance.contract.json");
-const LIST_PAGE: i32 = 1000;
 /// Days kept between the horizon and the snapshot retention, so a record about to expire is not
 /// read as an answer.
 const HORIZON_MARGIN_DAYS: i64 = 2;
-
-/// One Bronze object as R2 lists it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Listed {
-    pub(crate) key: String,
-    pub(crate) size_bytes: i64,
-    pub(crate) last_modified: DateTime<Utc>,
-}
 
 /// What a load owes, and what it saw.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -80,7 +79,7 @@ fn find_retain_days(value: &JsonValue) -> Option<i64> {
 /// Unrecorded objects inside the horizon, oldest first, at most `max_objects` of them; those older
 /// than the window are also named late.
 pub(crate) fn select(
-    listed: &[Listed],
+    listed: &[LedgerObject],
     recorded: &BTreeSet<String>,
     now: DateTime<Utc>,
     window_days: i64,
@@ -95,18 +94,18 @@ pub(crate) fn select(
         ..Selection::default()
     };
     for object in listed {
-        if object.last_modified < horizon {
+        if object.landed_at < horizon {
             selection.beyond_horizon += 1;
-        } else if recorded.contains(&object.key) {
+        } else if object.is_recorded_in(recorded) {
             selection.recorded += 1;
         } else {
             owed.push(object);
         }
     }
-    owed.sort_by(|a, b| (a.last_modified, &a.key).cmp(&(b.last_modified, &b.key)));
+    owed.sort_by(|a, b| (a.landed_at, &a.key).cmp(&(b.landed_at, &b.key)));
     selection.beyond_bound = owed.len().saturating_sub(max_objects);
     for object in owed.into_iter().take(max_objects) {
-        if object.last_modified < late_before {
+        if object.landed_at < late_before {
             selection.late.push(object.key.clone());
         }
         selection.owed.push(object.key.clone());
@@ -140,18 +139,12 @@ fn local_path(output_dir: &Path, key: &str) -> anyhow::Result<PathBuf> {
     Ok(output_dir.join("objects").join(source_of(key)?).join(leaf))
 }
 
-fn parse_modified(key: &str, value: Option<&str>) -> anyhow::Result<DateTime<Utc>> {
-    let text = value.with_context(|| format!("R2 lists {key} without a modification time"))?;
-    DateTime::parse_from_rfc3339(text)
-        .map(|at| at.with_timezone(&Utc))
-        .with_context(|| format!("R2 lists {key} with an unreadable modification time {text:?}"))
-}
-
-/// Lists the sources, asks the table, fetches what it owes and writes `plan.json`.
+/// Reads the sources' objects from the ledger, asks the table, fetches what it owes and writes
+/// `plan.json`.
 ///
 /// # Errors
 /// Returns an error when the configuration is invalid, the window is not shorter than the
-/// snapshot retention, R2 or the catalog cannot be read, or a file cannot be written.
+/// snapshot retention, the ledger, R2 or the catalog cannot be read, or a file cannot be written.
 pub async fn run() -> anyhow::Result<()> {
     let table = required_env_value(&format!("{PREFIX}_TABLE"))?;
     let slugs = required_env_value(&format!("{PREFIX}_SOURCE_SLUGS"))?
@@ -181,21 +174,9 @@ pub async fn run() -> anyhow::Result<()> {
         R2ObjectStorageConfig::lakehouse_reader_from_env()
             .context("a Silver load plan reads R2 with the lakehouse reader key")?,
     );
-    let mut listed = Vec::new();
-    for slug in &slugs {
-        let prefix = format!("bronze/source={slug}/");
-        let report = storage
-            .inventory_audit(R2InventoryRequest::new(Some(&prefix), Some(LIST_PAGE))?)
-            .await
-            .with_context(|| format!("failed to list {prefix}"))?;
-        for object in report.objects() {
-            listed.push(Listed {
-                key: object.key.clone(),
-                size_bytes: object.size_bytes,
-                last_modified: parse_modified(&object.key, object.last_modified.as_deref())?,
-            });
-        }
-    }
+    let ledger = ledger_from_env().await?;
+    let listed = objects_of(&ledger, &slugs).await?;
+    ledger.close().await;
     // The catalog the environment names: the current one, or Lakekeeper with the lane's client.
     let catalog = foundation_publisher_core::lakehouse_catalog::CatalogSettings::from_env()?
         .rest_catalog()
@@ -226,22 +207,28 @@ pub async fn run() -> anyhow::Result<()> {
             .with_context(|| format!("failed to read {key}"))?;
         std::fs::write(&path, &bytes)
             .with_context(|| format!("failed to write {}", path.display()))?;
-        // When R2 says the object landed: the edition of a source whose key names no run (a
-        // content-qualified export, root ADR-0348 §5).
-        let landed = listed
+        // What the ledger knows of it: when its run collected it (the object's snapshot) and when it
+        // landed (the edition of a source whose key names no run, root ADR-0348 §5).
+        let object = listed
             .iter()
             .find(|object| &object.key == key)
-            .map(|object| object.last_modified.to_rfc3339());
+            .with_context(|| format!("{key} left the ledger while planned"))?;
+        ensure!(
+            object.source_slug == source_of(key)?,
+            "{key} is a row of {} in the ledger",
+            object.source_slug
+        );
         objects.push(json!({
             "object_key": key,
-            "source_slug": source_of(key)?,
-            "last_modified": landed,
+            "source_slug": object.source_slug,
+            "collected_at": object.collected_at.to_rfc3339(),
+            "landed_at": object.landed_at.to_rfc3339(),
             "local_path": path.strip_prefix(&output_dir).unwrap_or(&path).to_string_lossy().replace('\\', "/"),
             "size_bytes": bytes.len(),
         }));
     }
     let plan = json!({
-        "schema_version": "foundation-platform.silver_load_objects.v1",
+        "schema_version": PLAN_SCHEMA,
         "table": table,
         "window_days": window_days,
         "horizon_days": horizon_days,
@@ -260,7 +247,8 @@ pub async fn run() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{select, snapshot_retain_days, source_of, Listed};
+    use super::{select, snapshot_retain_days, source_of};
+    use crate::bronze_ledger_objects::LedgerObject;
     use chrono::{DateTime, Utc};
     use std::collections::BTreeSet;
 
@@ -270,12 +258,39 @@ mod tests {
             .unwrap_or_default()
     }
 
-    fn object(leaf: &str, when: &str) -> Listed {
-        Listed {
+    fn object(leaf: &str, when: &str) -> LedgerObject {
+        LedgerObject {
+            source_slug: "datagokr__onbid_real_estate_item".to_owned(),
             key: format!("bronze/source=datagokr__onbid_real_estate_item/{leaf}"),
             size_bytes: 1,
-            last_modified: at(when),
+            collected_at: at(when),
+            landed_at: at(when),
+            former_keys: Vec::new(),
         }
+    }
+
+    /// 2026-11-28 (root ADR-0626 §8 N2): the Bronze epoch re-keyed 4,384 objects in place. A copy
+    /// restarts R2's modification time and the table recorded the old key, so a plan from R2 would
+    /// have loaded every one of them again. The ledger keeps the row's landing and its former keys.
+    #[test]
+    fn a_re_keyed_object_keeps_its_landing_and_its_load_record() {
+        let mut moved = object("item--sha256-00.gz", "2099-01-09T00:00:00Z");
+        moved.former_keys = vec![format!(
+            "bronze/source=datagokr__onbid_real_estate_item/item-{}.gz",
+            "20990109t000000z"
+        )];
+        let expired = object("old--sha256-00.gz", "2098-11-01T00:00:00Z");
+        let recorded = BTreeSet::from([moved.former_keys[0].clone()]);
+        let selection = select(
+            &[moved, expired],
+            &recorded,
+            at("2099-01-10T06:00:00Z"),
+            7,
+            28,
+            10,
+        );
+        assert!(selection.owed.is_empty(), "{:?}", selection.owed);
+        assert_eq!((selection.recorded, selection.beyond_horizon), (1, 1));
     }
 
     #[test]

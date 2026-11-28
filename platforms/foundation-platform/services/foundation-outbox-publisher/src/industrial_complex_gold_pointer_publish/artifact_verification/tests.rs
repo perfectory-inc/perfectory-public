@@ -81,7 +81,7 @@ fn publication() -> anyhow::Result<PointerPublication> {
         source: "foundation-platform.spark.industrial_complex_gold".to_owned(),
         source_url: None,
         source_external_id: None,
-        source_snapshot_id: "vworldkr__sandan_profile-202506".to_owned(),
+        source_snapshot_id: "vworldkr__industrial_complex_profile-202506".to_owned(),
         iceberg_snapshot_id: "999990000000000001".to_owned(),
         profile_row_count: 1,
         spatial_locator_size_bytes: None,

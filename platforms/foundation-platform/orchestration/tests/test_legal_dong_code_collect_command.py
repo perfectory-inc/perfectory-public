@@ -96,7 +96,8 @@ live = os.environ.get(prefix + "_LIVE_WRITE") == "1"
 since = os.environ.get(prefix + "_CHANGED_SINCE")
 assert not (live and since), "a probe is never stored"
 calls = pathlib.Path(os.environ["FAKE_CALLS"])
-name = "regcode-2099070%dT051500Z" % len(calls.read_text().split())
+# Each copy the site serves carries its own time, so each lands under its own content key (root ADR-0152).
+name = "regcode--sha256-" + hashlib.sha256(str(len(calls.read_text().split())).encode()).hexdigest()
 with calls.open("a") as log:
     log.write(("probe" if since else "live" if live else "dry") + "\n")
 raw = pathlib.Path(os.environ["FAKE_PROBE" if since else "FAKE_TABLE"]).read_bytes()
@@ -104,7 +105,7 @@ raw = pathlib.Path(os.environ["FAKE_PROBE" if since else "FAKE_TABLE"]).read_byt
 (out / "objects" / (name + ".html")).write_bytes(raw)
 (out / "manifest.json").write_text(json.dumps({"collection_date": "2099-07-02", "changed_since": since, "objects": [{
     "role": "changed_since_probe" if since else "full_table",
-    "object_key": "bronze/source=codegokr__legal_dong_code_table/" + name + ".html",
+    "object_key": "bronze/source=codegokr__legal_dong_code/" + name + ".html",
     "local_path": "objects/" + name + ".html", "checksum_sha256": hashlib.sha256(raw).hexdigest(),
     "size_bytes": len(raw), "written": live}]}))
 """

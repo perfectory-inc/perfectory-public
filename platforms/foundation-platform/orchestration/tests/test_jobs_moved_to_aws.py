@@ -42,7 +42,10 @@ class OnAws(unittest.TestCase):
         hosted = collect_lane.on_host(listed)
         here = collect_lane.lanes_here(job_list=listed)
         for job_id, lane in collect_lane.contract()["collect"]["lanes"].items():
-            if lane["handover"] == collect_lane.HANDOFF:
+            if lane.get("paused"):
+                # Root ADR-0626 §8 N2: a paused lane runs nowhere, and its host job stays off.
+                self.assertFalse(job_id in hosted or job_id in here, f"{job_id} is paused and runs nowhere")
+            elif lane["handover"] == collect_lane.HANDOFF:
                 self.assertNotEqual(job_id in hosted, job_id in here, f"{job_id} runs in exactly one place")
                 self.assertEqual(job_id in job_specs.on_aws(listed), job_id in here, job_id)
 

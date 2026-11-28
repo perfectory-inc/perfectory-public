@@ -9,7 +9,11 @@ In process with Dagster 1.13 (skipped where Dagster is not installed), collect_l
   `ready` and materializes nothing, a failed run records `collected` failed and fails;
 - a source that drops what ended has `source_read/<job>` with a FreshnessPolicy at its landed bound, and the run
   materializes it when it read the source to the end;
-- the start condition requests a run when the beat's tick has passed, once, and not before.
+- the start condition requests a run when the beat's tick has passed, once, and not before;
+- a lane the contract pauses has no asset, no sensor and no read check (root ADR-0626 §8 N2).
+
+The lane behaviour is tested with the contract's pauses cleared: a pause is a state of the contract, not
+of what a running lane does.
 """
 
 import datetime
@@ -27,13 +31,25 @@ except ImportError:  # pragma: no cover - CI installs it
 AWS = pathlib.Path(__file__).resolve().parents[1] / "dagster" / "aws"
 
 
-def load(hosted=None):
-    """aws/definitions.py loaded afresh; `hosted` replaces the host's job set when given."""
+def load(hosted=None, contract=None):
+    """aws/definitions.py loaded afresh; `hosted` replaces the host's job set when given, and `contract` the AWS
+    contract (by default the real one with every lane's pause cleared)."""
     sys.path.insert(0, str(AWS))
     sys.path.insert(0, str(AWS.parent))
     import collect_lane
 
-    patches = [mock.patch.object(collect_lane, "on_host", return_value=set(hosted))] if hosted is not None else []
+    real = collect_lane.contract
+
+    def unpaused():
+        platform = real()
+        for lane in platform["collect"]["lanes"].values():
+            lane.pop("paused", None)
+            lane.pop("paused_reason", None)
+        return platform
+
+    patches = [mock.patch.object(collect_lane, "contract", contract or unpaused)]
+    if hosted is not None:
+        patches.append(mock.patch.object(collect_lane, "on_host", return_value=set(hosted)))
     for patch in patches:
         patch.start()
     try:
@@ -66,6 +82,23 @@ class OneAssetAndOneSensorPerLane(unittest.TestCase):
         sensors = {sensor.name: sensor for sensor in module.defs.get_repository_def().sensor_defs}
         for job_id, lane in platform["collect"]["lanes"].items():
             self.assertEqual(sensors[f"{job_id}_automation"].run_tags, collect_lane.run_tags(platform, job_id, lane))
+
+    def test_a_paused_lane_has_no_asset_no_sensor_and_no_read_check(self):
+        _, collect_lane = load(hosted=set())
+        real = collect_lane.contract
+
+        def paused():
+            platform = real()
+            platform["collect"]["lanes"]["onbid_public_auction_collect"]["paused"] = True
+            return platform
+
+        module, _ = load(hosted=set(), contract=paused)
+        keys = {key.to_user_string() for key in module.defs.get_repository_def().asset_graph.get_all_asset_keys()}
+        sensors = {sensor.name for sensor in module.defs.get_repository_def().sensor_defs}
+        self.assertNotIn("collect/onbid_public_auction_collect", keys)
+        self.assertNotIn("source_read/onbid_public_auction_collect", keys)
+        self.assertNotIn("onbid_public_auction_collect_automation", sensors)
+        self.assertIn("collect/pension_workplace_collect", keys)
 
     def test_a_source_that_drops_what_ended_is_held_to_its_landed_bound(self):
         module, collect_lane = load(hosted=set())

@@ -262,7 +262,7 @@ pub async fn run() -> anyhow::Result<()> {
 const COMPLEX_LIST_DATASET_SLUG: &str = "industrial_complex_list";
 
 /// The profile source whose complexes the address resolution covers (the producer's default).
-const PROFILE_SOURCE_SLUG: &str = "vworldkr__sandan_profile";
+const PROFILE_SOURCE_SLUG: &str = "vworldkr__industrial_complex_profile";
 
 /// The ledger and the Bronze store a live run writes to.
 struct LiveTarget {

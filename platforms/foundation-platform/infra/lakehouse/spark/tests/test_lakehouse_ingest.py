@@ -287,7 +287,7 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
 
     def test_a_per_row_value_is_reduced_to_the_object_it_names(self) -> None:
         """행마다 다른 값 1,442개는 객체 하나다. 통째로 비교하면 상한 64를 넘겨 거부된다."""
-        prefix = "foundation-platform:bronze:bronze/source=vworldkr__sandan_profile/20991231DS99990-1.zip"
+        prefix = "foundation-platform:bronze:bronze/source=vworldkr__industrial_complex_profile/20991231DS99990-1.zip"
         frame = FakeBatchFrame([f"{prefix}#{n}" for n in range(1_442)])
         spark = FakeAnsweringSpark(registry=[], total_records=0)
 
@@ -300,7 +300,7 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            result["record_ids"], ["bronze/source=vworldkr__sandan_profile/20991231DS99990-1.zip"]
+            result["record_ids"], ["bronze/source=vworldkr__industrial_complex_profile/20991231DS99990-1.zip"]
         )
         self.assertTrue(result["appended"])
 
@@ -310,7 +310,7 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
         기록이 적재보다 적은 객체를 말하면, 빠진 객체는 다음 실행에서 다시 들어간다 —
         이 모듈이 없애려는 결함을 한 층 아래에서 되살리는 것이다.
         """
-        prefix = "foundation-platform:bronze:bronze/source=vworldkr__sandan_profile/"
+        prefix = "foundation-platform:bronze:bronze/source=vworldkr__industrial_complex_profile/"
         values = [f"{prefix}a.zip#{n}" for n in range(200)] + [f"{prefix}b.zip#0"]
         frame = FakeBatchFrame(values)
         spark = FakeAnsweringSpark(registry=[], total_records=0)
@@ -327,8 +327,8 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
         self.assertEqual(
             result["record_ids"],
             [
-                "bronze/source=vworldkr__sandan_profile/a.zip",
-                "bronze/source=vworldkr__sandan_profile/b.zip",
+                "bronze/source=vworldkr__industrial_complex_profile/a.zip",
+                "bronze/source=vworldkr__industrial_complex_profile/b.zip",
             ],
         )
 
@@ -361,7 +361,7 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
 
     def test_a_derived_table_has_no_load_identity_to_record(self) -> None:
         """파생 표의 생산자는 덮어쓴다. 기록을 남기면 아무도 묻지 않는 물음에 답하는 것이다."""
-        frame = FakeBatchFrame(["vworldkr__sandan_profile-202506"])
+        frame = FakeBatchFrame(["vworldkr__industrial_complex_profile-202506"])
         spark = FakeAnsweringSpark(registry=[], total_records=0)
 
         with self.assertRaisesRegex(ValueError, "derived"):

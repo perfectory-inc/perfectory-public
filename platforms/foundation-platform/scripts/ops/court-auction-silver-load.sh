@@ -31,6 +31,13 @@ set -Eeuo pipefail
 shopt -s inherit_errexit
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
+# The plan reads the sources' Bronze objects from the ledger (root ADR-0626 §4, amending root ADR-0280):
+# recovery.env holds the password, not the address, so it is built as the collectors build it.
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(foundation_database_url)"
+  export DATABASE_URL
+fi
 
 STATE_ROOT="${FOUNDATION_COURT_AUCTION_STATE_ROOT:-/var/lib/foundation-platform/court-auction}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"

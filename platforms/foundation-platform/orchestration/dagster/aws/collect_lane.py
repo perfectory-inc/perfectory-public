@@ -88,11 +88,13 @@ def on_host(job_list=None):
 
 def lanes_here(platform=None, job_list=None):
     """{job id: lane} of the lanes that run on AWS in this release: every overlap lane, and a handoff lane only
-    while its job is off on the host (contract collect.handover_reason)."""
+    while its job is off on the host (contract collect.handover_reason); never a lane the contract pauses
+    (`paused`, with its `paused_reason`: root ADR-0626 §8 N2 paused onbid's lane for the Bronze epoch while its
+    host job stays off, so neither side writes)."""
     platform = platform or contract()
     hosted = on_host(job_list)
     return {job_id: lane for job_id, lane in platform["collect"]["lanes"].items()
-            if lane["handover"] == OVERLAP or job_id not in hosted}
+            if not lane.get("paused") and (lane["handover"] == OVERLAP or job_id not in hosted)}
 
 
 def resolve(document, pointer):

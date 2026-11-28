@@ -8,7 +8,7 @@ use foundation_publisher_silver::sigungu_crosswalk::{
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use serde_json::{json, Value};
 
-const RECORD: &str = "bronze/source=codegokr__legal_dong_code_table/regcode-test.html";
+const RECORD: &str = "bronze/source=codegokr__legal_dong_code/regcode-test.html";
 
 pub(crate) fn seed() -> anyhow::Result<SigunguCrosswalk> {
     // The fixture runs old → new like the projection, so its 시도 and pairs go in as they are.

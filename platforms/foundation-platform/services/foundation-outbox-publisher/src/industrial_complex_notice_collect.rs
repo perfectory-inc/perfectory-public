@@ -547,13 +547,11 @@ pub(crate) enum Stop {
     SiteFailing,
 }
 
-/// The provider file id of the run's detail object number `n`: `<dataset>-<run>-NNN`.
-pub(crate) fn file_id(detail: &NoticeDetail, at: DateTime<Utc>, n: u32) -> String {
-    format!(
-        "{}-{}-{n:03}",
-        detail.dataset_slug.replace('_', "-"),
-        at.format("%Y%m%dt%H%M%Sz")
-    )
+/// The provider file id of the run's detail object number `n`: `<dataset>-NNN`. The key adds the
+/// object's checksum (root ADR-0152); when a run collected it is its ledger row's `collected_at`,
+/// never a part of the key (root ADR-0626 rule 5).
+pub(crate) fn file_id(detail: &NoticeDetail, n: u32) -> String {
+    format!("{}-{n:03}", detail.dataset_slug.replace('_', "-"))
 }
 
 fn source_catalog_entry(
@@ -672,8 +670,8 @@ pub async fn run() -> anyhow::Result<()> {
             source: source_catalog_entry(&contract, started_at)?,
             operation: &detail.operation,
             collected_at: started_at,
-            file_id: Box::new(move |n| file_id(detail, started_at, n)),
-            content_qualified: false,
+            file_id: Box::new(move |n| file_id(detail, n)),
+            content_qualified: true,
             params: Box::new(|| JsonValue::Null),
         },
         Target::of(

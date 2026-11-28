@@ -10,7 +10,7 @@
 //!
 //! | input | Bronze source |
 //! |---|---|
-//! | complexes to resolve | `vworldkr__sandan_profile` (the same workbook the producer decodes) |
+//! | complexes to resolve | `vworldkr__industrial_complex_profile` (the same workbook the producer decodes) |
 //! | district code + address text | `industrylandorkr__industrial_complex_list` |
 //! | notices | `industrylandorkr__industrial_complex_notice` |
 //! | district authority | the `.dbf` beside the V-World `boundary_sigungu` shapefile |
@@ -44,7 +44,7 @@ use crate::industrial_complex_bronze_raw_jsonl_export::{
 };
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_ADDRESS_RESOLUTION";
-const DEFAULT_PROFILE_SOURCE_SLUG: &str = "vworldkr__sandan_profile";
+const DEFAULT_PROFILE_SOURCE_SLUG: &str = "vworldkr__industrial_complex_profile";
 const COMPLEX_LIST_SOURCE_SLUG: &str = "industrylandorkr__industrial_complex_list";
 const NOTICE_SOURCE_SLUG: &str = "industrylandorkr__industrial_complex_notice";
 const DETAIL_SOURCE_SLUG: &str = "industrylandorkr__industrial_complex_detail";

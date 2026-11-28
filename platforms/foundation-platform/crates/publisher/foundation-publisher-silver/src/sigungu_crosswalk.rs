@@ -796,7 +796,7 @@ mod tests {
 
     const SNAPSHOT_DATE: &str = "2099-01-01";
     const SNAPSHOT_RECORD: &str =
-        "bronze/source=codegokr__legal_dong_code_table/regcode_20990101t000000z.html";
+        "bronze/source=codegokr__legal_dong_code/regcode_20990101t000000z.html";
 
     /// The projection a pairing run that reproduced the real baseline would write: the change
     /// table's view, old → new like the fixture, whose 시도 and pairs it carries as they are.
@@ -1018,7 +1018,7 @@ mod tests {
         let refused = confirm_collection(
             &crosswalk,
             &state(
-                "bronze/source=codegokr__legal_dong_code_table/regcode-newer.html",
+                "bronze/source=codegokr__legal_dong_code/regcode-newer.html",
                 &at(0),
             ),
             now(),

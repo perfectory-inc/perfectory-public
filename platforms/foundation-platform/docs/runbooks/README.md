@@ -20,6 +20,7 @@ last_reviewed: 2026-07-29
 - [자산 조정기 — 잃어버린 이벤트로 멈춘 자산 다시 시작하기](./asset-reconcile.md)
 - [작업 결과 — 유닛이 성공했는데 일을 안 한 작업·주간 합성 화면](./job-outcomes.md)
 - [미디어 대조기 — R2 의 사진과 Silver 색인이 어긋날 때](./media-reconcile.md)
+- [Bronze 시기 — 실행 도장과 이름 바뀐 원천의 객체를 오늘의 키로](./bronze-epoch.md)
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
 - [산업단지 경계 새 판 — 예약 작업](./complex-boundary-release.md)
 - [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)

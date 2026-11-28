@@ -40,7 +40,7 @@ fn gold_row(code: &str, kind: &str, official_area_sqm: JsonValue) -> JsonMap<Str
         "calculated_area_sqm": JsonValue::Null,
         "parcel_count": 0,
         "boundary_object_key": JsonValue::Null,
-        "source_snapshot_id": "vworldkr__sandan_profile-202506",
+        "source_snapshot_id": "vworldkr__industrial_complex_profile-202506",
         "iceberg_snapshot_id": "1",
         "published_at_utc": "2026-08-18T00:00:00Z",
     }) else {

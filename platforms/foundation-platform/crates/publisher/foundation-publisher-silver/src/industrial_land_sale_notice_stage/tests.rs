@@ -11,13 +11,13 @@ use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableCon
 use serde_json::Value;
 
 use super::{
-    detail_source_slugs, planned_objects, snapshot_id, stage_object, PlannedObject,
-    ATTACHMENT_TABLE, PLAN_SCHEMA, READ_TABLE,
+    detail_source_slugs, planned_objects, stage_object, PlannedObject, ATTACHMENT_TABLE,
+    PLAN_SCHEMA, READ_TABLE,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
 const OBJECT: &str = include_str!("fixtures/object.jsonl");
-const KEY: &str = "bronze/source=industrylandorkr__industrial_land_sale_notice_detail/industrial-land-sale-notice-detail-20990102t030405z-000--sha256-0000000000000000000000000000000000000000000000000000000000000000.gz";
+const KEY: &str = "bronze/source=industrylandorkr__industrial_land_sale_notice_detail/industrial-land-sale-notice-detail-000--sha256-0000000000000000000000000000000000000000000000000000000000000000.gz";
 
 fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contracts()
@@ -55,7 +55,7 @@ fn object(directory: &std::path::Path, lines: &str) -> anyhow::Result<PlannedObj
     gzip.finish()?;
     Ok(PlannedObject {
         object_key: KEY.to_owned(),
-        source_snapshot_id: snapshot_id(KEY)?,
+        source_snapshot_id: "20990102T030405Z".to_owned(),
         path,
     })
 }
@@ -153,22 +153,9 @@ fn the_load_reads_one_detail_source_per_source_of_the_lane() -> anyhow::Result<(
             "factoryongokr__industrial_land_sale_notice_detail",
             "industrylandorkr__industrial_land_sale_notice_detail",
             "kicoxorkr__industrial_land_sale_notice_detail",
-            "datagokr__lh_land_notice_detail",
+            "datagokr__korea_land_housing_land_notice_detail",
         ]
     );
-    Ok(())
-}
-
-#[test]
-fn a_run_id_is_read_from_a_content_qualified_key_only() -> anyhow::Result<()> {
-    assert_eq!(snapshot_id(KEY)?, "20990102T030405Z");
-    for refused in [
-        // Not content-qualified (root ADR-0152).
-        "bronze/source=x/industrial-land-sale-notice-detail-20990102t030405z-000.gz",
-        "bronze/source=x/no-run-id--sha256-0000000000000000000000000000000000000000000000000000000000000000.gz",
-    ] {
-        assert!(snapshot_id(refused).is_err(), "{refused}");
-    }
     Ok(())
 }
 
@@ -176,12 +163,11 @@ fn a_run_id_is_read_from_a_content_qualified_key_only() -> anyhow::Result<()> {
 fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let slugs = detail_source_slugs()?;
+    // Run-free keys (root ADR-0626 G5): the run is the ledger's collected_at the plan carries.
     let key = |slug: &str, run: &str| {
-        format!(
-            "bronze/source={slug}/industrial-land-sale-notice-detail-{run}-000--sha256-{}.gz",
-            "0".repeat(64)
-        )
+        format!("bronze/source={slug}/industrial-land-sale-notice-detail-000--sha256-{run:0<64}.gz")
     };
+    let collected = |run: &str| format!("{}-{}-{}T00:00:00Z", &run[..4], &run[4..6], &run[6..8]);
     let write = |objects: Value| -> anyhow::Result<()> {
         std::fs::write(
             root.path().join("plan.json"),
@@ -191,10 +177,10 @@ fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyho
         )?;
         Ok(())
     };
-    let entry = |slug: &str, run: &str, local: &str| serde_json::json!({"object_key": key(slug, run), "source_slug": slug, "local_path": local});
+    let entry = |slug: &str, run: &str, local: &str| serde_json::json!({"object_key": key(slug, run), "source_slug": slug, "local_path": local, "collected_at": collected(run)});
     write(serde_json::json!([
-        entry(&slugs[2], "20990103t000000z", "objects/b.gz"),
-        entry(&slugs[1], "20990102t000000z", "objects/a.gz"),
+        entry(&slugs[2], "20990103", "objects/b.gz"),
+        entry(&slugs[1], "20990102", "objects/a.gz"),
     ]))?;
     let objects = planned_objects(root.path(), &slugs)?;
     assert_eq!(
@@ -206,15 +192,22 @@ fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyho
     );
     write(serde_json::json!([entry(
         "industrylandorkr__industrial_complex_notice_detail",
-        "20990102t000000z",
+        "20990102",
         "objects/a.gz"
     )]))?;
     assert!(planned_objects(root.path(), &slugs).is_err());
-    write(serde_json::json!([entry(
-        &slugs[0],
-        "20990102t000000z",
-        "../a.gz"
-    )]))?;
+    write(serde_json::json!([entry(&slugs[0], "20990102", "../a.gz")]))?;
     assert!(planned_objects(root.path(), &slugs).is_err());
+    let plain = format!(
+        "bronze/source={}/industrial-land-sale-notice-detail-000.gz",
+        slugs[0]
+    );
+    write(
+        serde_json::json!([{"object_key": plain, "source_slug": slugs[0], "local_path": "objects/a.gz", "collected_at": collected("20990102")}]),
+    )?;
+    assert!(
+        planned_objects(root.path(), &slugs).is_err(),
+        "a detail object's key names its bytes (root ADR-0152)"
+    );
     Ok(())
 }

@@ -23,7 +23,7 @@ last_reviewed: 2026-07-30
 ## 현재 카탈로그 규모
 
 - 엔드포인트 정의: **183개**
-- 고유 dataset slug: **158개**
+- 고유 dataset slug: **156개**
 - 고유 Bronze source slug: **181개**
 - 국가 수집 허용 endpoint: **145개**
 - 기본 실행 레인에 포함되는 endpoint: **83개**

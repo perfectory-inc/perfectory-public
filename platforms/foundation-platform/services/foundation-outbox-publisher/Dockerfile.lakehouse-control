@@ -40,6 +40,7 @@ COPY services /src/services
 COPY schemas /src/schemas
 COPY contracts /src/contracts
 COPY infra/lakehouse/contracts /src/infra/lakehouse/contracts
+COPY infra/cloudflare/foundation-platform-lakehouse-prod.bucket-lock.json /src/infra/cloudflare/
 RUN cargo chef prepare --recipe-path /src/recipe.json
 
 FROM chef AS rust-builder
@@ -60,6 +61,8 @@ COPY contracts /src/contracts
 # Spark jobs, compose files and units beside it are not inputs of this build: copying all of infra/
 # rebuilt the publisher for a Spark .py change (2026-10-27, #881: 351 s) (root ADR-0309).
 COPY infra/lakehouse/contracts /src/infra/lakehouse/contracts
+# The Bronze epoch reads the bucket's lock on bronze/ before it deletes an old key (root ADR-0626 §8 N2).
+COPY infra/cloudflare/foundation-platform-lakehouse-prod.bucket-lock.json /src/infra/cloudflare/
 
 RUN cargo build --locked --release -p foundation-outbox-publisher
 

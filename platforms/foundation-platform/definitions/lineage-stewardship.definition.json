@@ -234,7 +234,7 @@
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_code_snapshot_stage.rs"
       ],
       "source_slugs": [
-        "codegokr__legal_dong_code_table"
+        "codegokr__legal_dong_code"
       ],
       "description": "전체 표 응답을 Bronze 에 남기고, 형식이 계약과 같고 표가 줄지 않았을 때만 스냅숏으로 쌓는다."
     },

@@ -9,7 +9,7 @@
 //! load there (ADR-0143 §6).
 //!
 //! One run sends two requests: the table's form page (for the session cookie) and the table itself
-//! (`legal_dong_code_table`): every code, current and abolished, with its parent, 생성일 and 폐지일.
+//! (`legal_dong_code`): every code, current and abolished, with its parent, 생성일 and 폐지일.
 //! Only downloaded data is a source. The site's 코드변경안내 notice board is not read at all: change
 //! pairs come from the table's dates and the parcel snapshots (ADR-0144). The endpoint,
 //! the form fields and the request spacing come from `code-go-kr-legal-dong.contract.json`, the same
@@ -39,8 +39,8 @@ use collection_application::{
     PublicDataBulkFileIdentity, PublicDataBulkFilePlan, PublicDataBulkFilePlanInput,
 };
 use collection_domain::{
-    source_slug, BronzeObject, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
-    SourceCatalogEntry, SourcePayloadFormat,
+    build_bronze_content_object_key, source_slug, BronzeObject, IngestionRun, IngestionRunStatus,
+    IngestionTrigger, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::ObjectStorageService;
@@ -66,7 +66,7 @@ const MANIFEST_SCHEMA: &str = "foundation-platform.code_go_kr_legal_dong_collect
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 /// The second half of the Bronze `source_slug`; the endpoint catalog lists it.
-pub(crate) const DATASET_SLUG: &str = "legal_dong_code_table";
+pub(crate) const DATASET_SLUG: &str = "legal_dong_code";
 /// The provider-native operation, recorded in lineage and in the Bronze object key.
 pub(crate) const OPERATION: &str = "regCodeL";
 const DATASET_NAME: &str = "행정표준코드 법정동 전체 표";
@@ -137,7 +137,7 @@ pub async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("failed to create {}", config.output_dir.display()))?;
 
     let form = request_form(&contract.full_table, config.changed_since)?;
-    let fetched = fetch_table(&contract, &config, &form, started_at).await?;
+    let fetched = fetch_table(&contract, &config, &form).await?;
     let object = if config.live_write {
         live_write_target_preflight()
             .context("code.go.kr legal-dong collection live-write target preflight failed")?;
@@ -231,25 +231,20 @@ fn request_spacing(
     ProviderRequestSpacing::try_new(configured.max(floor))
 }
 
-/// The provider file id of the table: the second it was taken.
-///
-/// A dated id keeps every day's table as its own object, and a same-day retry (the scheduler
-/// retries once) as another, instead of colliding with a different body under one key.
-pub(crate) fn dated_file_id(at: DateTime<Utc>) -> String {
-    format!("regcode-{}", at.format("%Y%m%dT%H%M%SZ"))
-}
+/// The provider file id of the table. The key adds the table's checksum (root ADR-0152), so a
+/// changed table is a new object and the same table again (a same-day retry) is the one it already
+/// is; when a run took it is its ledger row's `collected_at`, never a part of the key (root ADR-0626
+/// rule 5).
+pub(crate) const TABLE_FILE_ID: &str = "regcode";
 
 /// The provider file id of a changed-since probe: never a Bronze object, named apart from the table.
-pub(crate) fn probe_file_id(at: DateTime<Utc>) -> String {
-    format!("regcode-probe-{}", at.format("%Y%m%dT%H%M%SZ"))
-}
+pub(crate) const PROBE_FILE_ID: &str = "regcode-probe";
 
 /// GET the form page for its session cookie, then POST the table form with it.
 async fn fetch_table(
     contract: &SourceContract,
     config: &CollectConfig,
     form: &[(String, String)],
-    started_at: DateTime<Utc>,
 ) -> anyhow::Result<Fetched> {
     let table = &contract.full_table;
     let warmup = table.warmup_path.as_deref().unwrap_or(&table.path);
@@ -317,13 +312,13 @@ async fn fetch_table(
         table.path
     );
     let id = if config.changed_since.is_some() {
-        probe_file_id(started_at)
+        PROBE_FILE_ID
     } else {
-        dated_file_id(started_at)
+        TABLE_FILE_ID
     };
     Ok(Fetched {
         provider_file_name: format!("{id}.html"),
-        provider_file_id: id,
+        provider_file_id: id.to_owned(),
         content_type,
         bytes,
     })
@@ -346,7 +341,7 @@ fn plan(
     run_id: IngestionRunId,
     at: DateTime<Utc>,
 ) -> anyhow::Result<PublicDataBulkFilePlan> {
-    plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
+    let mut plan = plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
         source_slug: &source_slug(PROVIDER, DATASET_SLUG)?,
         ingest_date: at.date_naive(),
         ingestion_run_id: run_id,
@@ -366,7 +361,10 @@ fn plan(
             "failed to plan the Bronze object for {}",
             item.provider_file_id
         )
-    })
+    })?;
+    plan.object_key = build_bronze_content_object_key(&plan.object_key, &plan.checksum_sha256)
+        .with_context(|| format!("failed to content-qualify {}", plan.object_key.as_str()))?;
+    Ok(plan)
 }
 
 /// Keeps a local copy of the bytes for the handoff, under the object's own file name.

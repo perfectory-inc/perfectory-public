@@ -19,8 +19,8 @@ use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableCon
 use serde_json::Value;
 
 use super::{
-    notice_source, planned_objects, snapshot_id, stage_object, PlannedObject, ATTACHMENT_TABLE,
-    DETAIL_TABLE, PLAN_SCHEMA,
+    notice_source, planned_objects, stage_object, PlannedObject, ATTACHMENT_TABLE, DETAIL_TABLE,
+    PLAN_SCHEMA,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
@@ -151,34 +151,17 @@ fn the_staged_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
 }
 
 #[test]
-fn a_run_id_is_read_from_the_key_and_a_key_without_one_is_refused() -> anyhow::Result<()> {
-    assert_eq!(
-        snapshot_id(
-            "bronze/source=x/operation=y/industrial-complex-notice-detail-20990102t030405z-000.gz"
-        )?,
-        "20990102T030405Z"
-    );
-    for refused in [
-        "bronze/source=x/no-run-id.gz",
-        "bronze/source=x/detail-20990102t030405z.gz",
-        "bronze/source=x/detail-20990102T030405Z-000.gz",
-        "bronze/source=x/detail-20990102t030405z-000.json",
-    ] {
-        assert!(snapshot_id(refused).is_err(), "{refused}");
-    }
-    Ok(())
-}
-
-#[test]
 fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let source = notice_source()?;
+    // Run-free keys (root ADR-0626 G5): the run is the ledger's collected_at the plan carries.
     let key = |run: &str, part: &str| {
         format!(
-            "bronze/source={}/detail-{run}-{part}.gz",
+            "bronze/source={}/detail-{part}--sha256-{run:0<64}.gz",
             source.source_slug
         )
     };
+    let collected = |run: &str| format!("{}-{}-{}T00:00:00Z", &run[..4], &run[4..6], &run[6..8]);
     let write = |objects: Value, schema: &str| -> anyhow::Result<()> {
         std::fs::write(
             root.path().join("plan.json"),
@@ -186,24 +169,12 @@ fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyho
         )?;
         Ok(())
     };
-    let entry = |object_key: String, slug: &str, local: &str| serde_json::json!({"object_key": object_key, "source_slug": slug, "local_path": local});
+    let entry = |run: &str, part: &str, slug: &str, local: &str| serde_json::json!({"object_key": key(run, part), "source_slug": slug, "local_path": local, "collected_at": collected(run)});
     write(
         serde_json::json!([
-            entry(
-                key("20990103t000000z", "000"),
-                &source.source_slug,
-                "objects/b.gz"
-            ),
-            entry(
-                key("20990102t000000z", "001"),
-                &source.source_slug,
-                "objects/a1.gz"
-            ),
-            entry(
-                key("20990102t000000z", "000"),
-                &source.source_slug,
-                "objects/a0.gz"
-            ),
+            entry("20990103", "000", &source.source_slug, "objects/b.gz"),
+            entry("20990102", "001", &source.source_slug, "objects/a1.gz"),
+            entry("20990102", "000", &source.source_slug, "objects/a0.gz"),
         ]),
         PLAN_SCHEMA,
     )?;
@@ -215,9 +186,11 @@ fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyho
             .collect::<Vec<_>>(),
         ["a0.gz", "a1.gz", "b.gz"].map(|name| Some(std::ffi::OsStr::new(name)))
     );
+    assert_eq!(objects[0].source_snapshot_id, "20990102T000000Z");
     write(
         serde_json::json!([entry(
-            key("20990102t000000z", "000"),
+            "20990102",
+            "000",
             "industrylandorkr__other",
             "objects/a.gz"
         )]),
@@ -225,13 +198,17 @@ fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyho
     )?;
     assert!(planned_objects(root.path(), &source).is_err());
     write(
-        serde_json::json!([entry(
-            key("20990102t000000z", "000"),
-            &source.source_slug,
-            "../a.gz"
-        )]),
+        serde_json::json!([entry("20990102", "000", &source.source_slug, "../a.gz")]),
         PLAN_SCHEMA,
     )?;
+    assert!(planned_objects(root.path(), &source).is_err());
+    let mut unstamped = entry("20990102", "000", &source.source_slug, "objects/a.gz");
+    unstamped["collected_at"] = Value::Null;
+    write(serde_json::json!([unstamped]), PLAN_SCHEMA)?;
+    assert!(
+        planned_objects(root.path(), &source).is_err(),
+        "an entry without the ledger's collected_at is refused, never read from the key"
+    );
     assert!(planned_objects(root.path(), &source).is_err());
     write(serde_json::json!([]), "another.v1")?;
     assert!(planned_objects(root.path(), &source).is_err());

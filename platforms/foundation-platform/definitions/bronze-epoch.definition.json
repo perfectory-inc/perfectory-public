@@ -1,0 +1,48 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "bronze-epoch",
+  "jobs": [
+    {
+      "id": "bronze_epoch",
+      "dagster_group": "operations",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The Bronze epoch (root ADR-0626 §8 N2; scripts/ops/bronze-epoch.sh, the publisher's rekey-bronze-epoch): every Bronze object whose leaf carries a run stamp (4,384 on 2026-11-28, in 25 sources) and every object of a source the naming registry renamed (naming.renames.sources: court auction_*, sandan_*, codegokr legal_dong_code_table) moves to the key today's writer builds, and the objects of an id nobody declares and the ledger never recorded (rtmolitkr__*, 98) are deleted. First the evidence manifest (control/evidence/r2_move/<date>-bronze-epoch.jsonl.gz: old key, new key, size, ETag, last modification, SHA-256), then create-only copies with a full-byte SHA-256 readback and the old ETag, then one transaction per source updating the source row's id and each object row's key in place (the version trigger keeps every replaced row), then the verification report beside the manifest; the old keys are deleted only after it, as the bucket's 30-day lock on bronze/ lets each go. Each run does only what is left. It refuses, moving nothing, while a writer of a moved source ran within two close intervals of the line writer. `unchanged` once nothing is left; the job is then turned off and later deleted.",
+      "systemd_service": "foundation-bronze-epoch.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "50 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 180,
+      "memory_max": "1G",
+      "memory_measured": "no run yet (new 2026-11-28, root ADR-0626 §8 N2); sized as the publisher binary holding the ledger rows of the moved sources (about 4,700 rows with their request parameters) and the bronze/ listing (39,195 keys), and eight copy readbacks at a time, each streamed in bounded ranges; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 3600,
+          "estimated_from": "computed (root ADR-0386): the first run copies 4,412 objects of 19.7 GB (court 0.96 GB, onbid 2.07 GB, notices 0.07 GB, V-World industrial complex 0.07 GB, the code.go.kr table 16.5 GB; 2026-11-28 ledger) server-side and reads every byte back, eight at a time; at the 6.8 MiB/s one stream measured from the office (W108 3b) that is 48 minutes, under the eight streams' shared line rather less; the listing (40 calls), the ledger update (one transaction per source, 37 sources) and the verification listing are seconds; later runs delete old keys and list, seconds"
+        }
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-11-28T00:00:00Z",
+      "dagster_stage": "proxied",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "A one-time move, not a data producer: once every move is verified and every old key deleted, `unchanged` is its normal outcome until it is turned off. That it keeps finishing is the done bound."
+      }
+    }
+  ]
+}

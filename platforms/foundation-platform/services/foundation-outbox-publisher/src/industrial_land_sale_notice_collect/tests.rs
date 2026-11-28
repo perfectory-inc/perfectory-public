@@ -401,11 +401,8 @@ fn a_batch_lands_under_a_content_qualified_key() -> anyhow::Result<()> {
         .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
         .single()
         .context("an instant")?;
-    let id = batch_file_id("industrial_land_sale_notice_detail", at, 7);
-    assert_eq!(
-        id,
-        "industrial-land-sale-notice-detail-20990102t030405z-007"
-    );
+    let id = batch_file_id("industrial_land_sale_notice_detail", 7);
+    assert_eq!(id, "industrial-land-sale-notice-detail-007");
     assert_eq!(
         list_file_id("industrial_land_sale_notice_list", 3),
         "industrial-land-sale-notice-list-0003"
@@ -430,10 +427,9 @@ fn a_batch_lands_under_a_content_qualified_key() -> anyhow::Result<()> {
         collection_domain::bronze_content_object_key_checksum(key),
         Some(planned.checksum_sha256.as_str())
     );
-    // The Silver load reads the run id back from the same key.
-    assert_eq!(
-        foundation_publisher_silver::industrial_land_sale_notice_stage::snapshot_id(key)?,
-        "20990102T030405Z"
+    assert!(
+        collection_domain::run_stamp_range(key).is_none(),
+        "the key carries no run stamp (root ADR-0626 G5): {key}"
     );
     Ok(())
 }

@@ -17,7 +17,7 @@ import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 RELEASE_ID = "b" * 40
-PREFIX = "bronze/source=vworldkr__sandan_boundary/"
+PREFIX = "bronze/source=vworldkr__industrial_complex_boundary/"
 
 FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys

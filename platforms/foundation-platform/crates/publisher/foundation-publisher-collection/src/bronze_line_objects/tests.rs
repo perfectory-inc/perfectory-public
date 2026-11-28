@@ -45,9 +45,9 @@ fn source() -> SourceCatalogEntry {
     }
 }
 
-/// The court lane's key form: `<dataset>-partNNNN-<run>`.
+/// The court lane's key form: `<dataset>-partNNNN` (no run stamp, root ADR-0626 G5).
 fn part_id(n: u32) -> String {
-    format!("synthetic-lines-part{:04}-20990102t160504z", n + 1)
+    format!("synthetic-lines-part{:04}", n + 1)
 }
 
 fn no_params() -> JsonValue {
@@ -210,10 +210,10 @@ async fn an_object_closes_at_the_first_group_boundary_after_its_interval_and_nev
     );
     assert!(objects[0]
         .object_key
-        .ends_with("/synthetic-lines-part0001-20990102t160504z.gz"));
+        .ends_with("/synthetic-lines-part0001.gz"));
     assert!(objects[1]
         .object_key
-        .ends_with("/synthetic-lines-part0002-20990102t160504z.gz"));
+        .ends_with("/synthetic-lines-part0002.gz"));
     assert_eq!(read(dir.path(), &objects[0]), old_text_helper(&search));
 }
 
@@ -249,7 +249,7 @@ async fn nothing_pushed_is_no_object() {
 #[tokio::test]
 async fn a_content_qualified_key_carries_the_checksum() {
     let dir = tempfile::tempdir().unwrap();
-    let id = |n: u32| format!("synthetic-lines-20990102t160504z-{n:03}");
+    let id = |n: u32| format!("synthetic-lines-{n:03}");
     let mut writer =
         JsonLinesWriter::new(lane(id, no_params, true), DryRun::of(None, dir.path())).unwrap();
     writer.push_group(&["{}"]).await.unwrap();
@@ -292,7 +292,7 @@ async fn a_live_object_is_committed_in_a_run_of_its_own_with_the_lanes_parameter
     assert_eq!(recorded[0].request_params["night"]["requests_sent"], 3);
     assert_eq!(
         recorded[0].request_params["provider_file_id"],
-        "synthetic-lines-part0001-20990102t160504z"
+        "synthetic-lines-part0001"
     );
     let runs = uow.runs.lock().unwrap().clone();
     assert_eq!(

@@ -351,3 +351,44 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
 | 모든 표 글자를 semgrep 으로 거부 | 글자 약 2,200 개를 한 번에 바꾼다. G4 의 풀이 검사가 같은 부류를 덜 흔들며 닫는다 |
 | 이름 길이 48 자 상한 | 온전한 낱말이 먼저다. 엔진은 255 자까지 받는다 |
 | 사다리를 원본에서 다시 굽기 | 같은 바이트를 굽는 데 원본 218 GB 를 다시 읽는다. 복사가 더 싸고 확인도 같다 |
+
+## 2026-11-28 개정 각주: N2(Bronze 시기)를 어떻게 하는가 (W114, 코디네이터 결정)
+
+- **잰 범위**(2026-11-28, 운영 원장 읽기 전용과 R2 `bronze/` 목록): 원장 38,785 행, R2 39,195 객체. 잎에 실행 도장이 있는 행 4,384:
+  소문자 도장 4,100(24 원천, F12 의 3,969 가 그 사이 늘었다)과 code.go.kr 표의 대문자 도장 284(`regcode-…T…Z.html`). 도장은 모두
+  그 행의 `collected_at` 과 같고, 한 원천 안의 같은 바이트 묶음은 0 이다. 데이터가 있는 이름 바꾸기: 법원경매 13 원천 145 객체(모두 도장도
+  있다), `sandan_*` 7 원천 14 객체, `codegokr__legal_dong_code_table` 284 객체 16.5 GB. 데이터가 없는 이름 바꾸기: `lh_*` 2,
+  `datagokr__building_register_house_price`. 잔해 id 는 `rtmolitkr__*` 12 id 98 객체(원장 줄 0)뿐이다. `sigungu=` 키는 원장에 0 이다.
+- **중복 쌍**(§4, 아무것도 지우지 않고 엔드포인트 항목은 둘 다 남는다, ADR-0400): 공동주택가격은 `hubgokr__building_register_apartment_price`
+  (전국 파일, 모으는 쪽)가 그대로이고 `datagokr__building_register_house_price`(API, `disabled_api_duplicate`, 객체 0)가
+  `datagokr__building_register_apartment_price` 가 된다. 법정동 코드는 `codegokr` 쪽(매일, 객체 284)이 `codegokr__legal_dong_code` 가 되고
+  `datagokr__legal_dong_code`(객체 0)는 그대로다. `real_transaction_*` 12 쌍은 이미 같은 데이터셋 id 다.
+- **새 잎 꼴**: 옛 잎에서 실행 도장(과 그것을 잇던 `-`)을 빼고 내용 해시를 붙인다, `<잎>--sha256-<hex>.<ext>`(ADR-0152). 이름이 바뀐 원천은
+  데이터셋에서 지은 잎 머리도 함께 바뀐다(`auction-item-detail-part0001-<도장>.gz` → `item-detail-part0001--sha256-<hex>.gz`). 쓰는 쪽과
+  시기는 같은 계획기(`plan_public_data_bulk_file_metadata`)로 키를 짓는다. G5: `build_bronze_object_key` 가 잎의 도장(대소문자 무관)을
+  거부한다.
+- **이름 바꾸기 목록**: `naming.renames.sources`(옛 id → 새 id, 24). 옛 id 는 엔드포인트 목록에 다시 선언되지 않는다(G1). 시기 앞에 쓰인
+  Silver·Gold 행을 맞춰야 하는 독자는 이 목록에서 원천의 예전 id 를 묻는다(`source_slug::former_source_slugs`). 구성 요소의 전환 PR 이 제
+  항목을 지운다.
+- **읽는 쪽**: Silver 계획기(`plan-silver-load-objects`, 산업단지 입력 계획)는 R2 목록이 아니라 원장에서 원천의 객체를 읽는다(ADR-0280 고침).
+  객체의 `source_snapshot_id` 는 원장의 `collected_at` 이고(값의 꼴은 그대로다), 표가 객체를 적재했다는 것은 지금 키나 같은 바이트의 예전 키
+  (`catalog.bronze_object_version`)를 기록한 것이다. 레인은 키에서 시각을 읽지 않는다(G7 을 그 레인들로 넓혔다).
+- **나뉜 원장**(코디네이터 2026-11-28): AWS 로 옮긴 수집기(온비드는 2026-11-27 부터, 겹침 레인은 AWS 쪽 쓰기)의 새 객체는 RDS 원장에만 있고
+  ai-server 는 RDS 에 닿지 않는다(ADR-0616 A1b). 호스트의 Silver 적재는 그 객체를 A4(Silver 와 원장 줄이 AWS 로 갈 때)까지 계획하지 않는다:
+  사장의 2026-11-24 결정대로 지금 서빙의 신선도는 목표가 아니다. 2026-11-28 에 그런 객체는 온비드 0, 연금 사업장 18 이다.
+- **실행**: 작업 `bronze_epoch`(릴리스 이미지의 `rekey-bronze-epoch`, 매시간, 남은 것만). 증거 목록
+  `control/evidence/r2_move/<날짜>-bronze-epoch.jsonl.gz` 먼저, 만들기만 복사와 전체 바이트 SHA-256 재해시와 옛 ETag 비교, 원천마다 한
+  트랜잭션의 제자리 `UPDATE`(원천 줄의 slug, 객체 줄의 키와 키에서 지은 칸들; `bronze_object_id` 는 그대로), 확인 보고를 목록 옆에, 그 뒤에만
+  버킷 잠금(`bronze/` 30 일)이 놓아주는 대로 옛 키를 지운다. 옮길 원천의 쓰는 쪽이 줄 쓰기의 닫힘 간격 두 번 안에 돌았으면 아무것도 옮기지
+  않는다. 그 기간 쓰는 쪽과 읽는 쪽 13 작업은 꺼 두고(꺼진 작업의 규칙대로 `dagster_stage` 는 `airflow`), V-World 산업단지 7 엔드포인트는
+  원천 훑기에서 뺀다(`daily_collection` 없음: 훑기 작업을 끄면 그것이 먹이는 Silver 33 작업도 꺼야 한다). 온비드의 AWS 레인은
+  `paused`(config/aws-platform.contract.json)다. 재개 PR 이 그것들을 되돌리고, 그 커밋의 AWS 이미지를 적용한다.
+- **다시 쓰지 않는 것**(그 구성 요소의 Lakekeeper 전환이 Bronze 에서 다시 짓는다, ADR-0624 10-6): 법원경매 Silver 28 표, 온비드 8 표,
+  산업용지 분양공고 2 표(`_read`·`_attachment`), ILIS 고시 2 표의 `source_record_id` 와 키에서 나온 줄 출처; `reference.legal_dong_code_snapshot`
+  ·`silver.industrial_complexes`·`silver.industrial_complex_boundaries`·`silver.complex_parcel_memberships` 의 `source_record_id`;
+  `gold.complex_catalog`(·`_versions`)의 `boundary_object_key`, `gold.complex_spatial_locator` 의 `object_key`;
+  `serving_postgis.industrial_complex_boundary_publication` 의 `source_object_key` 1,343 행(그 구성 요소의 전환이 다시 싣기까지 매달린
+  계보 문자열이다); append-only 인 `catalog.source_record` 1 행과 `bronze_object_version`·outbox 의 옛 줄. `source_snapshot_id` 값은 바뀌지
+  않는다(4,384 행 모두 도장이 `collected_at` 과 같다).
+- **범위 밖, 보고만**(코디네이터가 후속으로 적었다): 선언된 id 아래에 원장 줄이 없는 R2 객체 312 개 63 GB(2026-07-02 HUB 파일 id 마다 4,
+  연금 사업장 18, ILIS 15, V-World 47).

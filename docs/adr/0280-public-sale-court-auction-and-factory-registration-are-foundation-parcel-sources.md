@@ -41,3 +41,8 @@
 ---
 
 개정 각주(2026-10-19): Consequences 의 "개발계정 한도(하루 1,000 호출)" 는 틀렸다. 키는 운영계정이고, 네 API 모두 게이트웨이 응답 헤더가 `X-RateLimit-Limit: 100000`/일이다. 수집기 상한은 그 1/5 이다(`data-go-kr-onbid.contract.json`). 물건 전수가 3시간마다인 이유는 호출 한도가 아니라 Bronze 저장 비용이다.
+
+2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §8 N2, 사장의 2026-11-25 방향: Bronze 객체는 쓸 때 원장에 등록되고, 계획기는 아직 처리하지 않은 객체를 고른다):
+Silver 적재의 계획(`plan-silver-load-objects`)은 R2 목록이 아니라 Bronze 원장(`catalog.bronze_object`)에서 원천의 객체를 읽는다. 객체의
+`source_snapshot_id` 는 원장의 `collected_at` 이고, 표가 그 객체를 적재했다는 것은 표가 지금 키나 같은 바이트의 예전 키를 기록한 것이다.
+키에서 시각을 읽지 않는다. AWS 원장(RDS)에만 있는 객체는 A4 까지 호스트에서 계획하지 않는다(ADR-0626 의 같은 날 각주).

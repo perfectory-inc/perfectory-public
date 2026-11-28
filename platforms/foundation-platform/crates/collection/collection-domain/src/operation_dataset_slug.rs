@@ -43,7 +43,7 @@ pub fn building_register_dataset_slug(operation: &str) -> Option<&'static str> {
         "getBrExposInfo" => Some("building_register_exclusive_unit"),
         "getBrExposPubuseAreaInfo" => Some("building_register_exclusive_common_area"),
         "getBrFlrOulnInfo" => Some("building_register_floor_overview"),
-        "getBrHsprcInfo" => Some("building_register_house_price"),
+        "getBrHsprcInfo" => Some("building_register_apartment_price"),
         "getBrJijiguInfo" => Some("building_register_district_zone"),
         "getBrWclfInfo" => Some("building_register_sewage_facility"),
         "getBrAtchJibunInfo" => Some("building_register_sub_parcel"),
@@ -120,8 +120,10 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
 #[must_use]
 pub fn lh_land_notice_dataset_slug(operation: &str) -> Option<&'static str> {
     match operation {
-        "lhLeaseNoticeInfo1" => Some("lh_land_notice_list"),
-        "getLeaseNoticeDtlInfo1" | "getLeaseNoticeSplInfo1" => Some("lh_land_notice_detail"),
+        "lhLeaseNoticeInfo1" => Some("korea_land_housing_land_notice_list"),
+        "getLeaseNoticeDtlInfo1" | "getLeaseNoticeSplInfo1" => {
+            Some("korea_land_housing_land_notice_detail")
+        }
         _ => None,
     }
 }

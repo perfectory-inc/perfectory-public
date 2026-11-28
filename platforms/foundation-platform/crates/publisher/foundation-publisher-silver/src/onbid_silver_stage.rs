@@ -29,8 +29,7 @@ use sha2::{Digest, Sha256};
 use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
 use crate::silver_changes::{self, is_load_column, same, table_key, REMOVED};
 
-/// The plan file `plan-silver-load-objects` writes.
-pub const PLAN_SCHEMA: &str = "foundation-platform.silver_load_objects.v1";
+pub use crate::silver_load_plan::PLAN_SCHEMA;
 /// The item condition every item-level answer carries.
 const KEY: [&str; 2] = ["cltr_mng_no", "pbct_cdtn_no"];
 /// Which round answered an item-level response: kept, but not content.
@@ -686,32 +685,11 @@ pub struct PlannedObject {
     pub object_key: String,
     /// What it loads as.
     pub role: Role,
-    /// The run id the collector put in the key (`…-20990102t030405z.gz` → `20990102T030405Z`).
+    /// When the collector's run collected it (`20990102T030405Z`): its ledger row's `collected_at`,
+    /// which the plan carries (never read from the key, root ADR-0626 rule 5).
     pub source_snapshot_id: String,
     /// Where the plan put the object.
     pub path: PathBuf,
-}
-
-/// The run id in an object key.
-///
-/// # Errors
-/// Refuses a key that carries none.
-pub fn snapshot_id(object_key: &str) -> anyhow::Result<String> {
-    let run = object_key
-        .strip_suffix(".gz")
-        .and_then(|stem| stem.rsplit_once('-'))
-        .map(|(_, run)| run)
-        .with_context(|| format!("{object_key} carries no run id"))?;
-    let digits = |text: &str| text.bytes().all(|byte| byte.is_ascii_digit());
-    ensure!(
-        run.len() == 16
-            && digits(&run[..8])
-            && run.as_bytes()[8] == b't'
-            && digits(&run[9..15])
-            && run.as_bytes()[15] == b'z',
-        "{object_key} carries no run id"
-    );
-    Ok(run.to_ascii_uppercase())
 }
 
 /// Every object the plans in `plan_dirs` fetched, with its role, oldest run first.
@@ -763,7 +741,7 @@ pub fn planned_objects(
             objects.push(PlannedObject {
                 object_key: key.to_owned(),
                 role,
-                source_snapshot_id: snapshot_id(key)?,
+                source_snapshot_id: crate::silver_load_plan::snapshot_id(entry)?,
                 path: plan_dir.join(local),
             });
         }

@@ -20,9 +20,9 @@ use serde_json::Value;
 
 use crate::data_go_kr_file_data_stage::{self, PlaceInputs};
 use crate::duckdb_parquet_stage::{sql_path, text_bytes, DuckDbParquetStage, PYTHON_VALUES_SQL};
-use crate::onbid_silver_stage::{snapshot_id, PLAN_SCHEMA};
 use crate::place_identity_stage;
 use crate::silver_changes::{self, content_columns, table_key};
+use crate::silver_load_plan::{snapshot_id, PLAN_SCHEMA};
 
 pub mod names;
 
@@ -660,7 +660,8 @@ pub struct PlannedObject {
     pub object_key: String,
     /// What it loads as.
     pub role: Role,
-    /// The run id the collector put in the key.
+    /// When the collector's run collected it: its ledger row's `collected_at`, which the plan
+    /// carries (never read from the key, root ADR-0626 rule 5).
     pub source_snapshot_id: String,
     /// Where the plan put the object.
     pub path: PathBuf,
@@ -724,7 +725,7 @@ pub fn planned_objects(
             objects.push(PlannedObject {
                 object_key: key.to_owned(),
                 role,
-                source_snapshot_id: snapshot_id(key)?,
+                source_snapshot_id: snapshot_id(entry)?,
                 path: plan_dir.join(local),
             });
         }

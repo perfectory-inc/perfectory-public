@@ -411,7 +411,7 @@ groups:
         # A source the catalog says is collected on a cadence that has no finished Bronze run at all
         # (root ADR-0480): the stale rule above has no series to compare, so it was silent. The court
         # auction collector ran every night and said `changed` for its lists while not one item detail
-        # reached Bronze (no catalog row for courtauctiongokr__auction_item_detail, measured 2026-11-11).
+        # reached Bronze (no catalog row for courtauctiongokr__item_detail, measured 2026-11-11).
         # A day's grace covers a source declared in the release before its first scheduled run.
         expr: >-
           foundation_platform_ingestion_source_expected_max_age_seconds

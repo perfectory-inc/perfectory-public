@@ -215,7 +215,9 @@ class TheLaneAsDeclared(unittest.TestCase):
         hosted = collect_lane.on_host(jobs)
         here = collect_lane.lanes_here(CONTRACT, jobs)
         for job_id, lane in LANES.items():
-            if lane["handover"] == collect_lane.OVERLAP:
+            if lane.get("paused"):
+                self.assertNotIn(job_id, here, job_id)
+            elif lane["handover"] == collect_lane.OVERLAP:
                 self.assertIn(job_id, here)
             else:
                 self.assertEqual(job_id in here, job_id not in hosted, job_id)
@@ -223,7 +225,19 @@ class TheLaneAsDeclared(unittest.TestCase):
         for entry in switched["jobs"]:
             if entry["id"] in LANES and LANES[entry["id"]]["handover"] == collect_lane.HANDOFF:
                 entry["enabled"] = False
-        self.assertEqual(set(collect_lane.lanes_here(CONTRACT, switched)), set(LANES))
+        paused = {job_id for job_id, lane in LANES.items() if lane.get("paused")}
+        self.assertEqual(set(collect_lane.lanes_here(CONTRACT, switched)), set(LANES) - paused)
+
+    def test_a_paused_lane_runs_nowhere_and_says_why(self):
+        """Root ADR-0626 §8 N2: the Bronze epoch pauses onbid's handoff lane while its host job stays off."""
+        for job_id, lane in LANES.items():
+            self.assertIs(type(lane.get("paused", False)), bool, job_id)
+            self.assertEqual(bool(lane.get("paused")), bool(lane.get("paused_reason")), job_id)
+        jobs = collect_lane.jobs()
+        platform = json.loads(json.dumps(CONTRACT))
+        first = sorted(platform["collect"]["lanes"])[0]
+        platform["collect"]["lanes"][first]["paused"] = True
+        self.assertNotIn(first, collect_lane.lanes_here(platform, jobs))
 
     def test_every_lane_s_beat_resolves_in_its_source_contract(self):
         for job_id, lane in LANES.items():

@@ -261,12 +261,12 @@ class TheFiveIncidentsWouldHaveFired(unittest.TestCase):
         # catalog.source_catalog had no row for the detail source (measured 2026-11-11). Its endpoint
         # declares a daily cadence, so foundation-api renders a bound for it, and a bound with no finished
         # run is FoundationPlatformIngestionSourceNeverCollected (foundation-ingestion.rules.test.yml).
-        detail = [e for e in ENDPOINTS["endpoints"] if (e.get("bronze") or {}).get("source_slug") == "courtauctiongokr__auction_item_detail"]
+        detail = [e for e in ENDPOINTS["endpoints"] if (e.get("bronze") or {}).get("source_slug") == "courtauctiongokr__item_detail"]
         self.assertEqual(len(detail), 1)
         self.assertIsNotNone(detail[0]["expected_cadence"]["max_age_hours"])
         self.assertIn("alert: FoundationPlatformIngestionSourceNeverCollected", RULES)
         tests = (PLATFORM / "infra/observability/prometheus/foundation-ingestion.rules.test.yml").read_text(encoding="utf-8")
-        self.assertIn("courtauctiongokr__auction_item_detail", tests)
+        self.assertIn("courtauctiongokr__item_detail", tests)
 
     def test_3_the_shape_ledger_check_waiting_for_a_chain_never_provisioned(self):
         # From 2026-11-06 the check said `waiting` each day (the host chain that writes the ledger did not

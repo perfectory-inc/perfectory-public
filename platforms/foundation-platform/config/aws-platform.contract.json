@@ -171,6 +171,8 @@
         "beat": "data-go-kr-onbid.contract.json#/beat",
         "size": "large",
         "handover": "handoff",
+        "paused": true,
+        "paused_reason": "Root ADR-0626 §8 N2 (W114, coordinator 2026-11-28): the Bronze epoch re-keys onbid's run-stamped objects and their ledger rows on the host, and this lane's image (the last AWS apply) still writes stamped keys into the RDS ledger. Its host job stays off as well, so neither side writes. The resume pull request deletes these two lines in the same change as the AWS apply of its commit's images.",
         "secrets": ["DATA_GO_KR_SERVICE_KEY"],
         "environment": {},
         "work_dirs": ["METRICS_DIR"],
@@ -236,6 +238,6 @@
         ]
       }
     },
-    "lanes_reason": "A lane is one collector of the job list (orchestration/jobs.v1.json, same id) that runs on AWS (root ADR-0616 A3, W101c): the publisher command it runs, its env prefix (the command reads <prefix>_OUTPUT_DIR, _STATE_DIR and _LIVE_WRITE; work_dirs are more <prefix>_<name> directories, empty, in the run's work directory; environment is more <prefix>_<name> values), its beat (a JSON pointer into its source contract, which states the cadence and why: root ADR-0623 §1), its size class, its hand-over kind and its scope. The Bronze prefixes are the ones it wrote on the host, read from the host's Bronze ledger (2026-11-27, 45 days, read-only). No lane reads a table: the vendor's table half waits for the catalog decision (root ADR-0624), so the collectors that read Silver (court auction, ILIS, KICOX and factory-on notices, complex notices) stay on the host until then."
+    "lanes_reason": "A lane is one collector of the job list (orchestration/jobs.v1.json, same id) that runs on AWS (root ADR-0616 A3, W101c): the publisher command it runs, its env prefix (the command reads <prefix>_OUTPUT_DIR, _STATE_DIR and _LIVE_WRITE; work_dirs are more <prefix>_<name> directories, empty, in the run's work directory; environment is more <prefix>_<name> values), its beat (a JSON pointer into its source contract, which states the cadence and why: root ADR-0623 §1), its size class, its hand-over kind and its scope. The Bronze prefixes are the ones it wrote on the host, read from the host's Bronze ledger (2026-11-27, 45 days, read-only). No lane reads a table: the vendor's table half waits for the catalog decision (root ADR-0624), so the collectors that read Silver (court auction, ILIS, KICOX and factory-on notices, complex notices) stay on the host until then. A lane that states `paused: true` (with `paused_reason`) runs nowhere while it says so: collect_lane.lanes_here leaves it out whatever its handover, for a move that must have neither side write (root ADR-0626 §8 N2, the Bronze epoch)."
   }
 }

@@ -528,16 +528,16 @@ pub(crate) fn run_id(at: DateTime<Utc>) -> String {
     at.format("%Y%m%dT%H%M%SZ").to_string()
 }
 
-/// The provider file id of a search's object of the run started `at`: `<dataset>-<run>`, or with
-/// its `part` `<dataset>-partNNNN-<run>`; the run id stays the key's last part, as the Silver load
-/// reads it.
-pub(crate) fn file_id(search: &Search, at: DateTime<Utc>, part: Option<u32>) -> String {
-    let part = part.map(|n| format!("part{n:04}-")).unwrap_or_default();
-    format!(
-        "{}-{part}{}",
-        search.dataset_slug.replace('_', "-"),
-        run_id(at).to_ascii_lowercase()
-    )
+/// The provider file id of a search's object: `<dataset>`, or with its `part` `<dataset>-partNNNN`.
+/// The key adds the object's checksum (root ADR-0152), so a night's objects never meet another
+/// night's; when the run collected one is its ledger row's `collected_at`, which the Silver load
+/// reads, never a part of the key (root ADR-0626 rule 5, G5).
+pub(crate) fn file_id(search: &Search, part: Option<u32>) -> String {
+    let dataset = search.dataset_slug.replace('_', "-");
+    match part {
+        Some(n) => format!("{dataset}-part{n:04}"),
+        None => dataset,
+    }
 }
 
 /// The run's objects of one search, written through the one Bronze line writer (root ADR-0616
@@ -560,8 +560,8 @@ where
             source: source_catalog_entry(search, at)?,
             operation: &search.operation,
             collected_at: at,
-            file_id: Box::new(move |n| file_id(search, at, (parts || n > 0).then_some(n + 1))),
-            content_qualified: false,
+            file_id: Box::new(move |n| file_id(search, (parts || n > 0).then_some(n + 1))),
+            content_qualified: true,
             params: Box::new(move || json!({ "night": night() })),
         },
         Target::of(live, output_dir),

@@ -9,7 +9,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "산업입지정보시스템(ILIS) 산업단지 목록·고시 목록·상세, the address source of silver.industrial_complexes (root ADR-0033; scripts/ops/industrial-complex-address-source-collect.sh, the publisher's collect-industrial-complex-address-source): the complex list (il/danji/list.do) and the notice list (il/danref/list.do) in one request each, then one detail request (il/danji/det/info.do) for each complex of the newest vworldkr__sandan_profile workbook in Bronze that the list does not carry (four of 1,442 measured 2026-08-16), two seconds between requests, the count checked against the run's ceiling before the requests it counts. Each answer lands in Bronze once (write-once, deduplicated by content): an answer equal to the last one makes no object and the run reports unchanged. A new object starts the Silver load of the industrial complexes. No Spark.",
+      "description": "산업입지정보시스템(ILIS) 산업단지 목록·고시 목록·상세, the address source of silver.industrial_complexes (root ADR-0033; scripts/ops/industrial-complex-address-source-collect.sh, the publisher's collect-industrial-complex-address-source): the complex list (il/danji/list.do) and the notice list (il/danref/list.do) in one request each, then one detail request (il/danji/det/info.do) for each complex of the newest vworldkr__industrial_complex_profile workbook in Bronze that the list does not carry (four of 1,442 measured 2026-08-16), two seconds between requests, the count checked against the run's ceiling before the requests it counts. Each answer lands in Bronze once (write-once, deduplicated by content): an answer equal to the last one makes no object and the run reports unchanged. A new object starts the Silver load of the industrial complexes. No Spark.",
       "systemd_service": "foundation-industrial-complex-address-source-collect.service",
       "systemd_timer": null,
       "state_paths": [
@@ -33,7 +33,8 @@
         "first_run": {
           "estimate_seconds": 60,
           "estimated_from": "computed from its own bounds: two bulk requests (the notice list 13.5 MB measured 2026-11-09 in a few seconds, the complex list 1,473 rows) and about four detail requests, two seconds apart, plus one ledger read and the 412 KB profile workbook: under a minute, inside the 15-minute limit. The command refuses a run of more than eight requests (its DEFAULT_MAX_REQUESTS) before the first."
-        }
+        },
+        "unmeasured_reason": "Paused for the Bronze epoch (root ADR-0626 §8 N2) before its first measured run: its first_run estimate stands for the run the resume pull request starts."
       },
       "expected_outcome": {
         "changes_within_hours": null,
@@ -44,11 +45,11 @@
       "pipeline_graph_edges": [
         "ilis-address-source-collection-to-source-ilis-address"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-23T00:00:00Z",
-      "dagster_stage": "dagster",
-      "started_once_after_deploy": null,
-      "disabled_reason": null
+      "enabled": false,
+      "enabled_since": null,
+      "disabled_reason": "Paused for the Bronze epoch (root ADR-0626 §8 N2, W114, coordinator 2026-11-28): it reads the renamed industrial complex profile from the ledger by its new id. The job bronze_epoch moves those objects to the key today's writer builds and their ledger rows in place, and refuses while a writer of theirs has run in the last two close intervals; a run here meanwhile would split a source row or land a key of the old form. The resume pull request turns it on again (enabled true, enabled_since its merge) once the epoch's report is verified. Nothing is lost while it is off: a collector's next run asks what is due from its state and its Silver table, and a Silver load plans from the ledger what its table has not recorded. It was at dagster_stage dagster, where the resume puts it back.",
+      "dagster_stage": "airflow",
+      "started_once_after_deploy": null
     },
     {
       "id": "silver_industrial_complexes",
@@ -56,7 +57,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver load of the industrial complexes (root ADR-0033; started by a new object of its inputs (the ILIS address sources the daily collector lands, source-ilis-address, apart from the hourly notice details of source-ilis; the profile workbook the daily sweep lands), the schedule being the fallback; scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__sandan_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
+      "description": "Silver load of the industrial complexes (root ADR-0033; started by a new object of its inputs (the ILIS address sources the daily collector lands, source-ilis-address, apart from the hourly notice details of source-ilis; the profile workbook the daily sweep lands), the schedule being the fallback; scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__industrial_complex_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
       "systemd_service": "foundation-industrial-complex-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
@@ -79,7 +80,8 @@
         "first_run": {
           "estimate_seconds": 240,
           "estimated_from": "computed from its inputs: five R2 listings and, when owed, about 115 MB fetched (the 98 MB boundary archive, the 13.5 MB notice list, the 412 KB workbook, the complex list and four details), then the resolution and export of 1,442 rows and one DuckDB pass over them; the Spark job's three hand loads of the same rows (2026-08-18, 10-01) took minutes. 240 s stays the bound until a production run is measured, inside the 30-minute limit."
-        }
+        },
+        "unmeasured_reason": "Paused for the Bronze epoch (root ADR-0626 §8 N2) before its first measured run: its first_run estimate stands for the run the resume pull request starts."
       },
       "expected_outcome": {
         "changes_within_hours": null,
@@ -97,11 +99,11 @@
         "source-ilis-address-to-silver-industrial-complexes",
         "source-vworld-dataset-to-silver-industrial-complexes"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-23T00:00:00Z",
-      "dagster_stage": "dagster",
-      "started_once_after_deploy": null,
-      "disabled_reason": null
+      "enabled": false,
+      "enabled_since": null,
+      "disabled_reason": "Paused for the Bronze epoch (root ADR-0626 §8 N2, W114, coordinator 2026-11-28): a reader of the renamed industrial complex profile. The job bronze_epoch moves those objects to the key today's writer builds and their ledger rows in place, and refuses while a writer of theirs has run in the last two close intervals; a run here meanwhile would split a source row or land a key of the old form. The resume pull request turns it on again (enabled true, enabled_since its merge) once the epoch's report is verified. Nothing is lost while it is off: a collector's next run asks what is due from its state and its Silver table, and a Silver load plans from the ledger what its table has not recorded. It was at dagster_stage dagster, where the resume puts it back.",
+      "dagster_stage": "airflow",
+      "started_once_after_deploy": null
     }
   ],
   "assets": [
@@ -172,7 +174,7 @@
       "relation": "feeds",
       "status": "implemented",
       "source_slugs": [
-        "vworldkr__sandan_profile",
+        "vworldkr__industrial_complex_profile",
         "vworldkr__boundary_sigungu"
       ],
       "via": [

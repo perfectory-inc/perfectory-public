@@ -50,6 +50,8 @@ use foundation_publisher_collection::building_hub_bulk_ingest;
 use foundation_publisher_silver::building_register_floor_silver_export;
 use foundation_publisher_silver::hub_provider_release;
 use foundation_publisher_tiles::boundary_static_release_publish;
+mod bronze_epoch;
+mod bronze_ledger_objects;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
@@ -400,6 +402,7 @@ enum Command {
     ReconcileLakehouseCatalog,
     VerifyR2Cleanup,
     ValidateTileDerivativeR2,
+    RekeyBronzeEpoch,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -953,6 +956,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CheckLakehouseCatalogWrites => Box::pin(lakehouse_catalog_writes_check::run()),
         Command::ReconcileLakehouseCatalog => Box::pin(lakehouse_catalog_reconcile::run()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
+        Command::RekeyBronzeEpoch => Box::pin(bronze_epoch::run()),
         Command::ValidateTileDerivativeR2 => {
             Box::pin(async { tile_derivative_object_storage::validate_environment() })
         }
@@ -1312,6 +1316,7 @@ where
         Some("check-lakehouse-catalog-writes") => Ok(Command::CheckLakehouseCatalogWrites),
         Some("reconcile-lakehouse-catalog") => Ok(Command::ReconcileLakehouseCatalog),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
+        Some("rekey-bronze-epoch") => Ok(Command::RekeyBronzeEpoch),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
         Some(other) => {
             match foundation_publisher_silver::hub_family_silver_export::lane_id_of_export(other) {
