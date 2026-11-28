@@ -104,7 +104,7 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${work}/spool"
 # 3. 되읽기·검사·넘김. 읽기만 하므로 읽기 키를 쓴다(0 에서 확인했다). 내용 해시가 아닌 키는 landed-objects 와
 #    stage-handoff 가 거부한다.
 # The pinned reference tools/technology-versions.contract.json lists.
-AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
+AWS_IMAGE="amazon/aws-cli:2.42.5@sha256:4e569d37c0b93893f660946f9b00a442b1172b1c4ba86338a3a1af3937ed62b5"
 while read -r file_key object_key; do
   # --memory 512m: amazon/aws-cli 2.17.0 measured on ai-server 2026-10-18 (cgroup v2): anonymous memory peaked at 133 MiB over `s3 cp` of 1 GiB up and down (file and stdin/stdout), `s3 sync` of 5 x 200 MiB and `s3 mv`; the rest is reclaimable page cache.
   # These comments stay above the assignments: a comment line after them ends the command there, and

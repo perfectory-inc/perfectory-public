@@ -9,7 +9,7 @@ x-log-cap: &log-cap
 services:
   prometheus:
     logging: *log-cap
-    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
     mem_limit: 256m
     restart: unless-stopped
     read_only: true
@@ -63,7 +63,7 @@ services:
 
   alertmanager:
     logging: *log-cap
-    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    image: prom/alertmanager:v0.35.1@sha256:4e3d029e69c7f61dd53a2b31a3dc427a2b81736cffca185c0854075e07969e36
     mem_limit: 128m
     restart: unless-stopped
     read_only: true
@@ -111,7 +111,7 @@ services:
   # container's /proc, which shows the host's numbers: those files are not per namespace.
   node-exporter:
     logging: *log-cap
-    image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    image: prom/node-exporter:v1.13.1@sha256:7296504d4ada44b7d7ab4431e27e9f9900d8488f8d55842f4b12ae2704e16dfe
     mem_limit: 64m
     restart: unless-stopped
     read_only: true
@@ -145,7 +145,7 @@ services:
   # (docker-containers.prom) and the alert looks the name up.
   cadvisor:
     logging: *log-cap
-    image: ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a
+    image: ghcr.io/google/cadvisor:v0.61.1@sha256:4929b70e82079d001d0028b85d6a4dd25ad4666b719455c9542b983489963916
     mem_limit: 192m
     restart: unless-stopped
     read_only: true

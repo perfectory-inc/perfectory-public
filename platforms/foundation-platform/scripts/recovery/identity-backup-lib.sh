@@ -7,7 +7,7 @@ IDENTITY_BACKUP_TARGETS=(
     "identity-platform-runtime identity-db identity"
 )
 # The pinned reference tools/technology-versions.contract.json lists.
-AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
+AWS_IMAGE="amazon/aws-cli:2.42.5@sha256:4e569d37c0b93893f660946f9b00a442b1172b1c4ba86338a3a1af3937ed62b5"
 # Object keys are postgres/<name>/<UTC yyyymmddHHMMSS>.dump.gpg; an upload is .partial until it is whole.
 DUMP_KEY_PATTERN='/[0-9]{14}\.dump\.gpg$'
 

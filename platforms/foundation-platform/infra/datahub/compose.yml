@@ -202,7 +202,7 @@ services:
   kafka-broker:
     logging: *log-cap
     restart: unless-stopped
-    image: "confluentinc/cp-kafka:8.2.2@sha256:8e01c0305844d6c05bfb8e86479f5f363bb6a53497625395943a9da780de67ce"
+    image: "confluentinc/cp-kafka:8.4.1@sha256:aacc720b6b59b90ca1e27676dc4524e45e1cf60ae23fe6a149c7958eac2af3f5"
     hostname: broker
     command:
       - /bin/bash
@@ -251,7 +251,7 @@ services:
       - default
   mysql:
     logging: *log-cap
-    image: "mysql:8.2@sha256:212fe73edca5df6ff14826d5eb975c914bfb91f82a2e923f9050568f99525da1"
+    image: "mysql:8.4@sha256:8c233bad33d520a7aae1c1e619c3a9775f4a1ba2d463d692fada04ec7f40be00"
     hostname: mysql
     command:
       - --character-set-server=utf8mb4

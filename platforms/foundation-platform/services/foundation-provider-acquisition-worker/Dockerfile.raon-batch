@@ -7,7 +7,7 @@
 # Built by scripts/ops/raon-large-files.sh, which passes the RAON Linux agent package's URL (the
 # vendor's; VWorld publishes only the Windows agent) and sha256 from the one place they are pinned,
 # config/provider-agent-packages.contract.json. The arguments have no defaults on purpose.
-FROM python:3.11-bookworm@sha256:fe71a3421cd55bbcd2e97d0505851e3cf713d567e794a0f29893745826ff323d
+FROM python:3.15-bookworm@sha256:2bf848386eab766326ae3fc2f061788ae858d7945aefce74967d4a861ebdad12
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

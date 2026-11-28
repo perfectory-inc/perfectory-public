@@ -8,7 +8,7 @@
 INTELLIGENCE_DOCUMENT_IMAGE="intelligence-document-text:local"
 # The pinned reference tools/technology-versions.contract.json lists (the parcel-number-change
 # collector's same image); the release subtree does not carry tools/.
-INTELLIGENCE_MEDIA_FETCH_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
+INTELLIGENCE_MEDIA_FETCH_IMAGE="amazon/aws-cli:2.42.5@sha256:4e569d37c0b93893f660946f9b00a442b1172b1c4ba86338a3a1af3937ed62b5"
 
 # work: the run's directory on the host.
 intelligence_document_run_dir() {

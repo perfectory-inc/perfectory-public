@@ -3,7 +3,7 @@
 # (warehouse.tf); its task role may read this log group and nothing else. It runs as probe.sh logscan <minutes>.
 
 locals {
-  logscan_image = replace("public.ecr.aws/aws-cli/aws-cli:2.34.39@sha256:9718d8901c16f636fe9d135c52fd5e88d7788f25afee1f95049b15a8e458b474", "/:[^:/@]+@/", "@")
+  logscan_image = replace("public.ecr.aws/aws-cli/aws-cli:2.42.5@sha256:4e569d37c0b93893f660946f9b00a442b1172b1c4ba86338a3a1af3937ed62b5", "/:[^:/@]+@/", "@")
   logscan_secrets = merge(
     {
       SECRET_CATALOG_DATABASE = "${aws_secretsmanager_secret.database["catalog"].arn}:password::"

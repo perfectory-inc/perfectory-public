@@ -7,7 +7,7 @@
 locals {
   authz = local.env.authz
   # The version contract's pin, as compose files spell it; the task runs it by the index digest.
-  authz_image = replace("ghcr.io/openfga/openfga:v1.14.2@sha256:38857bdc425316ebe6dabd1cde52e05c48e6e8bff781713b7c36da8d5ed68205", "/:[^:/@]+@/", "@")
+  authz_image = replace("ghcr.io/openfga/openfga:v1.23.0@sha256:2a1b4ef95f2f27e6d420f11cf14390b4f537e699de8d18b6a07d8b355e11cf02", "/:[^:/@]+@/", "@")
   authz_database_environment = [
     { name = "OPENFGA_DATASTORE_ENGINE", value = "postgres" },
     # Host and database only; the login and its password come apart (they overwrite the URI's).

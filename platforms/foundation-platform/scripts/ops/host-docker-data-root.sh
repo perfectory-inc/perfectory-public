@@ -57,7 +57,7 @@ ADMISSION=/opt/perfectory-control/current/scripts/deploy/foundation-release-admi
 DROPIN_NAME=10-data-disk.conf
 RSYNC=(rsync -aHAXx --numeric-ids --delete)
 # Only a dry run without root uses it, to measure the trees read-only (tools/technology-versions.contract.json pins it).
-MEASURE_IMAGE="busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+MEASURE_IMAGE="busybox:1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4"
 JOB_UNITS="${PLATFORM_ROOT}/scripts/deploy/job_units.py"
 
 log() { printf '%s host-docker-data-root: %s\n' "$(date -u +%FT%TZ)" "$*"; }
