@@ -154,10 +154,11 @@ pub(crate) struct PlanRequest<'a> {
     pub(crate) output_dir: &'a Path,
 }
 
-/// What a plan owes: the objects fetched, and those of them that are late.
+/// What a plan owes: the objects fetched (and their keys), and those of them that are late.
 pub(crate) struct Planned {
     pub(crate) owed: usize,
     pub(crate) late: usize,
+    pub(crate) keys: Vec<String>,
 }
 
 /// Reads the sources' objects from the ledger, asks the table, fetches what it owes and writes
@@ -301,6 +302,7 @@ pub(crate) async fn plan(request: &PlanRequest<'_>) -> anyhow::Result<Planned> {
     Ok(Planned {
         owed: objects.len(),
         late: selection.late.len(),
+        keys: selection.owed.clone(),
     })
 }
 

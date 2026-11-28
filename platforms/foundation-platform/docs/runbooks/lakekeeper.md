@@ -171,8 +171,9 @@ Cognito 클라이언트와 칸(`perfectory-lakekeeper-prod/principal-<레인>`: 
 3. 플랫폼 스택 적용(같은 이미지): 레인 역할·창구 alias, 배포 전 사슬의 셋째 걸음 `ledger-import`(원장 내보내기를 AWS 원장에 들인다; 한 번 들인
    줄은 다시 들이지 않는다), 그다음 서비스가 새 코드 위치로 옮긴다.
 4. 다시 짓기: 적재 레인(`industrial_land_sale_notice_silver`)은 수집 레인이 바꾼 것 뒤에 eager 로 돈다. 표가 비어 있는 동안 수집 레인은 아무것도
-   묻지 않고 `ready` 가 표를 이름한다(표가 그 레인의 상태다). 그래서 첫 적재는 한 번 손으로 띄운다(Dagster 에서 그 자산을 materialize).
-   `max_objects` 60 이라 객체 85 개는 두 run 이다. 늦음 검사는 표가 있던 동안 창이 끝난 객체만 센다.
+   묻지 않고 `ready` 가 표를 이름한다(표가 그 레인의 상태다). 적재 자산은 처음 평가될 때 없는 것(`newly_missing`)이라 eager 가
+   스스로 한 번 띄운다(Dagster 1.13.27 `NewlyTrueCondition`: 앞 상태가 없으면 지금 없는 것이 새로 없는 것). 한 run 이 할 일을 다 하고
+   끝난다: `max_objects` 60 씩 계획·적재를 빚이 없을 때까지 되풀이한다(객체 85 개 = 두 번). 늦음 검사는 표가 있던 동안 창이 끝난 객체만 센다.
 5. 비교(T17, 다시 짓기): `./probe.sh operator lake-compare silver.industrial_land_sale_notice_read silver.industrial_land_sale_notice_fetch_attempt`,
    그리고 `lake-compare silver.industrial_land_sale_notice_attachment silver.industrial_land_sale_notice_attachment`. Basin 쪽(전환에서 얼었다)의
    객체마다 행 수와 적재가 쓰지 않는 열의 해시로 서명해 다시 지은 쪽에 모두 있어야 하고(Bronze 시기 뒤 키가 바뀌었으므로 `source_record_id` 로 짝짓지

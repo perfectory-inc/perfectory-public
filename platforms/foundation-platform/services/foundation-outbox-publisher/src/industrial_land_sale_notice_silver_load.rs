@@ -118,32 +118,63 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     load(Path::new(&required_env_value(PLAN_DIR_ENV)?)).await
 }
 
-/// The lane's command: plan, load, late check, outcome line.
+/// The lane's command: plan, load, late check, outcome line, in passes of the contract's
+/// `max_objects` until nothing is owed. A run does all its work and then ends (owner 2026-11-26,
+/// root ADR-0623): on AWS no schedule comes back for what one pass left, only a collector's next
+/// change, so a first fill (a switch's rebuild from Bronze) would otherwise stop at one pass. Each
+/// pass holds one plan's objects on disk and in the stage, the bound the host's run had.
 ///
 /// # Errors
-/// As the plan and the load; and after loading them, the objects that waited longer than the window
-/// fail the run, so a gap is seen (the host script's rule).
+/// As the plan and the load; a pass whose plan owes the very objects the pass before loaded (their
+/// commits did not record them); and after loading them, the objects that waited longer than the
+/// window fail the run, so a gap is seen (the host script's rule).
 pub(crate) async fn run_lane() -> anyhow::Result<()> {
     let work = Path::new(&required_env_value(LANE_OUTPUT_ENV)?).join("details");
     let (window_days, max_objects) = silver_load_settings()?;
     let slugs = detail_source_slugs()?;
-    let planned = crate::silver_load_objects::plan(&crate::silver_load_objects::PlanRequest {
-        table: FETCH_ATTEMPT_TABLE,
-        slugs: &slugs,
-        window_days,
-        max_objects,
-        output_dir: &work,
-    })
-    .await?;
-    if planned.owed == 0 {
+    let (mut passes, mut loaded, mut late) = (0_usize, 0_usize, 0_usize);
+    let mut previous: Option<Vec<String>> = None;
+    loop {
+        // One pass's fetched objects at a time on disk.
+        match std::fs::remove_dir_all(&work) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to clear {}", work.display()))
+            }
+        }
+        let planned = crate::silver_load_objects::plan(&crate::silver_load_objects::PlanRequest {
+            table: FETCH_ATTEMPT_TABLE,
+            slugs: &slugs,
+            window_days,
+            max_objects,
+            output_dir: &work,
+        })
+        .await?;
+        if planned.owed == 0 {
+            break;
+        }
+        anyhow::ensure!(
+            previous.as_ref() != Some(&planned.keys),
+            "the plan owes the {} object(s) the pass before loaded: their commits did not record them, so this run stops instead of loading them again",
+            planned.owed
+        );
+        load(&work).await?;
+        passes += 1;
+        loaded += planned.owed;
+        late += planned.late;
+        previous = Some(planned.keys);
+    }
+    println!(
+        "industrial-land-sale-notice-silver-passes passes={passes} objects={loaded} late={late}"
+    );
+    if passes == 0 {
         println!("foundation-job-outcome unchanged nothing owed");
         return Ok(());
     }
-    load(&work).await?;
     anyhow::ensure!(
-        planned.late == 0,
-        "{} Bronze object(s) waited more than {window_days} days unloaded while the table was there; they are loaded now, and this run fails so the gap is seen",
-        planned.late
+        late == 0,
+        "{late} Bronze object(s) waited more than {window_days} days unloaded while the table was there; they are loaded now, and this run fails so the gap is seen"
     );
     println!("foundation-job-outcome changed");
     Ok(())
