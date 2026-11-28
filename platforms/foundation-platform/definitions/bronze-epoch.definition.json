@@ -35,12 +35,12 @@
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-code-go-kr-to-serving-bronze-object",
-        "source-courtauction-go-kr-to-serving-bronze-object",
-        "source-data-go-kr-onbid-to-serving-bronze-object",
-        "source-ilis-to-serving-bronze-object",
-        "source-industrial-land-sale-notice-to-serving-bronze-object",
-        "source-vworld-dataset-to-serving-bronze-object"
+        "serving-bronze-object-to-source-code-go-kr",
+        "serving-bronze-object-to-source-courtauction-go-kr",
+        "serving-bronze-object-to-source-data-go-kr-onbid",
+        "serving-bronze-object-to-source-ilis",
+        "serving-bronze-object-to-source-industrial-land-sale-notice",
+        "serving-bronze-object-to-source-vworld-dataset"
       ],
       "enabled": true,
       "enabled_since": "2026-11-28T00:00:00Z",
@@ -53,8 +53,8 @@
   ],
   "dependencies": [
     {
-      "from": "source-code-go-kr",
-      "to": "serving-bronze-object",
+      "from": "serving-bronze-object",
+      "to": "source-code-go-kr",
       "relation": "feeds",
       "status": "implemented",
       "via": [
@@ -64,11 +64,11 @@
       "source_slugs": [
         "codegokr__legal_dong_code"
       ],
-      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
     },
     {
-      "from": "source-courtauction-go-kr",
-      "to": "serving-bronze-object",
+      "from": "serving-bronze-object",
+      "to": "source-courtauction-go-kr",
       "relation": "feeds",
       "status": "implemented",
       "via": [
@@ -90,11 +90,11 @@
         "courtauctiongokr__sale_result",
         "courtauctiongokr__sale_specification"
       ],
-      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
     },
     {
-      "from": "source-data-go-kr-onbid",
-      "to": "serving-bronze-object",
+      "from": "serving-bronze-object",
+      "to": "source-data-go-kr-onbid",
       "relation": "feeds",
       "status": "implemented",
       "via": [
@@ -110,11 +110,11 @@
         "datagokr__onbid_real_estate_item",
         "datagokr__onbid_real_estate_item_detail"
       ],
-      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
     },
     {
-      "from": "source-ilis",
-      "to": "serving-bronze-object",
+      "from": "serving-bronze-object",
+      "to": "source-ilis",
       "relation": "feeds",
       "status": "implemented",
       "via": [
@@ -124,11 +124,11 @@
       "source_slugs": [
         "industrylandorkr__industrial_complex_notice_detail"
       ],
-      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
     },
     {
-      "from": "source-industrial-land-sale-notice",
-      "to": "serving-bronze-object",
+      "from": "serving-bronze-object",
+      "to": "source-industrial-land-sale-notice",
       "relation": "feeds",
       "status": "implemented",
       "via": [
@@ -140,11 +140,11 @@
         "industrylandorkr__industrial_land_sale_notice_detail",
         "kicoxorkr__industrial_land_sale_notice_detail"
       ],
-      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
     },
     {
-      "from": "source-vworld-dataset",
-      "to": "serving-bronze-object",
+      "from": "serving-bronze-object",
+      "to": "source-vworld-dataset",
       "relation": "feeds",
       "status": "implemented",
       "via": [
@@ -160,7 +160,7 @@
         "vworldkr__industrial_complex_permitted_industry",
         "vworldkr__industrial_complex_profile"
       ],
-      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 오늘의 키로 복사하고, 원장 줄(catalog.bronze_object)의 키를 제자리에서 바꾼다."
+      "description": "Bronze 시기(루트 ADR-0626 §8 N2): 원장(catalog.bronze_object)에서 이 원천 묶음의 실행 도장 잎과 이름 바뀐 원천의 객체를 골라 오늘의 키로 복사하고, 그 원장 줄의 키를 제자리에서 바꾼다."
     }
   ]
 }
