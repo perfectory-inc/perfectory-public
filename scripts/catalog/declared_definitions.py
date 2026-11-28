@@ -49,6 +49,11 @@ EXAMPLE = "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.
 DEFINITIONS = "platforms/foundation-platform/definitions"
 LANE_INDEX = "platforms/foundation-platform/config/by-pnu-lane-index.v1.json"
 NAMING = "platforms/foundation-platform/config/naming.contract.json"
+# What the Lakekeeper catalog holds (root ADR-0624 §2, ADR-0626 §9): the tables of the components that have
+# switched, each lane's grants on them and the Bronze sources whose ledger rows move with those lanes.
+LAKEKEEPER = "platforms/foundation-platform/config/lakekeeper-declaration.v1.json"
+LAKEKEEPER_SCHEMA = "foundation-platform.lakekeeper_declaration.v1"
+AWS = "platforms/foundation-platform/config/aws-platform.contract.json"
 # HUB family files (root ADR-0551): each entry is a Silver refresh lane whose definition is derived
 # here, as its table and source contracts are in Rust (lakehouse-domain `hub_lane_family`).
 FAMILY_CONTRACTS = "platforms/foundation-platform/infra/lakehouse/contracts"
@@ -72,7 +77,7 @@ READ_IN_PLACE = ("asset_checks",)
 SOURCE_ARTIFACTS = tuple(dict.fromkeys(slot[0] for slot in SLOTS.values()))
 # Artifacts that were generated before this ADR: rendered from the generated sources by their own
 # renderers, never a second implementation, and held to the committed bytes.
-DERIVED_ARTIFACTS = (EXAMPLE, DEPENDENCIES, MAP, LANE_INDEX)
+DERIVED_ARTIFACTS = (EXAMPLE, DEPENDENCIES, MAP, LANE_INDEX, LAKEKEEPER)
 # Artifacts no definition section fills: the platform definition holds them whole. The naming registry
 # is the one home of every kind of data name (root ADR-0626 §1).
 PLATFORM_ARTIFACTS = (NAMING,)
@@ -501,6 +506,65 @@ def lane_index(documents):
             "tile_units": tile_units}
 
 
+CATALOG_LAKEKEEPER = "lakekeeper"
+# The groups whose jobs write tables: a collector feeds a table through Bronze, and the table's own load writes it.
+TABLE_WRITER_GROUPS = ("silver", "gold")
+
+
+def lakekeeper_declaration(documents, aws):
+    """What the Lakekeeper catalog holds, from the graph (root ADR-0624 §2, ADR-0626 §9): never a hand list.
+
+    - tables: the table nodes whose definition says `catalog: lakekeeper` (their component has switched);
+    - lanes: per AWS lane (config/aws-platform.contract.json collect.lanes, its job's id), `select` on every
+      such table one of its job's edges starts from, `write` on every such table its edges feed when the job
+      is a table writer (dagster_group silver or gold); a lane with neither holds no client;
+    - ledger_sources: per lane with a grant, the Bronze sources it writes (its `bronze/source=<id>/` write
+      prefixes), whose host ledger rows move to the AWS ledger with it (root ADR-0616 A1b, A4).
+
+    Refuses an enabled job that touches such a table: the catalog's endpoint is private to the platform's
+    VPC, so a host job would read nothing or, through the old catalog under the new name, make a stray table
+    and ask its source's whole history again (W109e, the first switch).
+    """
+    graph, jobs = documents[GRAPH], documents[JOBS]["jobs"]
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {edge["id"]: edge for edge in graph["edges"]}
+    marked = [node for node in nodes.values() if node.get("catalog") == CATALOG_LAKEKEEPER]
+    for node in marked:
+        if node["type"] not in ("silver_table", "gold_table") or not node.get("table_name"):
+            raise DefinitionError(f"{node['id']}: only a Silver or Gold table lives in the Lakekeeper catalog")
+    held = {node["id"]: node["table_name"] for node in marked}
+    lanes_of = (aws.get("collect") or {}).get("lanes") or {}
+    lanes, ledger = {}, {}
+    for job in jobs:
+        carried = [edges[e] for e in job["pipeline_graph_edges"] if e in edges]
+        grants = {
+            "select": sorted({held[e["from"]] for e in carried if e["from"] in held}),
+            "write": sorted({held[e["to"]] for e in carried if e["to"] in held and e["relation"] == "feeds"
+                             and job.get("dagster_group") in TABLE_WRITER_GROUPS}),
+        }
+        touches = any(e["from"] in held or e["to"] in held for e in carried)
+        if touches and job["enabled"]:
+            raise DefinitionError(f"{job['id']}: touches a table of the Lakekeeper catalog, whose endpoint only the "
+                                  "AWS lanes reach; it runs there (a lane, its host job enabled false)")
+        grants = {privilege: tables for privilege, tables in grants.items() if tables}
+        if not grants or job["id"] not in lanes_of:
+            continue
+        lanes[job["id"]] = grants
+        ledger[job["id"]] = sorted(prefix.removeprefix("bronze/source=").rstrip("/")
+                                   for prefix in lanes_of[job["id"]].get("write_prefixes", [])
+                                   if prefix.startswith("bronze/source="))
+    written = {table for grants in lanes.values() for table in grants.get("write", [])}
+    unwritten = sorted(set(held.values()) - written)
+    if unwritten:
+        raise DefinitionError(f"{unwritten}: a table of the Lakekeeper catalog that no AWS lane writes; its load "
+                              "moves with it (a lane in config/aws-platform.contract.json)")
+    return {"schema_version": LAKEKEEPER_SCHEMA,
+            "generated_by": "scripts/catalog/declared_definitions.py (root ADR-0418); never edited, never committed",
+            "tables": sorted(held.values()),
+            "lanes": lanes,
+            "ledger_sources": {lane: sources for lane, sources in ledger.items() if sources}}
+
+
 def load_module(name, path, search):
     sys.path.insert(0, str(search))
     try:
@@ -526,6 +590,7 @@ def derived(root, documents, renderers_root=None):
         DEPENDENCIES: job_specs.rendered_dependencies(documents[JOBS], documents[GRAPH]),
         MAP: pipeline_map.render(documents[GRAPH], read_json(root / ENDPOINTS)),
         LANE_INDEX: dump(lane_index(documents)),
+        LAKEKEEPER: dump(lakekeeper_declaration(documents, read_json(root / AWS) if (root / AWS).is_file() else {})),
     }
 
 
@@ -703,7 +768,7 @@ def with_generated(paths):
     """`paths` (a change's files) and, when it changes a definition or the generator, every generated
     artifact: a reader of an artifact is changed by what generates it (the CI selectors ask this)."""
     paths = set(paths)
-    generator = ("scripts/catalog/declared_definitions.py", "scripts/catalog/definition.v1.schema.json")
+    generator = ("scripts/catalog/declared_definitions.py", "scripts/catalog/definition.v1.schema.json", AWS)
 
     def family(path):
         return path.startswith(FAMILY_CONTRACTS + "/") and pathlib.PurePosixPath(path).match(FAMILY_GLOB)
@@ -786,6 +851,10 @@ def show(root, rev, path):
             return dump(documents[path])
         (tree / ENDPOINTS).parent.mkdir(parents=True, exist_ok=True)
         (tree / ENDPOINTS).write_bytes(_git(root, "show", f"{rev}:{ENDPOINTS}"))
+        aws = subprocess.run(["git", "-C", str(root), "show", f"{rev}:{AWS}"], capture_output=True, check=False)
+        if aws.returncode == 0:
+            (tree / AWS).parent.mkdir(parents=True, exist_ok=True)
+            (tree / AWS).write_bytes(aws.stdout)
         return derived(tree, documents, renderers_root=root)[path]
 
 

@@ -21,7 +21,7 @@ last_reviewed: 2026-11-23
 | `industrial_land_sale_notice_silver` (수집이 Bronze 를 바꾸면) | `foundation-industrial-land-sale-notice-silver-load.service` → `scripts/ops/industrial-land-sale-notice-silver-load.sh` | `plan-silver-load-objects` 가 세 원천의 상세 객체 중 읽은 기록 표가 기록하지 않은 것을 받고 `load-industrial-land-sale-notice-silver`(발행기 안의 DuckDB): 새것·바뀐 첨부 색인 → 읽은 기록, 객체마다 커밋 |
 
 상태: `/var/lib/foundation-platform/industrial-land-sale-notice/`(`journal.log`, 실행마다 `runs/<원천>-<실행>/run.log`).
-다음에 물을 공고는 매 실행 레이크하우스(`silver.industrial_land_sale_notice_read`)에서 계산한다. 다음 실행을 막는 상태 파일은 없다.
+다음에 물을 공고는 매 실행 레이크하우스(`silver.industrial_land_sale_notice_fetch_attempt`)에서 계산한다. 다음 실행을 막는 상태 파일은 없다.
 
 - 매시 실행은 최근 쪽(`list.recent_pages`)과 밀린 것만 걷는다. `full_walk_hour_utc` 시(UTC)에 시작한 실행은 목록 전체를 걷는다
   (요약의 `full_walk: true`). 그날 KICOX 실행은 목록 쪽을 97 번쯤 묻는다(정상).
@@ -52,7 +52,7 @@ last_reviewed: 2026-11-23
 
 ```sql
 SELECT r.notice_source, count(DISTINCT r.notice_id) AS notices, count(a.sha256) AS files, sum(a.size_bytes) AS bytes
-FROM r2.silver.industrial_land_sale_notice_read r
+FROM r2.silver.industrial_land_sale_notice_fetch_attempt r
 LEFT JOIN r2.silver.industrial_land_sale_notice_attachment a USING (notice_source, notice_id)
 GROUP BY r.notice_source;
 ```

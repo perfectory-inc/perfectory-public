@@ -96,21 +96,29 @@ class ALaneRoleReachesOnlyItsOwn(unittest.TestCase):
 
 
 class EachLaneHasItsOwnScope(unittest.TestCase):
-    def test_every_lane_is_a_collector_of_the_job_list(self) -> None:
+    def test_every_lane_is_a_collector_or_a_load_of_the_job_list(self) -> None:
         jobs = {job["id"]: job for job in json.loads((PLATFORM / "orchestration" / "jobs.v1.json").read_text(encoding="utf-8"))["jobs"]}
         for name, lane in lanes().items():
             if lane["handover"] == "none":
                 # A source with no host copy (the RTMS lane): no job on the host list.
                 self.assertNotIn(name, jobs)
                 continue
-            self.assertEqual(jobs[name]["dagster_group"], "collect", name)
+            # A load (`started_by: inputs`, W109e) is a Silver or Gold job; every other lane collects.
+            group = ("silver", "gold") if lane.get("started_by") == "inputs" else ("collect",)
+            self.assertIn(jobs[name]["dagster_group"], group, name)
 
-    def test_a_lane_writes_bronze_and_media_only_and_reads_no_table(self) -> None:
+    def test_a_lane_writes_bronze_media_and_its_index_delta_only_and_names_no_table(self) -> None:
+        # A lane reaches a table only through the Lakekeeper catalog, with the grants generated from the graph
+        # (config/lakekeeper-declaration.v1.json); its object scope never names one. A load of a media index on that
+        # catalog also writes the index's key deltas for the host's media reconciler (coordinator 2026-11-28).
+        declaration = json.loads((PLATFORM / "config" / "lakekeeper-declaration.v1.json").read_text(encoding="utf-8"))
         for name, lane in lanes().items():
             self.assertTrue(lane["write_prefixes"], f"{name} has no write prefix")
+            deltas = {f"control/media_index/{table.replace('.', '/')}/"
+                      for table in declaration["lanes"].get(name, {}).get("write", [])}
             for prefix in lane["write_prefixes"]:
-                self.assertTrue(BRONZE.match(prefix) or prefix in MEDIA, f"{name}: {prefix}")
-            self.assertNotIn("read_tables", lane, f"{name}: the table half waits for root ADR-0624")
+                self.assertTrue(BRONZE.match(prefix) or prefix in MEDIA or prefix in deltas, f"{name}: {prefix}")
+            self.assertNotIn("read_tables", lane, f"{name}: a lane's tables are its catalog grants")
             for prefix in lane.get("read_prefixes", []):
                 self.assertTrue(BRONZE.match(prefix), f"{name} reads {prefix}")
 

@@ -23,7 +23,7 @@ use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYT
 pub use crate::industrial_complex_notice_stage::{refuse_repeated, PlannedObject, PLAN_SCHEMA};
 
 /// The read record a load's plan is decided from (the lane contract's `read_from`).
-pub const READ_TABLE: &str = "silver.industrial_land_sale_notice_read";
+pub const FETCH_ATTEMPT_TABLE: &str = "silver.industrial_land_sale_notice_fetch_attempt";
 /// The index of the attachments the media store holds.
 pub const ATTACHMENT_TABLE: &str = "silver.industrial_land_sale_notice_attachment";
 /// Columns a load writes, not the source: never compared.
@@ -272,7 +272,12 @@ pub fn stage_object(
         reads,
         attachments,
         changed_attachments,
-        reads_file: write(reads, reads_shape, READ_TABLE, "SELECT * FROM sale_reads")?,
+        reads_file: write(
+            reads,
+            reads_shape,
+            FETCH_ATTEMPT_TABLE,
+            "SELECT * FROM sale_reads",
+        )?,
         attachments_file: write(
             changed_attachments,
             attachments_shape,
@@ -280,6 +285,24 @@ pub fn stage_object(
             "SELECT * FROM sale_attachments_changed",
         )?,
     })
+}
+
+/// The `(sha256, media_format)` keys the changed attachment rows of the object [`stage_object`] staged
+/// last name, in key order: what the media reconciler must count as named once they are committed.
+///
+/// # Errors
+/// Returns a `DuckDB` failure, or a row without a key.
+pub fn changed_media_keys(stage: &DuckDbParquetStage) -> anyhow::Result<Vec<(String, String)>> {
+    let mut statement = stage.connection().prepare(
+        "SELECT DISTINCT sha256, media_format FROM sale_attachments_changed ORDER BY sha256, media_format",
+    )?;
+    let keys = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("DuckDB failed to read the changed attachments' media keys")?;
+    Ok(keys)
 }
 
 #[cfg(test)]

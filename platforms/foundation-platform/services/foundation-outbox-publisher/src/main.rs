@@ -51,6 +51,7 @@ use foundation_publisher_silver::building_register_floor_silver_export;
 use foundation_publisher_silver::hub_provider_release;
 use foundation_publisher_tiles::boundary_static_release_publish;
 mod bronze_epoch;
+mod bronze_ledger_move;
 mod bronze_ledger_objects;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
@@ -405,6 +406,9 @@ enum Command {
     VerifyR2Cleanup,
     ValidateTileDerivativeR2,
     RekeyBronzeEpoch,
+    ExportBronzeLedgerRows,
+    ImportBronzeLedgerRows,
+    RunIndustrialLandSaleNoticeSilver,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -960,6 +964,11 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ReconcileLakehouseCatalog => Box::pin(lakehouse_catalog_reconcile::run()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
         Command::RekeyBronzeEpoch => Box::pin(bronze_epoch::run()),
+        Command::ExportBronzeLedgerRows => Box::pin(bronze_ledger_move::export()),
+        Command::ImportBronzeLedgerRows => Box::pin(bronze_ledger_move::import()),
+        Command::RunIndustrialLandSaleNoticeSilver => {
+            Box::pin(industrial_land_sale_notice_silver_load::run_lane())
+        }
         Command::ValidateTileDerivativeR2 => {
             Box::pin(async { tile_derivative_object_storage::validate_environment() })
         }
@@ -1321,6 +1330,11 @@ where
         Some("reconcile-lakehouse-catalog") => Ok(Command::ReconcileLakehouseCatalog),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("rekey-bronze-epoch") => Ok(Command::RekeyBronzeEpoch),
+        Some("export-bronze-ledger-rows") => Ok(Command::ExportBronzeLedgerRows),
+        Some("import-bronze-ledger-rows") => Ok(Command::ImportBronzeLedgerRows),
+        Some("run-industrial-land-sale-notice-silver") => {
+            Ok(Command::RunIndustrialLandSaleNoticeSilver)
+        }
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
         Some(other) => {
             match foundation_publisher_silver::hub_family_silver_export::lane_id_of_export(other) {

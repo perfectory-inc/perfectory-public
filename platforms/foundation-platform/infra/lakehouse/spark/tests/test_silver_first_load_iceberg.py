@@ -80,7 +80,7 @@ OWN_WRITERS = {
     "silver.industrial_complex_notice_detail": NOTICE_FIRST_LOAD,
     "silver.industrial_complex_notice_attachment": NOTICE_FIRST_LOAD,
     # The industrial land sale notice Silver load's two tables, the same test (root ADR-0603).
-    "silver.industrial_land_sale_notice_read": NOTICE_FIRST_LOAD,
+    "silver.industrial_land_sale_notice_fetch_attempt": NOTICE_FIRST_LOAD,
     "silver.industrial_land_sale_notice_attachment": NOTICE_FIRST_LOAD,
     # The FLOOR cycle's whole-edition load (run-building-register-floor-cycle), appended by the publisher (root ADR-0599).
     "silver.building_register_floors": ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"

@@ -49,10 +49,13 @@ class OnAws(unittest.TestCase):
                 self.assertNotEqual(job_id in hosted, job_id in here, f"{job_id} runs in exactly one place")
                 self.assertEqual(job_id in job_specs.on_aws(listed), job_id in here, job_id)
 
-    def test_onbid_moved_and_rt_molit_is_back_on_the_host(self):
-        # rt.molit.go.kr drops TCP connections from AWS addresses (2026-11-27, root ADR-0616 section 7).
+    def test_onbid_and_the_sale_notice_component_moved_and_rt_molit_is_back_on_the_host(self):
+        # rt.molit.go.kr drops TCP connections from AWS addresses (2026-11-27, root ADR-0616 section 7). The
+        # industrial land sale notice moved whole with its Lakekeeper switch (W109e): three collectors and its load.
         moved = job_specs.on_aws(collect_lane.jobs())
-        self.assertEqual(moved, {"onbid_public_auction_collect"})
+        self.assertEqual(moved, {"onbid_public_auction_collect", "industrial_land_sale_notice_factoryon_collect",
+                                 "industrial_land_sale_notice_ilis_collect", "industrial_land_sale_notice_kicox_collect",
+                                 "industrial_land_sale_notice_silver"})
 
 
 class OnbidOnADailyBeat(unittest.TestCase):

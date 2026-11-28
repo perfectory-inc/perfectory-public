@@ -573,3 +573,15 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 2026-11-28 ([ADR-0626](./0626-every-kind-of-data-name-has-one-home-every-other-spelling-is-generated-and-a-name-outside-the-rules-is-refused.md) §8 N2): §7 의 레인은 `paused` 와 `paused_reason` 을 적을 수 있다. 적은 동안 그 레인은 넘기는 방식(handoff·overlap)과
 상관없이 어디서도 돌지 않는다(`collect_lane.lanes_here`). Bronze 시기 동안 온비드 레인이 그렇고(호스트 작업도 꺼져 있다), 재개 PR 이 그
 줄을 지우며 그 커밋의 이미지를 적용한다.
+
+2026-11-28 (W109e, 첫 Lakekeeper 전환, 코디네이터 결정): **A4 의 원장 길.** 한 원천의 원장 줄은 그 수집기와 함께 넘어간다(A1b)는 것의 길은
+이것이다. 호스트가 옮긴 원천의 줄을 한 번 내보내고(작업 `bronze_ledger_export`, 발행기의 `export-bronze-ledger-rows`: `source_catalog`·
+`ingestion_run`·`bronze_object`·`bronze_object_version` 를 `to_jsonb` 줄로, 만들기만으로 `control/evidence/ledger_move/<날짜>-<원천>.jsonl.gz`, 그
+원천의 쓰는 쪽이 돌고 있거나 방금 돌았으면 쓰지 않는다), AWS 의 배포 전 사슬 셋째 걸음(`infra/aws/ledger-import.tf`, 마이그레이션 뒤·서비스 전)이
+모든 내보내기를 RDS 원장에 들인다(`import-bronze-ledger-rows`: 원천은 id(slug)로, 객체는 그 id 와 `object_key` 로 맞추고, 시각은 그대로, 이미 있는
+줄은 그대로라 두 번째 들이기는 아무것도 넣지 않는다; 같은 dedupe 키를 다른 줄이 쥐면 옛 수집을 바뀐 줄로 남기고, 내보낸 줄이 더 새것이면 거부한다).
+옮길 원천은 손으로 적지 않는다: Lakekeeper 표를 쥔 AWS 레인이 쓰는 Bronze 원천이다(`config/lakekeeper-declaration.v1.json` `ledger_sources`). 그래서
+원장을 읽는 적재가 AWS 로 오는 구성 요소의 전환이 그 원천들을 옮긴다. 온비드처럼 표를 쥐지 않은 레인의 줄은 그 구성 요소의 전환까지 호스트에 있다.
+레인 둘이 더해졌다: `started_by: inputs` 는 박자가 아니라 입력을 만드는 이곳의 레인 뒤에 eager 로 도는 적재(Silver·Gold, ADR-0623 §1-2; 실행
+종류 태그는 그 작업의 `dagster_group`)이고, `state: table` 은 상태 객체 없이 카탈로그의 제 표가 상태인 레인이다(그 표에 스냅숏이 없는 동안 수집기는
+아무것도 묻지 않는다: 위 "상태가 없으면 묻지 않는다"의 그 꼴).

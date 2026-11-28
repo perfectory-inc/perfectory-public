@@ -11,12 +11,19 @@
 
 locals {
   reconciler = local.env.reconciler
+  # What the catalog holds: prod's is generated from the pipeline graph (scripts/catalog/declared_definitions.py,
+  # root ADR-0626 §9), never a hand list; dev's contract declares its own (none: its probes make theirs).
+  # (One text either way, so both arms have one type: the generated file, or the contract's own lists.)
+  declared = jsondecode(try(
+    file("${path.module}/../../${local.reconciler.declaration}"),
+    jsonencode({ tables = local.reconciler.tables, lanes = local.reconciler.lanes }),
+  ))
   # Lakekeeper names an OIDC principal oidc~<subject>, and a Cognito machine token's subject is its client id.
   user_id = { for name, client in aws_cognito_user_pool_client.principal : name => "oidc~${client.id}" }
   reconciler_declaration = {
     warehouse = local.env.warehouse
-    tables    = local.reconciler.tables
-    lanes     = { for lane, grants in local.reconciler.lanes : local.user_id[lane] => grants }
+    tables    = local.declared.tables
+    lanes     = { for lane, grants in local.declared.lanes : local.user_id[lane] => grants }
     operator  = local.user_id[local.operator]
     drift     = local.reconciler.drift
   }

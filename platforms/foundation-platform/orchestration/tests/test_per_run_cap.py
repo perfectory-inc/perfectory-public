@@ -13,6 +13,9 @@ import tempfile
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("job_specs_for_per_run_cap", PLATFORM / "orchestration" / "dags" / "job_specs.py")
+job_specs = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(job_specs)
 ROADMAP = PLATFORM.parents[1] / "docs" / "roadmap" / "production-readiness.md"
 UNITS = ("run", "request", "download", "object")
 HEADROOM = 0.9  # the share of the limit #988 left rt-molit's Silver load (1,800 + 206 + 120 of 2,400 s)
@@ -133,8 +136,6 @@ HELD_OFF = {
     # 2026-11-24: its national join never finished (tile-join's time bound, six runs from 11-19) and its
     # failing runs held the one spark slot 33.8 of 44 h; back on once root ADR-0613's release is live.
     "parcel_tile_bake": "off until the publisher's own partition merge (root ADR-0613) is live",
-    # Off here for good: its AWS lane runs it (root ADR-0616); bronze_epoch writes the source group it reads.
-    "onbid_public_auction_collect": "runs on AWS (root ADR-0616 §7)",
 }
 
 
@@ -148,9 +149,12 @@ def idle_readers(jobs, graph, held_off=HELD_OFF):
     (ownership, sub-parcels, energy, demolitions, factories, register masters) kept their first publish
     while their Silver loaders ran, because their Gold and bake jobs were off (the 2026-11-10 revision).
     A reader turned on takes its own first run through the same gate (first_run_problems), so the rule
-    reaches down the chain to the bake. A reader in `held_off` is the declared exception."""
+    reaches down the chain to the bake. A reader in `held_off` is the declared exception. A job off here
+    because its AWS lane runs it (job_specs.on_aws, root ADR-0616 §7) is on, not idle: onbid since
+    2026-11-27, the industrial land sale notice's collectors and load since its Lakekeeper switch (W109e)."""
     edges = {edge["id"]: edge for edge in graph["edges"]}
     by_id = {job["id"]: job for job in jobs["jobs"]}
+    moved = job_specs.on_aws(jobs)
 
     def reads(job):
         return {edges[edge]["from"] for edge in job["pipeline_graph_edges"] if edge in edges}
@@ -166,7 +170,7 @@ def idle_readers(jobs, graph, held_off=HELD_OFF):
         first = (job.get("per_run_cap") or {}).get("first_run")
         for reader in jobs["jobs"]:
             if (reader is not job and not reader["enabled"] and reader["id"] not in held_off
-                    and makes(job) & (reads(reader) - makes(reader))):
+                    and reader["id"] not in moved and makes(job) & (reads(reader) - makes(reader))):
                 found.append(f"{reader['id']}: off, but it reads what {job['id']} "
                              + ("takes its first run to make" if first else "makes"))
     return found

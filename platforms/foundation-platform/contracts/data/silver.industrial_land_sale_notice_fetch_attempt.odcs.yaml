@@ -2,7 +2,7 @@
 # pipeline graph (root ADR-0123). Do not edit: change the source and re-render.
 apiVersion: "v3.1.0"
 kind: "DataContract"
-id: "silver.industrial_land_sale_notice_read"
+id: "silver.industrial_land_sale_notice_fetch_attempt"
 name: "산업용지 분양공고 읽은 기록"
 version: "1.0.0"
 status: "draft"
@@ -16,8 +16,8 @@ servers:
     type: "custom"
     catalog: "lakehouse"
 schema:
-  - name: "silver.industrial_land_sale_notice_read"
-    physicalName: "silver.industrial_land_sale_notice_read"
+  - name: "silver.industrial_land_sale_notice_fetch_attempt"
+    physicalName: "silver.industrial_land_sale_notice_fetch_attempt"
     logicalType: "object"
     physicalType: "table"
     properties:
@@ -78,7 +78,7 @@ schema:
         description: "(notice_source, notice_id, source_snapshot_id, source_line_number) unique"
 customProperties:
   - property: "pipelineGraphNode"
-    value: "silver-industrial-land-sale-notice-read"
+    value: "silver-industrial-land-sale-notice-fetch-attempt"
   - property: "declaredStatus"
     value: "contract_only"
   - property: "servingRole"

@@ -152,8 +152,9 @@ resource "aws_ecs_service" "code_server" {
   triggers = {
     database_password = aws_secretsmanager_secret_version.dagster_database.secret_string_wo_version
   }
-  # A location's code reads the schema the release migrated (foundation-database.tf).
-  depends_on = [terraform_data.database_migrate]
+  # A location's code reads the schema the release migrated (foundation-database.tf) and the ledger rows the
+  # moved lanes brought (ledger-import.tf).
+  depends_on = [terraform_data.database_migrate, terraform_data.ledger_import]
 }
 
 output "code_servers" {

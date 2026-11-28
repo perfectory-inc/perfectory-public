@@ -293,3 +293,12 @@ Single-AZ 와 Multi-AZ 의 차는 월 39.85 USD 다. Single-AZ 동안 RDS 장애
 `docs/runbooks/lakekeeper.md` 의 시험 기록). T17 의 Basin 읽기 길(코디네이터 2026-11-28, (b)): 일회성 인수 태스크(`acceptance.tf`)가 조정기와 같은
 실행 역할·같은 비밀 정책으로 돌며 창고 R2 자격(이 계정의 Admin Read & Write 토큰, Basin 도 받는다)으로 Basin 을 `READ_ONLY` 로 붙인다. 새 읽는 주체도
 새 비밀도 없고, 이 길은 A9 에서 Basin 과 함께 지운다. 첫 구성 요소는 산업용지 분양공고(루트 ADR-0603)이고 그 표의 마지막 이름은 ADR-0626 의 것이다.
+
+2026-11-28 (W109e): A1 의 첫 구성 요소 전환(산업용지 분양공고). 표 둘이 마지막 이름(`silver.industrial_land_sale_notice_fetch_attempt`·
+`silver.industrial_land_sale_notice_attachment`)으로 조정기가 만든 빈 표가 되고, Basin 에서 복사하지 않고 제 적재가 Bronze 에서 다시 짓는다(결정 10-6).
+조정기의 표와 권한은 생성된다(ADR-0626 §9): 정의의 표 노드가 `catalog: lakekeeper` 를 달면 생성기가 파이프라인 그래프에서
+`config/lakekeeper-declaration.v1.json` 을 만들고(수집기 셋은 `fetch_attempt` 에 `select`, 적재는 둘에 `write`), 그 표를 건드리는 켜진 호스트 작업은
+생성이 거부한다(카탈로그의 끝점은 플랫폼 VPC 안에서만 닿는다). 레인마다 Cognito 클라이언트가 그 파일에서 생기고, 그 칸에는 카탈로그 주소·토큰
+끝점·범위·창고가 함께 있어 레인의 실행 역할만 읽는다. 호스트에서 이 카탈로그의 색인을 읽을 수 없는 미디어 대조기에는 적재가 커밋 전에 그 행의
+키를 `control/media_index/` 에 쓴다(코디네이터 2026-11-28). 비교는 T17 의 다시 짓기 꼴이다(`lake-compare`: Bronze 시기 뒤 키가 바뀌었으므로 객체를
+행 수와 적재가 쓰지 않는 열의 해시로 짝짓는다).

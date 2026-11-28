@@ -61,7 +61,8 @@
     "principals": {
       "reconciler": { "declared": true, "scopes": ["catalog"], "access_token_minutes": 60 }
     },
-    "reason": "One Cognito app client per principal with the client-credentials flow (root ADR-0624 §2). At A1 the one principal is the operator the reconciler runs as (it bootstraps Lakekeeper, so it is the first to call it); a lane's client comes with its component's switch, when the lane runs here (coordinator 2026-11-27). Lakekeeper admits a token only with the catalog scope, token_use=access and the client_id of a declared principal. The pool is deletion-protected."
+    "lane_access_token_minutes": 60,
+    "reason": "One Cognito app client per principal with the client-credentials flow (root ADR-0624 §2). The operator the reconciler runs as is the contract's (it bootstraps Lakekeeper, so it is the first to call it); every other principal is a lane the generated declaration grants a table (config/lakekeeper-declaration.v1.json, from the pipeline graph: W109e, the first switch, adds the industrial land sale notice's four), with the catalog scope and a 60-minute token, the operator's; its slot holds the catalog's address too and is read only by that lane's run role (coordinator 2026-11-27, 2026-11-28). Lakekeeper admits a token only with the catalog scope, token_use=access and the client_id of a declared principal. The pool is deletion-protected."
   },
   "warehouse": {
     "bucket": "foundation-platform-lakehouse-prod",
@@ -74,9 +75,8 @@
   },
   "reconciler": {
     "drift": "fail",
-    "tables": [],
-    "lanes": {},
-    "reason": "Drift fails the run (root ADR-0624 A6): a namespace, table or grant that is not declared, a declared table whose shape is not its contract's, or a warehouse whose storage profile is not this block. No table is declared and no lane runs here at A1 (coordinator 2026-11-27): each component's switch PR adds its tables (created from their Rust table contracts, then copied in with INSERT ... SELECT) and its lanes' grants, and is where their final table names land."
+    "declaration": "config/lakekeeper-declaration.v1.json",
+    "reason": "Drift fails the run (root ADR-0624 A6): a namespace, table or grant that is not declared, a declared table whose shape is not its contract's, or a warehouse whose storage profile is not this block. What is declared is generated, never listed here (root ADR-0626 §9): the tables of the components that have switched (the pipeline graph's `catalog: lakekeeper` tables, created from their Rust table contracts by the reconciler, which alone creates) and each lane's grants on them (select on a table its job's edges read, write on a table it loads), in config/lakekeeper-declaration.v1.json (scripts/catalog/declared_definitions.py lakekeeper_declaration). The first switch is the industrial land sale notice (W109e): its two tables are rebuilt from Bronze by their own load, not copied."
   },
   "alarms": {
     "window_minutes": 5,

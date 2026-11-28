@@ -43,9 +43,9 @@ const LATEST: &[&str] = &["source_snapshot_id", "source_line_number"];
 ///
 /// `list_fingerprint` is the hash of the list fields the source contract names: a listed notice
 /// whose fingerprint differs from its last read is read again.
-pub const SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ: LakehouseTableContract =
+pub const SILVER_INDUSTRIAL_LAND_SALE_NOTICE_FETCH_ATTEMPT: LakehouseTableContract =
     LakehouseTableContract {
-        table_name: "silver.industrial_land_sale_notice_read",
+        table_name: "silver.industrial_land_sale_notice_fetch_attempt",
         layer: LakehouseLayer::Silver,
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Canonical,

@@ -44,8 +44,9 @@ rules:
       # credential can and cannot reach (one call each, no retry wanted), and only the warehouse task
       # lists the dev bucket with its own token. They read no data a lane serves.
       # An AWS collector lane's state (W101c, root ADR-0616 §8 C): one LIST, one GET and one conditional PUT per
-      # run under the lane's own collector-state/<lane>/ prefix, with the lane's vended credential. It is no lake
-      # read: the lane's data goes through the publisher.
+      # run under the lane's own collector-state/<lane>/ prefix, with the lane's vended credential; and the rollout's
+      # ledger import (W109e) lists control/evidence/ledger_move/ with its own alias's read credential and hands
+      # each key to the publisher. It is no lake read: the data goes through the publisher.
       # The root ADR-0626 area mover (scripts/ops/r2_move.py) is an operator's tool, not a lane: it lists an area,
       # copies its objects server-side by key (CopyObject, create-only), HEADs the copies and sets lifecycle
       # rules; the only bytes it reads are the industrial complex index it rewrites and the hash samples of its

@@ -63,6 +63,11 @@ import internal_http  # beside this file: the daily jobs' one retry for the serv
 RELEASE = pathlib.Path(os.environ.get("FOUNDATION_DATA_QUALITY_RELEASE", "/opt/foundation-platform/current"))
 CONTRACTS = RELEASE / "contracts" / "data"
 JOBS = RELEASE / "orchestration" / "jobs.v1.json"
+# The tables of the Lakekeeper catalog (generated from the pipeline graph, root ADR-0624): its endpoint is private
+# to the platform's VPC, so this host reads none of them, and the old catalog's copy of a switched table is frozen
+# at the switch; judging it would report a table nobody writes as current (W109e). Their checks run where their
+# load runs, on AWS.
+LAKEKEEPER = RELEASE / "config" / "lakekeeper-declaration.v1.json"
 # Only to learn once which contracts DataHub had judged before (root ADR-0609 §2; removed with DataHub).
 GMS = os.environ.get("FOUNDATION_DATA_QUALITY_GMS_URL", "http://127.0.0.1:18095")
 # The admitted release's publisher (admitted-writer-runtime.sh), and where its DuckDB keeps its
@@ -468,11 +473,22 @@ def write_first_checked(first_checked):
     temporary.replace(FIRST_CHECKED)
 
 
+def switched_tables(path=LAKEKEEPER):
+    """The tables of the Lakekeeper catalog; none before the declaration exists."""
+    if not path.is_file():
+        return set()
+    return set(json.loads(path.read_text(encoding="utf-8"))["tables"])
+
+
 def main():
     totals = new_totals()
-    contracts = sorted(CONTRACTS.glob("*.odcs.yaml"))
+    switched = switched_tables()
+    contracts = [path for path in sorted(CONTRACTS.glob("*.odcs.yaml"))
+                 if path.name[: -len(".odcs.yaml")] not in switched]
     if not contracts:
         sys.exit(f"data-quality: no contracts under {CONTRACTS}")
+    for table in sorted(switched):
+        print(f"data-quality: {table}: on the Lakekeeper catalog, judged where its load runs (not here)")
     first_checked = read_first_checked()
     try:
         check_contracts(contracts, totals, first_checked=first_checked)

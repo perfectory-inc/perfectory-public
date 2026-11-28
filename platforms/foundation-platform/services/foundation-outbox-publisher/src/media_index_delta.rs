@@ -12,6 +12,16 @@
 //! Trino is being retired (root ADR-0559). The read is the catalog's read-only token and the
 //! lakehouse reader key, as the photo ladder backlog reads the same tables (root ADR-0429). Rows are
 //! dropped as they decode: what it holds is the key set, not the rows. Writes nothing to R2.
+//!
+//! An index table whose component has switched to the Lakekeeper catalog (root ADR-0624;
+//! `config/lakekeeper-declaration.v1.json`) is not reachable from here: the catalog's endpoint is
+//! private to the platform's VPC. Its load on AWS writes, before each commit of new or changed index
+//! rows, the keys those rows name as one object under `control/media_index/<namespace>/<table>/`
+//! ([`write_delta`], create-only, one per Bronze object); this command reads the objects it has not
+//! read yet, as it reads the data files of the other tables (coordinator 2026-11-28, until the last
+//! index switches and the reconciler moves to AWS whole). A delta written for a commit that then
+//! failed names keys the store holds (the collector stores a file before its Bronze line), so it
+//! never makes a key "missing"; its retry writes the same object.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -30,8 +40,91 @@ use serde_json::{json, Value as JsonValue};
 
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows_in_files, LakehouseObjectReader};
 use crate::public_data_control_support::{required_env_value, write_json_file};
+use foundation_outbox::object_storage::R2InventoryRequest;
+use foundation_outbox::R2ObjectStorage;
+use sha2::{Digest as _, Sha256};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_MEDIA_INDEX_DELTA";
+/// Where a load on AWS leaves the keys of the index rows it commits.
+const DELTA_ROOT: &str = "control/media_index/";
+const DELTA_SCHEMA: &str = "foundation-platform.media_index_delta.v1";
+/// What the Lakekeeper catalog holds (generated from the pipeline graph, root ADR-0418).
+const LAKEKEEPER_DECLARATION: &str = include_str!("../../../config/lakekeeper-declaration.v1.json");
+
+/// The tables of the Lakekeeper catalog.
+pub(crate) fn lakekeeper_tables() -> anyhow::Result<BTreeSet<String>> {
+    let declaration: JsonValue = serde_json::from_str(LAKEKEEPER_DECLARATION)
+        .context("config/lakekeeper-declaration.v1.json is not valid")?;
+    serde_json::from_value(declaration["tables"].clone())
+        .context("config/lakekeeper-declaration.v1.json names no tables")
+}
+
+/// `control/media_index/<namespace>/<table>/` of `table`.
+pub(crate) fn delta_prefix(table: &str) -> anyhow::Result<String> {
+    let (namespace, name) = table
+        .split_once('.')
+        .with_context(|| format!("{table} is not <namespace>.<table>"))?;
+    Ok(format!("{DELTA_ROOT}{namespace}/{name}/"))
+}
+
+/// The one delta object of `table` for `bronze_object`: the same object always names the same key.
+pub(crate) fn delta_key(table: &str, bronze_object: &str) -> anyhow::Result<String> {
+    let digest = format!("{:x}", Sha256::digest(bronze_object.as_bytes()));
+    Ok(format!("{}{}.json", delta_prefix(table)?, &digest[..32]))
+}
+
+/// Whether `table` is an index the reconciler reads (`media.reconcile.index_tables`).
+pub(crate) fn is_index_table(table: &str) -> anyhow::Result<bool> {
+    Ok(index_tables()?.iter().any(|indexed| indexed == table))
+}
+
+/// Writes the keys `keys` that `table`'s rows from `bronze_object` name, before they are committed;
+/// an object already there (a retried commit) is kept.
+///
+/// # Errors
+/// The key or the body cannot be made, or R2 refuses the write.
+pub(crate) async fn write_delta(
+    storage: &R2ObjectStorage,
+    table: &str,
+    bronze_object: &str,
+    keys: &[(String, String)],
+) -> anyhow::Result<()> {
+    let body = serde_json::to_vec(&json!({
+        "schema_version": DELTA_SCHEMA,
+        "table": table,
+        "bronze_object": bronze_object,
+        "keys": keys.iter().map(|(sha256, format)| [sha256, format]).collect::<Vec<_>>(),
+    }))?;
+    crate::bronze_epoch::put_create_only(
+        storage,
+        &delta_key(table, bronze_object)?,
+        body,
+        "application/json",
+    )
+    .await?;
+    Ok(())
+}
+
+/// The `(sha256, media_format)` keys a delta object names.
+fn delta_keys(table: &str, bytes: &[u8]) -> anyhow::Result<Vec<(String, String)>> {
+    let delta: JsonValue = serde_json::from_slice(bytes)?;
+    anyhow::ensure!(
+        delta["schema_version"] == DELTA_SCHEMA && delta["table"] == table,
+        "a delta of {table} that is not a {DELTA_SCHEMA} of it"
+    );
+    delta["keys"]
+        .as_array()
+        .context("a delta without keys")?
+        .iter()
+        .map(|pair| -> anyhow::Result<(String, String)> {
+            let pair: Vec<String> = serde_json::from_value(pair.clone())?;
+            match pair.as_slice() {
+                [sha256, format] => Ok((sha256.clone(), format.clone())),
+                _ => anyhow::bail!("a delta key that is not [sha256, media_format]"),
+            }
+        })
+        .collect()
+}
 
 /// What this command reads of the reconciler's state; anything else in it is the comparison's.
 #[derive(Debug, Default, Deserialize)]
@@ -99,6 +192,7 @@ pub async fn run() -> anyhow::Result<()> {
     ))?))?;
     let output = PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT"))?);
     let configured = index_tables()?;
+    let switched = lakekeeper_tables()?;
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::reader_from_env()
             .context("the media index read uses the catalog's read-only token")?,
@@ -109,8 +203,31 @@ pub async fn run() -> anyhow::Result<()> {
             .context("the media index read reads R2 with the lakehouse reader key")?,
     );
 
+    let objects =
+        R2ObjectStorage::from_config(R2ObjectStorageConfig::lakehouse_reader_from_env().context(
+            "the media index read lists the switched indexes' deltas with the reader key",
+        )?);
+    // A switched index: its deltas, listed (a table with none is not there yet).
+    let mut deltas = BTreeMap::new();
+    for table in configured.iter().filter(|table| switched.contains(*table)) {
+        let listed = objects
+            .inventory_audit(R2InventoryRequest::new(
+                Some(&delta_prefix(table)?),
+                Some(1000),
+            )?)
+            .await
+            .with_context(|| format!("failed to list the deltas of {table}"))?;
+        let keys: BTreeSet<String> = listed
+            .objects()
+            .iter()
+            .map(|object| object.key.clone())
+            .collect();
+        if !keys.is_empty() {
+            deltas.insert(table.clone(), keys);
+        }
+    }
     let mut snapshots = Vec::new();
-    for table in &configured {
+    for table in configured.iter().filter(|table| !switched.contains(*table)) {
         let contract = contract_of(table)?;
         if let Some(snapshot) = catalog
             .load_current_snapshot_manifest_list(table)
@@ -120,9 +237,12 @@ pub async fn run() -> anyhow::Result<()> {
             snapshots.push((table.clone(), contract, snapshot));
         }
     }
-    let present = snapshots
+    let present = configured
         .iter()
-        .map(|(table, ..)| table.clone())
+        .filter(|table| {
+            deltas.contains_key(*table) || snapshots.iter().any(|(held, ..)| held == *table)
+        })
+        .cloned()
         .collect::<Vec<_>>();
     let identity = identity(&configured, &present);
     let empty = BTreeMap::new();
@@ -173,6 +293,27 @@ pub async fn run() -> anyhow::Result<()> {
             }),
         );
         read_files.insert(table.clone(), paths);
+    }
+    for (table, listed) in &deltas {
+        let before = read_before.get(table);
+        let unread: Vec<&String> = listed
+            .iter()
+            .filter(|key| before.is_none_or(|read| !read.contains(*key)))
+            .collect();
+        let mut named = 0_usize;
+        for key in &unread {
+            let found = delta_keys(table, &objects.get_object_bytes(key).await?)
+                .with_context(|| format!("failed to read the delta {key}"))?;
+            named += found.len();
+            if let Ok(mut keys) = keys.lock() {
+                keys.extend(found);
+            }
+        }
+        tables.insert(
+            table.clone(),
+            json!({"deltas": listed.len(), "read_deltas": unread.len(), "named_keys": named}),
+        );
+        read_files.insert(table.clone(), listed.iter().cloned().collect());
     }
     let unnamed = unnamed
         .into_inner()
@@ -226,6 +367,31 @@ mod tests {
         let configured = vec!["silver.a".to_owned(), "silver.b".to_owned()];
         assert_eq!(identity(&configured, &configured), "silver.a+silver.b");
         assert_eq!(identity(&configured, &configured[..1]), "silver.a");
+    }
+
+    /// W109e: a switched index is read from the deltas its AWS load writes; the writer and this reader
+    /// name the same key for the same Bronze object, under the table's own prefix.
+    #[test]
+    fn a_switched_index_is_read_from_its_deltas() {
+        let table = "silver.industrial_land_sale_notice_attachment";
+        assert!(lakekeeper_tables().unwrap().contains(table));
+        assert!(is_index_table(table).unwrap());
+        let key = delta_key(table, "bronze/source=x__y/a--sha256-00.gz").unwrap();
+        assert!(
+            key.starts_with("control/media_index/silver/industrial_land_sale_notice_attachment/")
+        );
+        assert_eq!(
+            key,
+            delta_key(table, "bronze/source=x__y/a--sha256-00.gz").unwrap()
+        );
+        let body = serde_json::to_vec(&json!({"schema_version": DELTA_SCHEMA, "table": table,
+            "bronze_object": "b", "keys": [["00", "pdf"]]}))
+        .unwrap();
+        assert_eq!(
+            delta_keys(table, &body).unwrap(),
+            [("00".to_owned(), "pdf".to_owned())]
+        );
+        assert!(delta_keys("silver.other", &body).is_err());
     }
 
     #[test]

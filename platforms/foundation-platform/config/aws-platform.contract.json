@@ -138,7 +138,7 @@
       "medium": { "cpu": 512, "memory": 4096 },
       "large": { "cpu": 1024, "memory": 6144 }
     },
-    "size_reason": "Fargate ARM sizes by root ADR-0574's rule (limit >= 1.5 x the measured peak), from the host units' systemd `memory peak` over the 14 days to 2026-11-27 (journal, read-only): rt.molit 460 MiB -> small (0.25 vCPU, 1 GB); pension and employment insurance workplace 1.7 GB each (the run that lands earlier editions holds one file and its copy) -> medium (0.5 vCPU, 4 GB, the most Fargate gives 0.5 vCPU); onbid and juso 2.6 GB each -> large (1 vCPU, 6 GB): 1.5 x 2.6 is 3.9 GB, and onbid's one daily run does what 24 hourly runs did. cAdvisor's 7-day unit figures (0.45 GiB for pension, 0.05 GiB for juso) were below these and are not the size. Every collector averaged under 0.1 core on the host. Measure the AWS runs and change a lane's size here.",
+    "size_reason": "Fargate ARM sizes by root ADR-0574's rule (limit >= 1.5 x the measured peak), from the host units' systemd `memory peak` over the 14 days to 2026-11-27 (journal, read-only): rt.molit 460 MiB -> small (0.25 vCPU, 1 GB); pension and employment insurance workplace 1.7 GB each (the run that lands earlier editions holds one file and its copy) -> medium (0.5 vCPU, 4 GB, the most Fargate gives 0.5 vCPU); onbid and juso 2.6 GB each -> large (1 vCPU, 6 GB): 1.5 x 2.6 is 3.9 GB, and onbid's one daily run does what 24 hourly runs did. cAdvisor's 7-day unit figures (0.45 GiB for pension, 0.05 GiB for juso) were below these and are not the size. Every collector averaged under 0.1 core on the host. Measure the AWS runs and change a lane's size here. The industrial land sale notice lanes (W109e), from the same journal over the 14 days to 2026-11-28: factory-on 978 MiB (its first fill, with 384 MiB swapped), ILIS 711 MiB and KICOX 558 MiB -> medium (KICOX's 1.5 x is 837 MiB, under small's 1 GB, but on AWS each run adds its DuckDB read of the table it owes from, not measured yet); the Silver load 245 MiB -> small.",
     "handover_reason": "Root ADR-0616 §7 (coordinator 2026-11-27). overlap: the host copy keeps running beside the AWS lane until the AWS lane's checks have passed for three days; both write Bronze and the objects dedupe by content key (a create-only write that meets the same bytes records its ledger row, root ADR-0016). handoff (a provider quota, so never two copies at once): the AWS lane runs only while its job is off on the host in the same release (orchestration/jobs.v1.json, job_specs.runs_on_host false), so the one switch that turns the host copy off turns the AWS lane on, and its first run starts from the host's last state object. none (a source with no host copy: the data.go.kr RTMS lane, owner 2026-11-28): the lane runs on AWS only, has no job in the host list (its description is the lane's own), and its first run starts from empty state, which for a new source is the whole history it is to ask.",
     "source_secrets": {
       "DATA_GO_KR_SERVICE_KEY": "data-go-kr-service-key",
@@ -270,8 +270,78 @@
           "bronze/source=datagokr__real_transaction_row_house_trade/"
         ],
         "read_prefixes": ["bronze/source=codegokr__legal_dong_code/"]
+      },
+      "industrial_land_sale_notice_factoryon_collect": {
+        "role": "collect-sale-notice-factoryon",
+        "command": "collect-industrial-land-sale-notices",
+        "env_prefix": "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE",
+        "beat": "industrial-land-sale-notice.contract.json#/sources/factoryon/beat",
+        "size": "medium",
+        "handover": "handoff",
+        "state": "table",
+        "secrets": [],
+        "environment": {"SOURCE": "factoryon"},
+        "work_dirs": [],
+        "write_prefixes": [
+          "bronze/source=factoryongokr__industrial_land_sale_notice_detail/",
+          "media/display/"
+        ]
+      },
+      "industrial_land_sale_notice_ilis_collect": {
+        "role": "collect-sale-notice-ilis",
+        "command": "collect-industrial-land-sale-notices",
+        "env_prefix": "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE",
+        "beat": "industrial-land-sale-notice.contract.json#/sources/ilis/beat",
+        "size": "medium",
+        "handover": "handoff",
+        "state": "table",
+        "secrets": [],
+        "environment": {"SOURCE": "ilis"},
+        "work_dirs": [],
+        "write_prefixes": [
+          "bronze/source=industrylandorkr__industrial_land_sale_notice_detail/",
+          "bronze/source=industrylandorkr__industrial_land_sale_notice_list/",
+          "media/display/"
+        ]
+      },
+      "industrial_land_sale_notice_kicox_collect": {
+        "role": "collect-sale-notice-kicox",
+        "command": "collect-industrial-land-sale-notices",
+        "env_prefix": "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE",
+        "beat": "industrial-land-sale-notice.contract.json#/sources/kicox/beat",
+        "size": "medium",
+        "handover": "handoff",
+        "state": "table",
+        "secrets": [],
+        "environment": {"SOURCE": "kicox"},
+        "work_dirs": [],
+        "write_prefixes": [
+          "bronze/source=kicoxorkr__industrial_land_sale_notice_detail/",
+          "media/display/"
+        ]
+      },
+      "industrial_land_sale_notice_silver": {
+        "role": "silver-sale-notice",
+        "command": "run-industrial-land-sale-notice-silver",
+        "env_prefix": "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE_SILVER",
+        "started_by": "inputs",
+        "size": "small",
+        "handover": "handoff",
+        "state": "table",
+        "secrets": [],
+        "environment": {},
+        "work_dirs": [],
+        "write_prefixes": [
+          "control/media_index/silver/industrial_land_sale_notice_attachment/"
+        ],
+        "read_prefixes": [
+          "bronze/source=datagokr__korea_land_housing_land_notice_detail/",
+          "bronze/source=factoryongokr__industrial_land_sale_notice_detail/",
+          "bronze/source=industrylandorkr__industrial_land_sale_notice_detail/",
+          "bronze/source=kicoxorkr__industrial_land_sale_notice_detail/"
+        ]
       }
     },
-    "lanes_reason": "A lane is one collector of the job list (orchestration/jobs.v1.json, same id; a `none` lane has no job there) that runs on AWS (root ADR-0616 A3, W101c): the publisher command it runs, its env prefix (the command reads <prefix>_OUTPUT_DIR, _STATE_DIR and _LIVE_WRITE; work_dirs are more <prefix>_<name> directories, empty, in the run's work directory; environment is more <prefix>_<name> values), its beat (a JSON pointer into its source contract, which states the cadence and why: root ADR-0623 §1), its size class, its hand-over kind and its scope. The Bronze prefixes are the ones it wrote on the host, read from the host's Bronze ledger (2026-11-27, 45 days, read-only). No lane reads a table: the vendor's table half waits for the catalog decision (root ADR-0624), so the collectors that read Silver (court auction, ILIS, KICOX and factory-on notices, complex notices) stay on the host until then. A lane that states `paused: true` (with `paused_reason`) runs nowhere while it says so: collect_lane.lanes_here leaves it out whatever its handover, for a move that must have neither side write (root ADR-0626 §8 N2, the Bronze epoch)."
+    "lanes_reason": "A lane is one job of the job list (orchestration/jobs.v1.json, same id; a `none` lane has no job there) that runs on AWS (root ADR-0616 A3, W101c): the publisher command it runs, its env prefix (the command reads <prefix>_OUTPUT_DIR, _STATE_DIR and _LIVE_WRITE; work_dirs are more <prefix>_<name> directories, empty, in the run's work directory; environment is more <prefix>_<name> values), when it starts (a collector's beat, a JSON pointer into its source contract, which states the cadence and why: root ADR-0623 §1; `started_by: inputs`, a Silver or Gold load, eager() on the AWS lanes whose jobs produce its inputs: ADR-0623 §1-2), its size class, its hand-over kind and its scope. Its run's kind tag is its job's dagster_group. The Bronze prefixes are the ones it wrote on the host, read from the host's Bronze ledger (2026-11-27, 45 days, read-only). A lane reads or writes a table only through the Lakekeeper catalog (root ADR-0624): its grants and its catalog client are generated from the pipeline graph (config/lakekeeper-declaration.v1.json, scripts/catalog/declared_definitions.py lakekeeper_declaration), never declared here; the first component on it is the industrial land sale notice (W109e). The collectors that read Basin tables (court auction, the ILIS and complex notices) stay on the host until their component switches. A lane that states `state: table` keeps no state object: what it owes is its table in the catalog (granted select), so collect_lane neither restores nor saves one, and its command asks nothing while that table holds no snapshot (it waits for its load's first commit, root ADR-0616 §7: never from empty state; coordinator 2026-11-28). A lane that states `paused: true` (with `paused_reason`) runs nowhere while it says so: collect_lane.lanes_here leaves it out whatever its handover, for a move that must have neither side write (root ADR-0626 §8 N2, the Bronze epoch)."
   }
 }

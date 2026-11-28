@@ -401,3 +401,7 @@ ADR-0624 가 Silver·Gold 를 Lakekeeper 로 옮긴다. 표의 R2 경로는 만�
   않는다(4,384 행 모두 도장이 `collected_at` 과 같다).
 - **범위 밖, 보고만**(코디네이터가 후속으로 적었다): 선언된 id 아래에 원장 줄이 없는 R2 객체 312 개 63 GB(2026-07-02 HUB 파일 id 마다 4,
   연금 사업장 18, ILIS 15, V-World 47).
+
+2026-11-28 (W109e): 첫 전환(산업용지 분양공고)이 `renames.tables` 의 제 항목(`silver.industrial_land_sale_notice_read`)과 이 구성 요소의
+`renames.sources` 두 항목(`datagokr__lh_land_notice_*`, 객체 0)을 지웠다. §9 의 "조정기의 표 목록은 전환한 구성 요소의 계약에서 생성한다"의 꼴: 정의의 표
+노드가 `catalog: lakekeeper` 를 달고, 생성기가 그 표들과 레인의 권한을 `config/lakekeeper-declaration.v1.json` 에 만든다(커밋하지 않는다).
