@@ -17,8 +17,8 @@
   "page_size_reason": "the largest page the RTMS API serves; one call per 시군구 for most months",
   "request_spacing_ms": 100,
   "request_timeout_seconds": 60,
-  "daily_call_limit_per_api": 1000,
-  "daily_call_limit_reason": "data.go.kr's development account: 1,000 calls a KST day per API (land, measured on the portal 2026-11-28). One month of one kind is one call per 시군구 (about 250) and one more per extra page, so about 3 months a kind a day; the daily refresh owes about 1,200 calls a kind (3 recent months daily, 10 weekly, 12 monthly). An operating account raises the limit: that is the owner's application on data.go.kr. The owner applied for the operating account for the 12 APIs on 2026-11-28; this value becomes the approved limit when it is known.",
+  "daily_call_limit_per_api": 900000,
+  "daily_call_limit_reason": "The operating account's approved traffic is 1,000,000 calls a KST day per API (owner 2026-11-28); this contract takes 900,000 of it (90 %, as the export took 90 of its 100 a day), leaving the rest for people and other uses. Our manners do not change with it: one request at a time, request_spacing_ms apart. One month of one kind is one call per 시군구 (about 250) and one more per extra page, so the limit no longer bounds a day: the spacing and the provider's answer time do.",
   "history_from_month": "2006-01",
   "history_reason": "The earliest 계약 달 this channel asks (owner 2026-11-28, D1 ii): the whole history again by API, so Silver reads only this source; the export's Bronze stays as frozen raw history (append-only, not read). The collector takes the later of this and a kind's first_month, so each kind starts at its own first month.",
   "districts": {
