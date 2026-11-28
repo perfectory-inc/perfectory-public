@@ -51,10 +51,9 @@ def asset_key(job_id):
 def lane_definitions(job_id, lane, platform, job_list):
     """The asset and the automation sensor of collector `job_id`."""
     key = asset_key(job_id)
-    spec = collect_lane.job(job_id, job_list)
 
     @multi_asset(name=job_id,
-                 specs=[AssetSpec(key, group_name=GROUP, skippable=True, description=spec["description"],
+                 specs=[AssetSpec(key, group_name=GROUP, skippable=True, description=collect_lane.description(job_id, lane, job_list),
                                   kinds={"bronze"}, automation_condition=start_condition(lane),
                                   metadata={"handover": lane["handover"], "command": lane["command"]})],
                  check_specs=[AssetCheckSpec(READY, asset=key, description=(

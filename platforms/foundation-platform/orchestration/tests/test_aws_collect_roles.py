@@ -98,7 +98,11 @@ class ALaneRoleReachesOnlyItsOwn(unittest.TestCase):
 class EachLaneHasItsOwnScope(unittest.TestCase):
     def test_every_lane_is_a_collector_of_the_job_list(self) -> None:
         jobs = {job["id"]: job for job in json.loads((PLATFORM / "orchestration" / "jobs.v1.json").read_text(encoding="utf-8"))["jobs"]}
-        for name in lanes():
+        for name, lane in lanes().items():
+            if lane["handover"] == "none":
+                # A source with no host copy (the RTMS lane): no job on the host list.
+                self.assertNotIn(name, jobs)
+                continue
             self.assertEqual(jobs[name]["dagster_group"], "collect", name)
 
     def test_a_lane_writes_bronze_and_media_only_and_reads_no_table(self) -> None:
